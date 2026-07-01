@@ -1,4 +1,4 @@
-# Real-Time Customer Support Platform (Help Desk / Intercom Clone)
+# Real-Time Customer Support Platform (Help Desk)
 
 A modern, responsive customer support platform built for local development. It contains a floating **Customer Messenger Widget** embedded inside a mock SaaS website, an **Agent Dashboard** containing dynamic inbox queues, and a real-time **Node.js server** utilizing WebSockets and MongoDB.
 
