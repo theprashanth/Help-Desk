@@ -107,3 +107,4 @@ Real-time messaging is handled by events pushed via Socket.IO:
     *   Go back to the Agent Dashboard and check the **Open Inbox** queue. Your conversation will appear instantly at the top of the list.
     *   Type a reply in the Agent Composer (or test saved replies by typing `/refund` or `/hello`). Note the typing indicators appear on the other screen in real time.
     *   Toggle **Internal Note** in the Agent Composer, type a note, and submit. The note will appear in the dashboard message thread with a yellow background, but will be completely hidden from the Customer Messenger widget.
+
