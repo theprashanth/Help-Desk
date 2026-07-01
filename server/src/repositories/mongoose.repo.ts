@@ -1,0 +1,512 @@
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import { 
+  Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings 
+} from '../../../shared/src/types';
+import { 
+  IUserRepository, ICustomerRepository, IConversationRepository, 
+  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository 
+} from './interfaces';
+import { 
+  UserModel, CustomerModel, ConversationModel, MessageModel, 
+  SavedReplyModel, TagModel, SettingsModel 
+} from '../models/schemas';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+
+// Mappers
+const mapAgent = (doc: any): Agent => ({
+  id: doc._id.toString(),
+  email: doc.email,
+  name: doc.name,
+  avatar: doc.avatar,
+  role: doc.role,
+  status: doc.status,
+  lastSeen: doc.lastSeen?.toISOString(),
+});
+
+const mapCustomer = (doc: any): Customer => ({
+  id: doc.id,
+  name: doc.name,
+  email: doc.email,
+  phone: doc.phone,
+  session: {
+    country: doc.session?.country,
+    browser: doc.session?.browser,
+    os: doc.session?.os,
+    device: doc.session?.device,
+    ip: doc.session?.ip,
+    currentPage: doc.session?.currentPage,
+    sessionDuration: doc.session?.sessionDuration,
+    firstSeen: doc.session?.firstSeen?.toISOString(),
+    lastSeen: doc.session?.lastSeen?.toISOString(),
+    totalConversations: doc.session?.totalConversations,
+  },
+  tags: doc.tags || [],
+  notes: doc.notes || [],
+});
+
+const mapMessage = (doc: any): Message => ({
+  id: doc._id.toString(),
+  conversationId: doc.conversationId,
+  sender: {
+    type: doc.sender.type,
+    id: doc.sender.id,
+    name: doc.sender.name,
+    avatar: doc.sender.avatar,
+  },
+  content: doc.content,
+  attachments: doc.attachments?.map((a: any) => ({
+    name: a.name,
+    url: a.url,
+    type: a.type,
+    size: a.size
+  })) || [],
+  isInternalNote: doc.isInternalNote,
+  seen: doc.seen,
+  seenAt: doc.seenAt?.toISOString(),
+  delivered: doc.delivered,
+  reactions: doc.reactions?.map((r: any) => ({
+    agentId: r.agentId,
+    agentName: r.agentName,
+    emoji: r.emoji
+  })) || [],
+  createdAt: doc.createdAt?.toISOString(),
+});
+
+// Mongoose User Repository
+export class MongooseUserRepository implements IUserRepository {
+  async findById(id: string): Promise<Agent | null> {
+    const doc = await UserModel.findById(id);
+    return doc ? mapAgent(doc) : null;
+  }
+
+  async findByEmail(email: string): Promise<Agent | null> {
+    const doc = await UserModel.findOne({ email });
+    return doc ? mapAgent(doc) : null;
+  }
+
+  async verifyPassword(email: string, passwordPlain: string): Promise<{ agent: Agent; token: string } | null> {
+    const userDoc = await UserModel.findOne({ email });
+    if (!userDoc) return null;
+    const isMatch = await bcrypt.compare(passwordPlain, userDoc.passwordHash);
+    if (!isMatch) return null;
+    
+    const agent = mapAgent(userDoc);
+    const token = jwt.sign(
+      { id: agent.id, email: agent.email, role: agent.role },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+    return { agent, token };
+  }
+
+  async create(agentData: Omit<Agent, 'id'> & { passwordPlain: string }): Promise<Agent> {
+    const passwordHash = await bcrypt.hash(agentData.passwordPlain, 10);
+    const doc = new UserModel({
+      email: agentData.email,
+      passwordHash,
+      name: agentData.name,
+      avatar: agentData.avatar,
+      role: agentData.role,
+      status: agentData.status,
+      lastSeen: agentData.lastSeen ? new Date(agentData.lastSeen) : new Date(),
+    });
+    await doc.save();
+    return mapAgent(doc);
+  }
+
+  async update(id: string, updateData: Partial<Agent>): Promise<Agent | null> {
+    const cleanUpdates: any = { ...updateData };
+    if (updateData.lastSeen) cleanUpdates.lastSeen = new Date(updateData.lastSeen);
+    const doc = await UserModel.findByIdAndUpdate(id, { $set: cleanUpdates }, { new: true });
+    return doc ? mapAgent(doc) : null;
+  }
+
+  async findAll(): Promise<Agent[]> {
+    const docs = await UserModel.find();
+    return docs.map(mapAgent);
+  }
+}
+
+// Mongoose Customer Repository
+export class MongooseCustomerRepository implements ICustomerRepository {
+  async findById(id: string): Promise<Customer | null> {
+    const doc = await CustomerModel.findOne({ id });
+    return doc ? mapCustomer(doc) : null;
+  }
+
+  async findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer> {
+    let doc = await CustomerModel.findOne({ id });
+    if (!doc) {
+      doc = new CustomerModel({
+        id,
+        name: defaultData.name,
+        email: defaultData.email,
+        phone: defaultData.phone,
+        session: {
+          ...defaultData.session,
+          firstSeen: defaultData.session.firstSeen ? new Date(defaultData.session.firstSeen) : new Date(),
+          lastSeen: defaultData.session.lastSeen ? new Date(defaultData.session.lastSeen) : new Date(),
+        },
+        tags: defaultData.tags,
+        notes: defaultData.notes
+      });
+      await doc.save();
+    }
+    return mapCustomer(doc);
+  }
+
+  async create(customer: Customer): Promise<Customer> {
+    const doc = new CustomerModel({
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      session: {
+        ...customer.session,
+        firstSeen: customer.session.firstSeen ? new Date(customer.session.firstSeen) : new Date(),
+        lastSeen: customer.session.lastSeen ? new Date(customer.session.lastSeen) : new Date(),
+      },
+      tags: customer.tags,
+      notes: customer.notes
+    });
+    await doc.save();
+    return mapCustomer(doc);
+  }
+
+  async update(id: string, updateData: Partial<Customer>): Promise<Customer | null> {
+    const cleanUpdates: any = { ...updateData };
+    if (updateData.session) {
+      const current = await CustomerModel.findOne({ id });
+      cleanUpdates.session = {
+        ...(current?.session || {}),
+        ...updateData.session,
+      };
+      if (updateData.session.firstSeen) cleanUpdates.session.firstSeen = new Date(updateData.session.firstSeen);
+      if (updateData.session.lastSeen) cleanUpdates.session.lastSeen = new Date(updateData.session.lastSeen);
+    }
+    const doc = await CustomerModel.findOneAndUpdate({ id }, { $set: cleanUpdates }, { new: true });
+    return doc ? mapCustomer(doc) : null;
+  }
+
+  async findAll(): Promise<Customer[]> {
+    const docs = await CustomerModel.find();
+    return docs.map(mapCustomer);
+  }
+}
+
+// Mongoose Conversation Repository
+export class MongooseConversationRepository implements IConversationRepository {
+  private async buildConversationObject(doc: any): Promise<Conversation> {
+    const customerDoc = await CustomerModel.findOne({ id: doc.customerId });
+    const customer = customerDoc 
+      ? mapCustomer(customerDoc) 
+      : { id: doc.customerId, name: 'Unknown User', session: {}, tags: [], notes: [] };
+
+    return {
+      id: doc._id.toString(),
+      ticketNumber: doc.ticketNumber,
+      customer,
+      assignedAgentId: doc.assignedAgentId,
+      status: doc.status,
+      priority: doc.priority,
+      category: doc.category,
+      lastMessageSnippet: doc.lastMessageSnippet,
+      unreadCountAgent: doc.unreadCountAgent,
+      unreadCountCustomer: doc.unreadCountCustomer,
+      createdAt: doc.createdAt?.toISOString(),
+      updatedAt: doc.updatedAt?.toISOString(),
+    };
+  }
+
+  async findById(id: string): Promise<Conversation | null> {
+    const doc = await ConversationModel.findById(id);
+    return doc ? this.buildConversationObject(doc) : null;
+  }
+
+  async findByTicketNumber(ticketNumber: string): Promise<Conversation | null> {
+    const doc = await ConversationModel.findOne({ ticketNumber });
+    return doc ? this.buildConversationObject(doc) : null;
+  }
+
+  async create(conv: Omit<Conversation, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>): Promise<Conversation> {
+    // Generate Ticket number
+    const count = await ConversationModel.countDocuments();
+    const ticketNumber = `TICKET-${1000 + count + 1}`;
+    
+    const doc = new ConversationModel({
+      ticketNumber,
+      customerId: conv.customer.id,
+      assignedAgentId: conv.assignedAgentId,
+      status: conv.status,
+      priority: conv.priority,
+      category: conv.category,
+      lastMessageSnippet: conv.lastMessageSnippet || '',
+      unreadCountAgent: conv.unreadCountAgent || 0,
+      unreadCountCustomer: conv.unreadCountCustomer || 0,
+    });
+    await doc.save();
+    return this.buildConversationObject(doc);
+  }
+
+  async update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null> {
+    const cleanUpdates: any = { ...updateData };
+    if (updateData.customer) {
+      cleanUpdates.customerId = updateData.customer.id;
+      delete cleanUpdates.customer;
+    }
+    const doc = await ConversationModel.findByIdAndUpdate(id, { $set: cleanUpdates }, { new: true });
+    return doc ? this.buildConversationObject(doc) : null;
+  }
+
+  async findAll(): Promise<Conversation[]> {
+    const docs = await ConversationModel.find().sort({ updatedAt: -1 });
+    const list = [];
+    for (const d of docs) {
+      list.push(await this.buildConversationObject(d));
+    }
+    return list;
+  }
+
+  async findFiltered(filters: {
+    status?: string[];
+    priority?: string[];
+    assignedAgentId?: string | null;
+    category?: string[];
+    search?: string;
+    unread?: boolean;
+    tag?: string;
+  }): Promise<Conversation[]> {
+    const query: any = {};
+    
+    if (filters.status && filters.status.length > 0) {
+      query.status = { $in: filters.status };
+    }
+    if (filters.priority && filters.priority.length > 0) {
+      query.priority = { $in: filters.priority };
+    }
+    if (filters.category && filters.category.length > 0) {
+      query.category = { $in: filters.category };
+    }
+    if (filters.assignedAgentId !== undefined) {
+      if (filters.assignedAgentId === null || filters.assignedAgentId === 'unassigned') {
+        query.assignedAgentId = { $exists: false };
+      } else {
+        query.assignedAgentId = filters.assignedAgentId;
+      }
+    }
+    if (filters.unread) {
+      query.unreadCountAgent = { $gt: 0 };
+    }
+
+    // Filter by customer tags if tag specified
+    if (filters.tag) {
+      const customers = await CustomerModel.find({ tags: filters.tag });
+      const customerIds = customers.map(c => c.id);
+      query.customerId = { $in: customerIds };
+    }
+
+    // Search query
+    if (filters.search) {
+      const searchRegex = new RegExp(filters.search, 'i');
+      
+      // Find matching customers first
+      const customers = await CustomerModel.find({
+        $or: [
+          { name: searchRegex },
+          { email: searchRegex },
+          { phone: searchRegex },
+          { tags: searchRegex }
+        ]
+      });
+      const customerIds = customers.map(c => c.id);
+
+      // We search conversations matching ticketNumber, matching customer IDs, or matching message snippet
+      query.$or = [
+        { ticketNumber: searchRegex },
+        { lastMessageSnippet: searchRegex },
+        { customerId: { $in: customerIds } }
+      ];
+    }
+
+    const docs = await ConversationModel.find(query).sort({ updatedAt: -1 });
+    const list = [];
+    for (const d of docs) {
+      try {
+        list.push(await this.buildConversationObject(d));
+      } catch (err) {
+        // Skip orphaned conversations
+      }
+    }
+    return list;
+  }
+}
+
+// Mongoose Message Repository
+export class MongooseMessageRepository implements IMessageRepository {
+  async findById(id: string): Promise<Message | null> {
+    const doc = await MessageModel.findById(id);
+    return doc ? mapMessage(doc) : null;
+  }
+
+  async findByConversationId(conversationId: string, limit = 50, skip = 0): Promise<Message[]> {
+    const docs = await MessageModel.find({ conversationId })
+      .sort({ createdAt: 1 })
+      .skip(skip)
+      .limit(limit);
+    return docs.map(mapMessage);
+  }
+
+  async create(msg: Omit<Message, 'id' | 'createdAt'>): Promise<Message> {
+    const doc = new MessageModel({
+      conversationId: msg.conversationId,
+      sender: msg.sender,
+      content: msg.content,
+      attachments: msg.attachments,
+      isInternalNote: msg.isInternalNote,
+      seen: msg.seen,
+      delivered: msg.delivered,
+      reactions: msg.reactions,
+    });
+    await doc.save();
+    
+    // Update last message snippet on conversation
+    let snippet = msg.content;
+    if (msg.attachments && msg.attachments.length > 0) {
+      snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
+    }
+    if (msg.isInternalNote) {
+      snippet = `[Note] ${snippet}`;
+    }
+    await ConversationModel.findByIdAndUpdate(msg.conversationId, {
+      $set: { lastMessageSnippet: snippet }
+    });
+
+    return mapMessage(doc);
+  }
+
+  async update(id: string, updateData: Partial<Message>): Promise<Message | null> {
+    const doc = await MessageModel.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+    return doc ? mapMessage(doc) : null;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const res = await MessageModel.findByIdAndDelete(id);
+    return res !== null;
+  }
+
+  async markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void> {
+    const now = new Date();
+    if (role === 'agent') {
+      // Agent is viewing, mark customer messages seen
+      await MessageModel.updateMany(
+        { conversationId, 'sender.type': 'customer', seen: false },
+        { $set: { seen: true, seenAt: now } }
+      );
+      await ConversationModel.findByIdAndUpdate(conversationId, {
+        $set: { unreadCountAgent: 0 }
+      }, { timestamps: false });
+    } else {
+      // Customer is viewing, mark agent messages seen (that are not internal notes)
+      await MessageModel.updateMany(
+        { conversationId, 'sender.type': 'agent', isInternalNote: false, seen: false },
+        { $set: { seen: true, seenAt: now } }
+      );
+      await ConversationModel.findByIdAndUpdate(conversationId, {
+        $set: { unreadCountCustomer: 0 }
+      }, { timestamps: false });
+    }
+  }
+
+  async countMessages(conversationId: string): Promise<number> {
+    return await MessageModel.countDocuments({ conversationId });
+  }
+}
+
+// Mongoose Saved Reply Repository
+export class MongooseSavedReplyRepository implements ISavedReplyRepository {
+  async findAll(): Promise<SavedReply[]> {
+    const docs = await SavedReplyModel.find();
+    return docs.map(d => ({ id: d._id.toString(), trigger: d.trigger, title: d.title, content: d.content }));
+  }
+
+  async findByTrigger(trigger: string): Promise<SavedReply | null> {
+    const doc = await SavedReplyModel.findOne({ trigger });
+    return doc ? { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content } : null;
+  }
+
+  async create(reply: Omit<SavedReply, 'id'>): Promise<SavedReply> {
+    const doc = new SavedReplyModel(reply);
+    await doc.save();
+    return { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content };
+  }
+
+  async update(id: string, reply: Partial<SavedReply>): Promise<SavedReply | null> {
+    const doc = await SavedReplyModel.findByIdAndUpdate(id, { $set: reply }, { new: true });
+    return doc ? { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content } : null;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const res = await SavedReplyModel.findByIdAndDelete(id);
+    return res !== null;
+  }
+}
+
+// Mongoose Tag Repository
+export class MongooseTagRepository implements ITagRepository {
+  async findAll(): Promise<Tag[]> {
+    const docs = await TagModel.find();
+    return docs.map(d => ({ id: d._id.toString(), name: d.name, color: d.color }));
+  }
+
+  async findByName(name: string): Promise<Tag | null> {
+    const doc = await TagModel.findOne({ name });
+    return doc ? { id: doc._id.toString(), name: doc.name, color: doc.color } : null;
+  }
+
+  async create(tag: Omit<Tag, 'id'>): Promise<Tag> {
+    const doc = new TagModel(tag);
+    await doc.save();
+    return { id: doc._id.toString(), name: doc.name, color: doc.color };
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const res = await TagModel.findByIdAndDelete(id);
+    return res !== null;
+  }
+}
+
+// Mongoose Settings Repository
+export class MongooseSettingsRepository implements ISettingsRepository {
+  async findByAgentId(agentId: string): Promise<AgentSettings | null> {
+    const doc = await SettingsModel.findOne({ agentId });
+    if (!doc) return null;
+    return {
+      agentId: doc.agentId,
+      theme: doc.theme,
+      notifications: doc.notifications,
+      timezone: doc.timezone,
+      language: doc.language,
+      autoAssign: doc.autoAssign,
+      businessHours: doc.businessHours,
+    };
+  }
+
+  async save(settings: AgentSettings): Promise<AgentSettings> {
+    const doc = await SettingsModel.findOneAndUpdate(
+      { agentId: settings.agentId },
+      { $set: settings },
+      { upsert: true, new: true }
+    );
+    return {
+      agentId: doc.agentId,
+      theme: doc.theme,
+      notifications: doc.notifications,
+      timezone: doc.timezone,
+      language: doc.language,
+      autoAssign: doc.autoAssign,
+      businessHours: doc.businessHours,
+    };
+  }
+}

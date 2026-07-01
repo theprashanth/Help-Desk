@@ -1,0 +1,14 @@
+{
+  "name": "intercom-clone-root",
+  "version": "1.0.0",
+  "description": "Localhost Customer Support Platform (Intercom Clone)",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client/agent-dashboard --legacy-peer-deps",
+    "dev": "concurrently --kill-others \"npm run dev --prefix server\" \"npm run dev --prefix client/agent-dashboard\"",
+    "build:all": "npm run build --prefix client/agent-dashboard && npm run build --prefix server"
+  },
+  "dependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:latest
+    container_name: help_desk_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - help_desk_net
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: help_desk_express
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+    depends_on:
+      - mongodb
+    networks:
+      - help_desk_net
+
+volumes:
+  mongo_data:
+
+networks:
+  help_desk_net:
+    driver: bridge
