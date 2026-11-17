@@ -1,22 +1,53 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { 
-  Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings 
+  Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings, Workspace 
 } from '../../../shared/src/types';
 import { 
   IUserRepository, ICustomerRepository, IConversationRepository, 
-  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository 
+  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository, IWorkspaceRepository 
 } from './interfaces';
 import { 
   UserModel, CustomerModel, ConversationModel, MessageModel, 
-  SavedReplyModel, TagModel, SettingsModel 
+  SavedReplyModel, TagModel, SettingsModel, WorkspaceModel 
 } from '../models/schemas';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 // Mappers
+const mapWorkspace = (doc: any): Workspace => ({
+  id: doc._id.toString(),
+  name: doc.name,
+  subdomain: doc.subdomain,
+  apiKey: doc.apiKey,
+  createdAt: doc.createdAt?.toISOString(),
+});
+
+export class MongooseWorkspaceRepository implements IWorkspaceRepository {
+  async findById(id: string): Promise<Workspace | null> {
+    const doc = await WorkspaceModel.findById(id);
+    return doc ? mapWorkspace(doc) : null;
+  }
+
+  async findByApiKey(apiKey: string): Promise<Workspace | null> {
+    const doc = await WorkspaceModel.findOne({ apiKey });
+    return doc ? mapWorkspace(doc) : null;
+  }
+
+  async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
+    const doc = new WorkspaceModel({
+      name: workspace.name,
+      subdomain: workspace.subdomain,
+      apiKey: workspace.apiKey
+    });
+    await doc.save();
+    return mapWorkspace(doc);
+  }
+}
+
 const mapAgent = (doc: any): Agent => ({
   id: doc._id.toString(),
+  workspaceId: doc.workspaceId,
   email: doc.email,
   name: doc.name,
   avatar: doc.avatar,
@@ -94,7 +125,7 @@ export class MongooseUserRepository implements IUserRepository {
     
     const agent = mapAgent(userDoc);
     const token = jwt.sign(
-      { id: agent.id, email: agent.email, role: agent.role },
+      { id: agent.id, email: agent.email, role: agent.role, workspaceId: agent.workspaceId },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -215,6 +246,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       lastMessageSnippet: doc.lastMessageSnippet,
       unreadCountAgent: doc.unreadCountAgent,
       unreadCountCustomer: doc.unreadCountCustomer,
+      starred: doc.starred || false,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -245,6 +277,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       lastMessageSnippet: conv.lastMessageSnippet || '',
       unreadCountAgent: conv.unreadCountAgent || 0,
       unreadCountCustomer: conv.unreadCountCustomer || 0,
+      starred: conv.starred || false,
     });
     await doc.save();
     return this.buildConversationObject(doc);
@@ -341,6 +374,11 @@ export class MongooseConversationRepository implements IConversationRepository {
     }
     return list;
   }
+
+  async delete(id: string): Promise<boolean> {
+    const res = await ConversationModel.deleteOne({ _id: id });
+    return res.deletedCount !== undefined && res.deletedCount > 0;
+  }
 }
 
 // Mongoose Message Repository
@@ -428,23 +466,59 @@ export class MongooseMessageRepository implements IMessageRepository {
 export class MongooseSavedReplyRepository implements ISavedReplyRepository {
   async findAll(): Promise<SavedReply[]> {
     const docs = await SavedReplyModel.find();
-    return docs.map(d => ({ id: d._id.toString(), trigger: d.trigger, title: d.title, content: d.content }));
+    return docs.map(d => ({
+      id: d._id.toString(),
+      trigger: d.trigger,
+      title: d.title,
+      content: d.content,
+      availableFor: d.availableFor,
+      availableWhen: d.availableWhen,
+      creator: d.creator,
+      createdAt: (d as any).createdAt?.toISOString()
+    }));
   }
 
   async findByTrigger(trigger: string): Promise<SavedReply | null> {
     const doc = await SavedReplyModel.findOne({ trigger });
-    return doc ? { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content } : null;
+    return doc ? {
+      id: doc._id.toString(),
+      trigger: doc.trigger,
+      title: doc.title,
+      content: doc.content,
+      availableFor: doc.availableFor,
+      availableWhen: doc.availableWhen,
+      creator: doc.creator,
+      createdAt: (doc as any).createdAt?.toISOString()
+    } : null;
   }
 
   async create(reply: Omit<SavedReply, 'id'>): Promise<SavedReply> {
     const doc = new SavedReplyModel(reply);
     await doc.save();
-    return { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content };
+    return {
+      id: doc._id.toString(),
+      trigger: doc.trigger,
+      title: doc.title,
+      content: doc.content,
+      availableFor: doc.availableFor,
+      availableWhen: doc.availableWhen,
+      creator: doc.creator,
+      createdAt: (doc as any).createdAt?.toISOString()
+    };
   }
 
   async update(id: string, reply: Partial<SavedReply>): Promise<SavedReply | null> {
     const doc = await SavedReplyModel.findByIdAndUpdate(id, { $set: reply }, { new: true });
-    return doc ? { id: doc._id.toString(), trigger: doc.trigger, title: doc.title, content: doc.content } : null;
+    return doc ? {
+      id: doc._id.toString(),
+      trigger: doc.trigger,
+      title: doc.title,
+      content: doc.content,
+      availableFor: doc.availableFor,
+      availableWhen: doc.availableWhen,
+      creator: doc.creator,
+      createdAt: (doc as any).createdAt?.toISOString()
+    } : null;
   }
 
   async delete(id: string): Promise<boolean> {

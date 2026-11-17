@@ -3,12 +3,14 @@ import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { 
-  Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings 
+  Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings, Workspace 
 } from '../../../shared/src/types';
 import { 
   IUserRepository, ICustomerRepository, IConversationRepository, 
-  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository 
+  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository, IWorkspaceRepository 
 } from './interfaces';
+
+import { getActiveWorkspaceId } from '../context/tenant.context';
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
@@ -70,7 +72,8 @@ export class JsonUserRepository implements IUserRepository {
 
   async findById(id: string): Promise<Agent | null> {
     const users = await readJson<any[]>(this.file, []);
-    const user = users.find(u => u.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    const user = users.find(u => u.id === id && u.workspaceId === workspaceId);
     if (!user) return null;
     const { passwordHash, ...rest } = user;
     return rest as Agent;
@@ -78,7 +81,8 @@ export class JsonUserRepository implements IUserRepository {
 
   async findByEmail(email: string): Promise<Agent | null> {
     const users = await readJson<any[]>(this.file, []);
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
+    const workspaceId = getActiveWorkspaceId();
+    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.workspaceId === workspaceId);
     if (!user) return null;
     const { passwordHash, ...rest } = user;
     return rest as Agent;
@@ -95,7 +99,7 @@ export class JsonUserRepository implements IUserRepository {
     const agent = rest as Agent;
     
     const token = jwt.sign(
-      { id: agent.id, email: agent.email, role: agent.role },
+      { id: agent.id, email: agent.email, role: agent.role, workspaceId: agent.workspaceId },
       JWT_SECRET,
       { expiresIn: '7d' }
     );
@@ -107,6 +111,7 @@ export class JsonUserRepository implements IUserRepository {
     const passwordHash = await bcrypt.hash(agentData.passwordPlain, 10);
     const newAgent = {
       id: `agent_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      workspaceId: getActiveWorkspaceId(),
       email: agentData.email,
       name: agentData.name,
       avatar: agentData.avatar,
@@ -124,7 +129,8 @@ export class JsonUserRepository implements IUserRepository {
 
   async update(id: string, updateData: Partial<Agent>): Promise<Agent | null> {
     const users = await readJson<any[]>(this.file, []);
-    const idx = users.findIndex(u => u.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    const idx = users.findIndex(u => u.id === id && u.workspaceId === workspaceId);
     if (idx === -1) return null;
     
     users[idx] = { ...users[idx], ...updateData };
@@ -136,10 +142,13 @@ export class JsonUserRepository implements IUserRepository {
 
   async findAll(): Promise<Agent[]> {
     const users = await readJson<any[]>(this.file, []);
-    return users.map(u => {
-      const { passwordHash, ...rest } = u;
-      return rest as Agent;
-    });
+    const workspaceId = getActiveWorkspaceId();
+    return users
+      .filter(u => u.workspaceId === workspaceId)
+      .map(u => {
+        const { passwordHash, ...rest } = u;
+        return rest as Agent;
+      });
   }
 }
 
@@ -149,15 +158,18 @@ export class JsonCustomerRepository implements ICustomerRepository {
 
   async findById(id: string): Promise<Customer | null> {
     const customers = await readJson<Customer[]>(this.file, []);
-    return customers.find(c => c.id === id) || null;
+    const workspaceId = getActiveWorkspaceId();
+    return customers.find(c => c.id === id && c.workspaceId === workspaceId) || null;
   }
 
   async findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer> {
     const customers = await readJson<Customer[]>(this.file, []);
-    let customer = customers.find(c => c.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    let customer = customers.find(c => c.id === id && c.workspaceId === workspaceId);
     if (!customer) {
       customer = {
         id,
+        workspaceId,
         name: defaultData.name,
         email: defaultData.email,
         phone: defaultData.phone,
@@ -177,10 +189,11 @@ export class JsonCustomerRepository implements ICustomerRepository {
 
   async create(customer: Customer): Promise<Customer> {
     const customers = await readJson<Customer[]>(this.file, []);
-    // Ensure uniqueness
-    const filtered = customers.filter(c => c.id !== customer.id);
+    const workspaceId = getActiveWorkspaceId();
+    const filtered = customers.filter(c => !(c.id === customer.id && c.workspaceId === workspaceId));
     const newCustomer = {
       ...customer,
+      workspaceId,
       session: {
         ...customer.session,
         firstSeen: customer.session.firstSeen || new Date().toISOString(),
@@ -194,7 +207,8 @@ export class JsonCustomerRepository implements ICustomerRepository {
 
   async update(id: string, updateData: Partial<Customer>): Promise<Customer | null> {
     const customers = await readJson<Customer[]>(this.file, []);
-    const idx = customers.findIndex(c => c.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    const idx = customers.findIndex(c => c.id === id && c.workspaceId === workspaceId);
     if (idx === -1) return null;
 
     const current = customers[idx];
@@ -211,7 +225,9 @@ export class JsonCustomerRepository implements ICustomerRepository {
   }
 
   async findAll(): Promise<Customer[]> {
-    return await readJson<Customer[]>(this.file, []);
+    const customers = await readJson<Customer[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    return customers.filter(c => c.workspaceId === workspaceId);
   }
 }
 
@@ -234,9 +250,11 @@ export class JsonConversationRepository implements IConversationRepository {
     const ticketNumber = `TICKET-${1000 + rawConversations.length + 1}`;
     const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     const now = new Date().toISOString();
+    const workspaceId = getActiveWorkspaceId();
     
     const newConvRaw = {
       id,
+      workspaceId,
       ticketNumber,
       customerId: conv.customer.id,
       assignedAgentId: conv.assignedAgentId,
@@ -246,6 +264,7 @@ export class JsonConversationRepository implements IConversationRepository {
       lastMessageSnippet: conv.lastMessageSnippet || '',
       unreadCountAgent: conv.unreadCountAgent || 0,
       unreadCountCustomer: conv.unreadCountCustomer || 0,
+      starred: conv.starred || false,
       createdAt: now,
       updatedAt: now
     };
@@ -255,6 +274,7 @@ export class JsonConversationRepository implements IConversationRepository {
     return {
       ...conv,
       id,
+      workspaceId,
       ticketNumber,
       createdAt: now,
       updatedAt: now
@@ -263,7 +283,8 @@ export class JsonConversationRepository implements IConversationRepository {
 
   async update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null> {
     const rawConversations = await readJson<any[]>(this.file, []);
-    const idx = rawConversations.findIndex(c => c.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    const idx = rawConversations.findIndex(c => c.id === id && c.workspaceId === workspaceId);
     if (idx === -1) return null;
 
     const current = rawConversations[idx];
@@ -285,12 +306,15 @@ export class JsonConversationRepository implements IConversationRepository {
 
   async findAll(): Promise<Conversation[]> {
     const rawConvs = await readJson<any[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    const filteredRaw = rawConvs.filter(c => c.workspaceId === workspaceId);
     const customers = await readJson<Customer[]>('customers.json', []);
     
     const list: Conversation[] = [];
-    for (const raw of rawConvs) {
-      const customer = customers.find(c => c.id === raw.customerId) || {
+    for (const raw of filteredRaw) {
+      const customer = customers.find(c => c.id === raw.customerId && c.workspaceId === workspaceId) || {
         id: raw.customerId,
+        workspaceId,
         name: 'Unknown User',
         session: {},
         tags: [],
@@ -299,6 +323,7 @@ export class JsonConversationRepository implements IConversationRepository {
       
       list.push({
         id: raw.id,
+        workspaceId,
         ticketNumber: raw.ticketNumber,
         customer: customer as Customer,
         assignedAgentId: raw.assignedAgentId,
@@ -308,6 +333,7 @@ export class JsonConversationRepository implements IConversationRepository {
         lastMessageSnippet: raw.lastMessageSnippet,
         unreadCountAgent: raw.unreadCountAgent,
         unreadCountCustomer: raw.unreadCountCustomer,
+        starred: raw.starred || false,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -315,6 +341,15 @@ export class JsonConversationRepository implements IConversationRepository {
     
     // Sort descending by updatedAt
     return list.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const rawConversations = await readJson<any[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    const filtered = rawConversations.filter(c => !(c.id === id && c.workspaceId === workspaceId));
+    if (rawConversations.length === filtered.length) return false;
+    await writeJson(this.file, filtered);
+    return true;
   }
 
   async findFiltered(filters: {
@@ -371,12 +406,14 @@ export class JsonMessageRepository implements IMessageRepository {
 
   async findById(id: string): Promise<Message | null> {
     const messages = await readJson<Message[]>(this.file, []);
-    return messages.find(m => m.id === id) || null;
+    const workspaceId = getActiveWorkspaceId();
+    return messages.find(m => m.id === id && m.workspaceId === workspaceId) || null;
   }
 
   async findByConversationId(conversationId: string, limit = 50, skip = 0): Promise<Message[]> {
     const messages = await readJson<Message[]>(this.file, []);
-    const filtered = messages.filter(m => m.conversationId === conversationId);
+    const workspaceId = getActiveWorkspaceId();
+    const filtered = messages.filter(m => m.conversationId === conversationId && m.workspaceId === workspaceId);
     // Sort ascending by creation time
     const sorted = filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return sorted.slice(skip, skip + limit);
@@ -384,8 +421,10 @@ export class JsonMessageRepository implements IMessageRepository {
 
   async create(msg: Omit<Message, 'id' | 'createdAt'>): Promise<Message> {
     const messages = await readJson<Message[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
     const newMsg: Message = {
       ...msg,
+      workspaceId,
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       createdAt: new Date().toISOString()
     };
@@ -402,7 +441,7 @@ export class JsonMessageRepository implements IMessageRepository {
     }
 
     const conversations = await readJson<any[]>('conversations.json', []);
-    const idx = conversations.findIndex(c => c.id === msg.conversationId);
+    const idx = conversations.findIndex(c => c.id === msg.conversationId && c.workspaceId === workspaceId);
     if (idx !== -1) {
       conversations[idx].lastMessageSnippet = snippet;
       conversations[idx].updatedAt = new Date().toISOString();
@@ -414,7 +453,8 @@ export class JsonMessageRepository implements IMessageRepository {
 
   async update(id: string, updateData: Partial<Message>): Promise<Message | null> {
     const messages = await readJson<Message[]>(this.file, []);
-    const idx = messages.findIndex(m => m.id === id);
+    const workspaceId = getActiveWorkspaceId();
+    const idx = messages.findIndex(m => m.id === id && m.workspaceId === workspaceId);
     if (idx === -1) return null;
 
     messages[idx] = { ...messages[idx], ...updateData };
@@ -424,7 +464,8 @@ export class JsonMessageRepository implements IMessageRepository {
 
   async delete(id: string): Promise<boolean> {
     const messages = await readJson<Message[]>(this.file, []);
-    const filtered = messages.filter(m => m.id !== id);
+    const workspaceId = getActiveWorkspaceId();
+    const filtered = messages.filter(m => !(m.id === id && m.workspaceId === workspaceId));
     if (messages.length === filtered.length) return false;
     await writeJson(this.file, filtered);
     return true;
@@ -433,10 +474,11 @@ export class JsonMessageRepository implements IMessageRepository {
   async markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void> {
     const messages = await readJson<Message[]>(this.file, []);
     const now = new Date().toISOString();
+    const workspaceId = getActiveWorkspaceId();
     
     let updated = false;
     for (const m of messages) {
-      if (m.conversationId === conversationId) {
+      if (m.conversationId === conversationId && m.workspaceId === workspaceId) {
         if (role === 'agent' && m.sender.type === 'customer' && !m.seen) {
           m.seen = true;
           m.seenAt = now;
@@ -455,7 +497,7 @@ export class JsonMessageRepository implements IMessageRepository {
 
     // Reset unread count
     const conversations = await readJson<any[]>('conversations.json', []);
-    const idx = conversations.findIndex(c => c.id === conversationId);
+    const idx = conversations.findIndex(c => c.id === conversationId && c.workspaceId === workspaceId);
     if (idx !== -1) {
       if (role === 'agent') {
         conversations[idx].unreadCountAgent = 0;
@@ -468,7 +510,8 @@ export class JsonMessageRepository implements IMessageRepository {
 
   async countMessages(conversationId: string): Promise<number> {
     const messages = await readJson<Message[]>(this.file, []);
-    return messages.filter(m => m.conversationId === conversationId).length;
+    const workspaceId = getActiveWorkspaceId();
+    return messages.filter(m => m.conversationId === conversationId && m.workspaceId === workspaceId).length;
   }
 }
 
@@ -477,7 +520,9 @@ export class JsonSavedReplyRepository implements ISavedReplyRepository {
   private file = 'saved_replies.json';
 
   async findAll(): Promise<SavedReply[]> {
-    return await readJson<SavedReply[]>(this.file, []);
+    const list = await readJson<SavedReply[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    return list.filter(r => r.workspaceId === workspaceId);
   }
 
   async findByTrigger(trigger: string): Promise<SavedReply | null> {
@@ -486,12 +531,16 @@ export class JsonSavedReplyRepository implements ISavedReplyRepository {
   }
 
   async create(reply: Omit<SavedReply, 'id'>): Promise<SavedReply> {
-    const replies = await this.findAll();
+    const replies = await readJson<SavedReply[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
     const newReply: SavedReply = {
-      id: `reply_${Date.now()}`,
+      id: `reply_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      workspaceId,
       trigger: reply.trigger,
       title: reply.title,
-      content: reply.content
+      content: reply.content,
+      availableFor: reply.availableFor || 'everyone',
+      availableWhen: reply.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
     };
     replies.push(newReply);
     await writeJson(this.file, replies);
@@ -522,7 +571,9 @@ export class JsonTagRepository implements ITagRepository {
   private file = 'tags.json';
 
   async findAll(): Promise<Tag[]> {
-    return await readJson<Tag[]>(this.file, []);
+    const list = await readJson<Tag[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    return list.filter(t => t.workspaceId === workspaceId);
   }
 
   async findByName(name: string): Promise<Tag | null> {
@@ -531,9 +582,11 @@ export class JsonTagRepository implements ITagRepository {
   }
 
   async create(tag: Omit<Tag, 'id'>): Promise<Tag> {
-    const tags = await this.findAll();
+    const tags = await readJson<Tag[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
     const newTag: Tag = {
       id: `tag_${Date.now()}`,
+      workspaceId,
       name: tag.name,
       color: tag.color
     };
@@ -557,18 +610,50 @@ export class JsonSettingsRepository implements ISettingsRepository {
 
   async findByAgentId(agentId: string): Promise<AgentSettings | null> {
     const list = await readJson<AgentSettings[]>(this.file, []);
-    return list.find(s => s.agentId === agentId) || null;
+    const workspaceId = getActiveWorkspaceId();
+    return list.find(s => s.agentId === agentId && s.workspaceId === workspaceId) || null;
   }
 
   async save(settings: AgentSettings): Promise<AgentSettings> {
     const list = await readJson<AgentSettings[]>(this.file, []);
-    const idx = list.findIndex(s => s.agentId === settings.agentId);
+    const workspaceId = getActiveWorkspaceId();
+    const idx = list.findIndex(s => s.agentId === settings.agentId && s.workspaceId === workspaceId);
+    const scopedSettings = { ...settings, workspaceId };
     if (idx === -1) {
-      list.push(settings);
+      list.push(scopedSettings);
     } else {
-      list[idx] = settings;
+      list[idx] = scopedSettings;
     }
     await writeJson(this.file, list);
-    return settings;
+    return scopedSettings;
+  }
+}
+
+// JSON Workspace Repository
+export class JsonWorkspaceRepository implements IWorkspaceRepository {
+  private file = 'workspaces.json';
+
+  async findById(id: string): Promise<Workspace | null> {
+    const list = await readJson<Workspace[]>(this.file, []);
+    return list.find(w => w.id === id) || null;
+  }
+
+  async findByApiKey(apiKey: string): Promise<Workspace | null> {
+    const list = await readJson<Workspace[]>(this.file, []);
+    return list.find(w => w.apiKey === apiKey) || null;
+  }
+
+  async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
+    const list = await readJson<Workspace[]>(this.file, []);
+    const id = `work_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const now = new Date().toISOString();
+    const newWorkspace: Workspace = {
+      ...workspace,
+      id,
+      createdAt: now
+    };
+    list.push(newWorkspace);
+    await writeJson(this.file, list);
+    return newWorkspace;
   }
 }

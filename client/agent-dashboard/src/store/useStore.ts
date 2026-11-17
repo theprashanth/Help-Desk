@@ -16,10 +16,15 @@ interface AppState {
   // Conversations
   conversations: Conversation[];
   activeConversationId: string | null;
+  viewingMergedConversationId: string | null;
+  currentQueue: string;
   setConversations: (conversations: Conversation[]) => void;
   addConversation: (conversation: Conversation) => void;
   updateConversation: (conversation: Conversation) => void;
+  removeConversation: (id: string) => void;
   setActiveConversationId: (id: string | null) => void;
+  setViewingMergedConversationId: (id: string | null) => void;
+  setCurrentQueue: (queue: string) => void;
 
   // Messages
   messages: Record<string, Message[]>; // conversationId -> messages
@@ -43,6 +48,10 @@ interface AppState {
     darkTheme: boolean;
   };
   setWidgetSettings: (settings: Partial<AppState['widgetSettings']>) => void;
+
+  // Chat Bubble Color Theme
+  chatColorTheme: 'sky-blue' | 'classic';
+  setChatColorTheme: (theme: 'sky-blue' | 'classic') => void;
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -74,6 +83,8 @@ export const useStore = create<AppState>((set) => ({
   // Conversations
   conversations: [],
   activeConversationId: null,
+  viewingMergedConversationId: null,
+  currentQueue: 'open',
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
@@ -83,19 +94,50 @@ export const useStore = create<AppState>((set) => ({
     }),
   updateConversation: (conversation) =>
     set((state) => {
-      const index = state.conversations.findIndex((c) => c.id === conversation.id);
-      if (index === -1) {
-        return { conversations: [conversation, ...state.conversations] };
+      const queueStatuses: Record<string, string[]> = {
+        open: ['open'],
+        assigned: ['open', 'waiting'],
+        waiting: ['waiting'],
+        resolved: ['resolved'],
+        closed: ['closed'],
+        archived: ['archived']
+      };
+
+      const allowedStatuses = queueStatuses[state.currentQueue] || ['open'];
+      let matchesQueue = allowedStatuses.includes(conversation.status);
+      
+      if (state.currentQueue === 'assigned' && conversation.assignedAgentId !== state.agent?.id) {
+        matchesQueue = false;
       }
+
+      const index = state.conversations.findIndex((c) => c.id === conversation.id);
+
+      if (index === -1) {
+        if (matchesQueue) {
+          return { conversations: [conversation, ...state.conversations] };
+        }
+        return state;
+      }
+
+      if (!matchesQueue) {
+        return {
+          conversations: state.conversations.filter((c) => c.id !== conversation.id)
+        };
+      }
+
       const updated = [...state.conversations];
-      // Keep existing customer details if they are richer, or update
       updated[index] = { ...updated[index], ...conversation };
       
-      // Resort by updatedAt
       const sorted = updated.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       return { conversations: sorted };
     }),
-  setActiveConversationId: (id) => set({ activeConversationId: id }),
+  removeConversation: (id: string) =>
+    set((state) => ({
+      conversations: state.conversations.filter((c) => c.id !== id)
+    })),
+  setActiveConversationId: (id) => set({ activeConversationId: id, viewingMergedConversationId: null }), // Clear merged view when changing active chat
+  setViewingMergedConversationId: (id) => set({ viewingMergedConversationId: id }),
+  setCurrentQueue: (queue) => set({ currentQueue: queue }),
 
   // Messages
   messages: {},
@@ -164,5 +206,12 @@ export const useStore = create<AppState>((set) => ({
     const next = { ...state.widgetSettings, ...updates };
     localStorage.setItem('widget_settings', JSON.stringify(next));
     return { widgetSettings: next };
-  })
+  }),
+
+  // Chat Bubble Color Theme
+  chatColorTheme: (localStorage.getItem('chat_color_theme') as any) || 'sky-blue',
+  setChatColorTheme: (theme) => {
+    localStorage.setItem('chat_color_theme', theme);
+    set({ chatColorTheme: theme });
+  }
 }));

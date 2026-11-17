@@ -2,12 +2,12 @@ import { Router } from 'express';
 import { authenticateJWT } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { 
-  login, getProfile, getSettings, updateSettings, getAgents 
+  login, getProfile, getSettings, updateSettings, getAgents, updateProfile
 } from '../controllers/auth';
 import { 
   getTickets, getTicket, createTicket, updateTicket, assignTicket, 
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
-  deleteSavedReply, getTags, createTag, deleteTag 
+  deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets
 } from '../controllers/tickets';
 import { 
   getMessages, createMessage, addReaction, deleteMessage, uploadFiles, markSeen 
@@ -15,11 +15,22 @@ import {
 import { getAnalytics } from '../controllers/analytics';
 import { resetDatabase, seedData, simulateActivity } from '../controllers/simulation';
 
+import { resolveTenant } from '../middleware/tenant.middleware';
+
 const router = Router();
+
+// Apply tenant context resolution to all API paths
+router.use(resolveTenant);
+
+// --- Root API status ---
+router.get('/', (req, res) => {
+  res.json({ status: 'healthy', message: 'Help Desk API root' });
+});
 
 // --- Auth Routes ---
 router.post('/auth/login', login);
 router.get('/auth/profile', authenticateJWT, getProfile);
+router.put('/auth/profile', authenticateJWT, updateProfile);
 router.get('/auth/settings', authenticateJWT, getSettings);
 router.put('/auth/settings', authenticateJWT, updateSettings);
 router.get('/auth/agents', authenticateJWT, getAgents);
@@ -31,6 +42,8 @@ router.post('/tickets', createTicket); // Guest can create conversations
 router.put('/tickets/:id', authenticateJWT, updateTicket);
 router.put('/tickets/:id/assign', authenticateJWT, assignTicket);
 router.put('/customers/:customerId', authenticateJWT, updateCustomerProfile);
+router.get('/customers/:customerId/tickets', authenticateJWT, getCustomerTickets);
+router.post('/tickets/:id/merge', authenticateJWT, mergeTickets);
 
 // --- Saved Replies Routes ---
 router.get('/saved-replies', authenticateJWT, getSavedReplies);
@@ -49,6 +62,7 @@ router.post('/messages', createMessage); // Guest & Agent can post messages
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
 router.delete('/messages/:messageId', authenticateJWT, deleteMessage);
 router.post('/messages/upload', upload.single('file'), uploadFiles); // File attachments
+router.post('/attachments/upload', upload.single('file'), uploadFiles); // Alias for widget file attachments
 router.put('/messages/seen/:conversationId', markSeen); // Mark conversation as read
 
 // --- Analytics Route ---

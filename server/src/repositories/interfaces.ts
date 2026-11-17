@@ -1,4 +1,10 @@
-import { Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings } from '../../../shared/src/types';
+import { Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings, Workspace } from '../../../shared/src/types';
+
+export interface IWorkspaceRepository {
+  findById(id: string): Promise<Workspace | null>;
+  findByApiKey(apiKey: string): Promise<Workspace | null>;
+  create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace>;
+}
 
 export interface IUserRepository {
   findById(id: string): Promise<Agent | null>;
@@ -32,6 +38,7 @@ export interface IConversationRepository {
     unread?: boolean;
     tag?: string;
   }): Promise<Conversation[]>;
+  delete(id: string): Promise<boolean>;
 }
 
 export interface IMessageRepository {

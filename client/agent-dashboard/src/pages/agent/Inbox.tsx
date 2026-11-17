@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import InboxList from '../../components/agent/InboxList';
 import ChatWindow from '../../components/agent/ChatWindow';
 import CustomerProfilePanel from '../../components/agent/CustomerProfilePanel';
+import { MergedConversationPanel } from '../../components/agent/MergedConversationPanel';
 import Analytics from './Analytics';
 import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
@@ -20,6 +21,7 @@ export const Inbox: React.FC = () => {
   const agent = useStore((state) => state.agent);
   const logout = useStore((state) => state.logout);
   const activeConversationId = useStore((state) => state.activeConversationId);
+  const viewingMergedConversationId = useStore((state) => state.viewingMergedConversationId);
   const navigate = useNavigate();
 
   // Redirect if unauthenticated
@@ -76,30 +78,33 @@ export const Inbox: React.FC = () => {
   if (!agent) return null;
 
   return (
-    <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 flex overflow-hidden">
+    <div className="h-screen w-screen bg-[#fafafa] dark:bg-[#030712] flex overflow-hidden">
       {/* Sidebar navigation */}
-      <div className="w-64 h-full bg-slate-900 text-slate-400 flex flex-col shrink-0">
+      <div className="w-64 h-full bg-[#0d0e12] border-r border-[#1f212a] text-slate-400 flex flex-col shrink-0">
         {/* Sidebar Header Logo */}
-        <div className="p-6 flex items-center gap-2 border-b border-slate-800">
-          <div className="p-1.5 bg-brand-500 rounded-lg text-white">
+        <div className="p-6 flex items-center gap-3 border-b border-[#1f212a]/60">
+          <div className="p-2 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30">
             <Globe className="w-5 h-5 animate-pulse" />
           </div>
-          <span className="font-bold text-slate-100 tracking-wide text-sm">Help Desk Support</span>
+          <div className="flex flex-col">
+            <span className="font-bold text-slate-100 tracking-wide text-sm">Pebble Help</span>
+            <span className="text-[9px] text-violet-400 font-bold uppercase tracking-widest mt-0.5">Workspace</span>
+          </div>
         </div>
 
         {/* Sidebar Middle items */}
-        <div className="flex-1 overflow-y-auto py-6 px-4 flex flex-col gap-5">
+        <div className="flex-1 overflow-y-auto py-6 px-4 flex flex-col gap-6">
           {/* Inbox section */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-3">Queues</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 px-3">Queues</span>
             {sidebarItems.map(item => (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all duration-200 active:scale-95 ${
                   activeTab === item.id 
-                    ? 'bg-brand-500 text-white shadow-md shadow-brand-500/10' 
-                    : 'hover:bg-slate-800/60 hover:text-slate-200'
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/25' 
+                    : 'hover:bg-slate-800/40 hover:text-slate-200 hover:scale-[1.01]'
                 }`}
               >
                 {item.icon}
@@ -109,16 +114,16 @@ export const Inbox: React.FC = () => {
           </div>
 
           {/* Administration settings */}
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-3">Platform</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 px-3">Platform</span>
             {mainTabs.map(item => (
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2 text-xs font-semibold rounded-lg transition-all ${
+                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all duration-200 active:scale-95 ${
                   activeTab === item.id 
-                    ? 'bg-brand-500 text-white shadow-md shadow-brand-500/10' 
-                    : 'hover:bg-slate-800/60 hover:text-slate-200'
+                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/25' 
+                    : 'hover:bg-slate-800/40 hover:text-slate-200 hover:scale-[1.01]'
                 }`}
               >
                 {item.icon}
@@ -129,16 +134,16 @@ export const Inbox: React.FC = () => {
         </div>
 
         {/* Sidebar bottom */}
-        <div className="p-4 border-t border-slate-800 flex flex-col gap-3">
+        <div className="p-4 border-t border-[#1f212a]/60 flex flex-col gap-3">
           {/* Profile bar */}
-          <div className="flex items-center gap-3 bg-slate-800/40 p-2.5 rounded-xl border border-slate-800/80">
+          <div className="flex items-center gap-3 bg-[#161822] p-3 rounded-2xl border border-[#222533] shadow-inner">
             <img 
               src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'} 
               className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0" 
               alt="Avatar" 
             />
             <div className="flex flex-col truncate">
-              <span className="text-slate-200 text-xs font-bold truncate leading-tight">{agent.name}</span>
+              <span className="text-slate-100 text-xs font-bold truncate leading-tight">{agent.name}</span>
               <span className="text-[10px] text-slate-500 truncate capitalize font-medium">{agent.role.replace('_', ' ')}</span>
             </div>
           </div>
@@ -147,25 +152,25 @@ export const Inbox: React.FC = () => {
           <div className="flex justify-between items-center text-xs px-1">
             <button
               onClick={toggleDarkMode}
-              className="p-2 rounded-lg hover:bg-slate-800 hover:text-slate-200 transition-colors"
+              className="p-2 rounded-xl hover:bg-slate-800/50 hover:text-slate-250 transition-colors"
               title="Toggle Dark Mode"
             >
-              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {darkMode ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5" />}
             </button>
 
             <button
               onClick={handleLogout}
-              className="p-2 rounded-lg hover:bg-slate-800 hover:text-red-400 transition-colors flex items-center gap-1 font-semibold"
+              className="p-2 rounded-xl hover:bg-red-950/20 hover:text-red-400 transition-colors flex items-center gap-1 font-semibold"
               title="Sign Out"
             >
-              <LogOut className="w-4 h-4 text-red-500" /> Sign Out
+              <LogOut className="w-4.5 h-4.5 text-red-500" /> Sign Out
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Workspace content area */}
-      <div className="flex-1 h-full flex overflow-hidden">
+      <div className="flex-1 h-full flex overflow-hidden bg-slate-50 dark:bg-[#030712] animate-fade-in">
         {isChatTab ? (
           /* Render chat inbox screens */
           <>
@@ -175,8 +180,14 @@ export const Inbox: React.FC = () => {
             {/* Chat column */}
             <ChatWindow />
 
-            {/* Customer metadata Inspector panel */}
-            {activeConversationId && <CustomerProfilePanel />}
+            {/* Customer metadata Inspector panel or Merged Conversation preview */}
+            {activeConversationId && (
+              viewingMergedConversationId ? (
+                <MergedConversationPanel />
+              ) : (
+                <CustomerProfilePanel />
+              )
+            )}
           </>
         ) : activeTab === 'analytics' ? (
           <Analytics />

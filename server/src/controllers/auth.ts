@@ -116,3 +116,25 @@ export async function getAgents(req: AuthenticatedRequest, res: Response) {
     return res.status(500).json({ error: err.message });
   }
 }
+
+export async function updateProfile(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthenticated' });
+  }
+
+  const { name } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+
+  try {
+    const userRepo = RepositoryFactory.getUserRepository();
+    const updated = await userRepo.update(req.user.id, { name: name.trim() });
+    if (!updated) {
+      return res.status(404).json({ error: 'Agent not found' });
+    }
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}

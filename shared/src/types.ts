@@ -1,10 +1,19 @@
-export type TicketStatus = 'open' | 'waiting' | 'resolved' | 'closed' | 'archived';
+export type TicketStatus = 'open' | 'waiting' | 'resolved' | 'closed' | 'archived' | 'merged';
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TicketCategory = 'general' | 'bug' | 'payment' | 'subscription' | 'refund' | 'feature_request' | 'other';
 export type UserRole = 'admin' | 'support_agent';
 
+export interface Workspace {
+  id: string;
+  name: string;
+  subdomain?: string;
+  apiKey: string;
+  createdAt: string;
+}
+
 export interface Agent {
   id: string;
+  workspaceId?: string;
   email: string;
   name: string;
   avatar?: string;
@@ -28,6 +37,7 @@ export interface CustomerSession {
 
 export interface Customer {
   id: string;
+  workspaceId?: string;
   name: string;
   email?: string;
   phone?: string;
@@ -51,6 +61,7 @@ export interface Attachment {
 
 export interface Message {
   id: string;
+  workspaceId?: string;
   conversationId: string;
   sender: {
     type: 'customer' | 'agent';
@@ -66,10 +77,12 @@ export interface Message {
   delivered: boolean;
   reactions?: MessageReaction[];
   createdAt: string;
+  metadata?: any;
 }
 
 export interface Conversation {
   id: string;
+  workspaceId?: string;
   ticketNumber: string; // TICKET-XXXX
   customer: Customer;
   assignedAgentId?: string;
@@ -79,19 +92,30 @@ export interface Conversation {
   lastMessageSnippet?: string;
   unreadCountAgent: number;
   unreadCountCustomer: number;
+  starred?: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SavedReply {
   id: string;
+  workspaceId?: string;
   trigger: string; // e.g. /refund
   title: string;
   content: string; // markdown text
+  availableFor?: 'everyone' | 'myself' | 'teams';
+  availableWhen?: ('starting_conversations' | 'replying' | 'adding_notes')[];
+  creator?: {
+    id: string;
+    name: string;
+    avatar?: string;
+  };
+  createdAt?: string;
 }
 
 export interface Tag {
   id: string;
+  workspaceId?: string;
   name: string;
   color: string; // hex or CSS color
 }
@@ -106,6 +130,7 @@ export interface BusinessHours {
 
 export interface AgentSettings {
   agentId: string;
+  workspaceId?: string;
   theme: 'light' | 'dark';
   notifications: {
     desktop: boolean;
@@ -127,6 +152,7 @@ export interface ServerToClientEvents {
   'message:typing': (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => void;
   'conversation:new': (conversation: Conversation) => void;
   'conversation:update': (conversation: Conversation) => void;
+  'conversation:deleted': (conversationId: string) => void;
   'conversation:assigned': (payload: { conversationId: string; agentId?: string; agentName?: string }) => void;
   'conversation:closed': (payload: { conversationId: string; closedBy: string }) => void;
   'agent:online': (payload: { agentId: string; name: string }) => void;

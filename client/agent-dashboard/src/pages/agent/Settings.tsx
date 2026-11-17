@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
-import { AgentSettings } from '../../../../../shared/src/types';
+import { AgentSettings, SavedReply } from '../../../../../shared/src/types';
 import Button from '../../components/ui/Button';
 import {
   Settings as SettingsIcon, Bell, Calendar, User, ShieldAlert, Check,
   MessageSquare, Puzzle, Globe, Smartphone, ChevronRight, Copy,
   Moon, Sun, Palette, Home, Shield, Languages, CreditCard, Activity,
-  Mail, Phone, Slack, Twitter, Github, CheckCircle2, AlertCircle, ArrowLeft
+  Mail, Phone, Slack, Twitter, Github, CheckCircle2, AlertCircle, ArrowLeft,
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown
 } from 'lucide-react';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'workspace' | 'messenger' | 'integrations' | 'profile';
+type Section = 'home' | 'workspace' | 'messenger' | 'integrations' | 'profile' | 'macros';
 type MessengerTab = 'widget' | 'appearance' | 'install' | 'security';
 
 const PRESET_COLORS = [
@@ -148,21 +149,47 @@ function WidgetPreview({ themeColor, brandName, greeting, welcome, darkTheme }: 
 export const Settings: React.FC = () => {
   const token = useStore((state) => state.token);
   const agent = useStore((state) => state.agent);
+  const setAgent = useStore((state) => (state as any).setAgent);
   const widgetSettings = useStore((state) => state.widgetSettings);
   const setWidgetSettings = useStore((state) => state.setWidgetSettings);
+  const chatColorTheme = useStore((state) => (state as any).chatColorTheme);
+  const setChatColorTheme = useStore((state) => (state as any).setChatColorTheme);
 
   const [section, setSection] = useState<Section>('home');
   const [messengerTab, setMessengerTab] = useState<MessengerTab>('widget');
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null);
+  const [agentName, setAgentName] = useState(agent?.name || '');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [installPlatform, setInstallPlatform] = useState('code');
   const [previewMode, setPreviewMode] = useState<'light' | 'dark'>('light');
 
+  // ── Macros (Saved Replies) state ─────────────────────────────────────────
+  const [macros, setMacros] = useState<SavedReply[]>([]);
+  const [macrosLoading, setMacrosLoading] = useState(false);
+  const [macroSearch, setMacroSearch] = useState('');
+  const [selectedMacro, setSelectedMacro] = useState<SavedReply | null>(null);
+  const [macroForm, setMacroForm] = useState<{
+    trigger: string;
+    title: string;
+    content: string;
+    availableFor: 'everyone' | 'myself' | 'teams';
+    availableWhen: ('starting_conversations' | 'replying' | 'adding_notes')[];
+  }>({
+    trigger: '',
+    title: '',
+    content: '',
+    availableFor: 'everyone',
+    availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+  });
+  const [macroEditing, setMacroEditing] = useState(false);
+  const [macroSaving, setMacroSaving] = useState(false);
+
   // Local copy for live editing (committed to store on change)
   const [localWidget, setLocalWidget] = useState(widgetSettings);
 
+  // Fetch agent settings
   useEffect(() => {
     if (!token) return;
     fetch(`${BACKEND_URL}/api/auth/settings`, {
@@ -172,6 +199,85 @@ export const Settings: React.FC = () => {
       .then(data => setAgentSettings(data))
       .catch(err => console.error('Failed to load settings:', err));
   }, [token]);
+
+  // ── Macros CRUD ───────────────────────────────────────────────────────────
+  const fetchMacros = useCallback(async () => {
+    if (!token) return;
+    setMacrosLoading(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/saved-replies`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) setMacros(await res.json());
+    } finally {
+      setMacrosLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (section === 'macros') fetchMacros();
+  }, [section, fetchMacros]);
+
+  const handleCreateMacro = async () => {
+    if (!token || !macroForm.trigger || !macroForm.content) return;
+    setMacroSaving(true);
+    try {
+      const trigger = macroForm.trigger.startsWith('/') ? macroForm.trigger : '/' + macroForm.trigger;
+      const res = await fetch(`${BACKEND_URL}/api/saved-replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...macroForm, trigger })
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setMacros(prev => [...prev, created]);
+        setSelectedMacro(created);
+        setMacroForm({
+          trigger: '',
+          title: '',
+          content: '',
+          availableFor: 'everyone',
+          availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+        });
+        setMacroEditing(false);
+      }
+    } finally {
+      setMacroSaving(false);
+    }
+  };
+
+  const handleUpdateMacro = async () => {
+    if (!token || !selectedMacro) return;
+    setMacroSaving(true);
+    try {
+      const trigger = macroForm.trigger.startsWith('/') ? macroForm.trigger : '/' + macroForm.trigger;
+      const res = await fetch(`${BACKEND_URL}/api/saved-replies/${selectedMacro.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ...macroForm, trigger })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setMacros(prev => prev.map(m => m.id === updated.id ? updated : m));
+        setSelectedMacro(updated);
+        setMacroEditing(false);
+      }
+    } finally {
+      setMacroSaving(false);
+    }
+  };
+
+  const handleDeleteMacro = async (id: string) => {
+    if (!token) return;
+    const res = await fetch(`${BACKEND_URL}/api/saved-replies/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (res.ok) {
+      setMacros(prev => prev.filter(m => m.id !== id));
+      if (selectedMacro?.id === id) setSelectedMacro(null);
+    }
+  };
 
   useEffect(() => {
     setLocalWidget(widgetSettings);
@@ -189,11 +295,27 @@ export const Settings: React.FC = () => {
     setLoading(true);
     setSaved(false);
     try {
+      // Save agent settings (theme, notifications, etc)
       const res = await fetch(`${BACKEND_URL}/api/auth/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(agentSettings)
       });
+
+      // Save agent name if changed
+      if (agentName.trim() && agentName.trim() !== agent?.name) {
+        const profileRes = await fetch(`${BACKEND_URL}/api/auth/profile`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ name: agentName.trim() })
+        });
+        if (profileRes.ok) {
+          const updated = await profileRes.json();
+          // Update store so header/sidebar reflects new name immediately
+          if (setAgent) setAgent(updated);
+        }
+      }
+
       if (res.ok) {
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
@@ -527,6 +649,53 @@ function App() {
               </div>
             </SectionCard>
 
+            {/* Chat Bubble Colors */}
+            <SectionCard>
+              <SectionHeader>
+                <span className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-brand-500" /> Chat Bubble Colors
+                </span>
+              </SectionHeader>
+              <div className="p-6 flex flex-col gap-4 text-xs">
+                <p className="text-slate-500 dark:text-slate-400 mb-2">Select the background styling for chat message bubbles in conversations.</p>
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setChatColorTheme('sky-blue')}
+                    className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
+                      chatColorTheme === 'sky-blue'
+                        ? 'border-brand-500 bg-brand-50/20 dark:bg-brand-950/10'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Sky Blue (3rd Image Style)</span>
+                    <span className="text-[11px] text-slate-500 block mb-3">Vibrant blue sender bubbles, soft grey recipient bubbles.</span>
+                    <div className="flex flex-col gap-1.5 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <div className="bg-slate-200 dark:bg-slate-700 w-2/3 p-1 rounded text-[9px] text-slate-600 dark:text-slate-300">Recipient bubble</div>
+                      <div className="bg-[#0284c7] w-2/3 p-1 rounded text-[9px] text-white self-end text-right">Sender bubble</div>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setChatColorTheme('classic')}
+                    className={`flex-1 p-4 rounded-xl border-2 text-left transition-all ${
+                      chatColorTheme === 'classic'
+                        ? 'border-brand-500 bg-brand-50/20 dark:bg-brand-950/10'
+                        : 'border-slate-200 dark:border-slate-800 hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-bold text-slate-800 dark:text-slate-200 block mb-1">Classic Violet</span>
+                    <span className="text-[11px] text-slate-500 block mb-3">Rich purple-indigo sender bubbles, bordered white recipient bubbles.</span>
+                    <div className="flex flex-col gap-1.5 p-2 bg-slate-50 dark:bg-slate-900 rounded-lg">
+                      <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-2/3 p-1 rounded text-[9px] text-slate-600 dark:text-slate-300">Recipient bubble</div>
+                      <div className="bg-gradient-to-tr from-violet-600 to-indigo-600 w-2/3 p-1 rounded text-[9px] text-white self-end text-right">Sender bubble</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
+
             {/* Messenger Preview Mode */}
             <SectionCard>
               <SectionHeader>
@@ -738,12 +907,18 @@ function App() {
             </SectionHeader>
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               <div>
-                <span className="text-slate-400 font-bold block mb-1">Full Name</span>
-                <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-sm bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-lg border block">{agent?.name}</span>
+                <label className="text-slate-400 font-bold block mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={agentName}
+                  onChange={e => setAgentName(e.target.value)}
+                  className="w-full text-sm font-semibold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2.5 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 transition-all"
+                  placeholder="Your display name"
+                />
               </div>
               <div>
-                <span className="text-slate-400 font-bold block mb-1">Email Address</span>
-                <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-sm bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-lg border block">{agent?.email}</span>
+                <label className="text-slate-400 font-bold block mb-1">Email Address</label>
+                <span className="text-slate-800 dark:text-slate-200 font-semibold font-mono text-sm bg-slate-50 dark:bg-slate-950/40 p-2.5 rounded-lg border block truncate" title={agent?.email}>{agent?.email}</span>
               </div>
             </div>
           </SectionCard>
@@ -852,6 +1027,395 @@ function App() {
     </form>
   );
 
+  // ── Macros Section ────────────────────────────────────────────────────────
+  const MacrosSection = () => {
+    const [showForDropdown, setShowForDropdown] = useState(false);
+    const [showWhenDropdown, setShowWhenDropdown] = useState(false);
+
+    const AVAILABLE_FOR_LABELS: Record<'everyone' | 'myself' | 'teams', string> = {
+      everyone: 'Everyone',
+      myself: 'Myself only',
+      teams: 'Specific team(s)'
+    };
+
+    const AVAILABLE_WHEN_LABELS: Record<'starting_conversations' | 'replying' | 'adding_notes', string> = {
+      starting_conversations: 'Starting conversations',
+      replying: 'Replying',
+      adding_notes: 'Adding notes'
+    };
+
+    const filtered = macros.filter(m =>
+      m.title.toLowerCase().includes(macroSearch.toLowerCase()) ||
+      m.trigger.toLowerCase().includes(macroSearch.toLowerCase()) ||
+      m.content.toLowerCase().includes(macroSearch.toLowerCase())
+    );
+
+    const startCreate = () => {
+      setSelectedMacro(null);
+      setMacroForm({
+        trigger: '',
+        title: '',
+        content: '',
+        availableFor: 'everyone',
+        availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+      });
+      setMacroEditing(true);
+    };
+
+    const startEdit = (m: SavedReply) => {
+      setSelectedMacro(m);
+      setMacroForm({
+        trigger: m.trigger,
+        title: m.title,
+        content: m.content,
+        availableFor: m.availableFor || 'everyone',
+        availableWhen: m.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
+      });
+      setMacroEditing(true);
+    };
+
+    return (
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSection('home')} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 transition-colors">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
+                <Zap className="w-5 h-5 text-brand-500" /> Macros
+              </h1>
+              <p className="text-sm text-slate-500 mt-0.5">Type <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded text-xs font-mono">/trigger</kbd> in the chat to insert a macro instantly.</p>
+            </div>
+          </div>
+          <button
+            onClick={startCreate}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> New macro
+          </button>
+        </div>
+
+        <div className="flex gap-5 flex-1 min-h-0">
+          {/* Left: Macro list */}
+          <div className="w-72 shrink-0 flex flex-col gap-3">
+            {/* Search */}
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={macroSearch}
+                onChange={e => setMacroSearch(e.target.value)}
+                placeholder="Search macros..."
+                className="w-full pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-800 dark:text-slate-200"
+              />
+            </div>
+
+            {/* List */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+              <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Shared Macros — {filtered.length}</span>
+              </div>
+              {macrosLoading ? (
+                <div className="p-6 text-center text-slate-400 text-xs">Loading...</div>
+              ) : filtered.length === 0 ? (
+                <div className="p-6 text-center">
+                  <Zap className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400">{macroSearch ? 'No results found.' : 'No macros yet.'}</p>
+                  {!macroSearch && (
+                    <button onClick={startCreate} className="mt-2 text-xs text-brand-500 hover:underline">Create your first macro</button>
+                  )}
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {filtered.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => { setSelectedMacro(m); setMacroEditing(false); }}
+                      className={`w-full text-left px-4 py-3 transition-colors flex items-start gap-3 group ${
+                        selectedMacro?.id === m.id
+                          ? 'bg-brand-50 dark:bg-brand-950/20'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                      }`}
+                    >
+                      <span className="text-lg shrink-0 mt-0.5">{m.title.match(/^[\p{Emoji}]/u)?.[0] || '⚡'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{m.title.replace(/^[\p{Emoji}]\s*/u, '')}</p>
+                        <p className="text-xs text-slate-400 font-mono truncate">{m.trigger}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right: Detail / Edit panel */}
+          <div className="flex-1 min-w-0">
+            {macroEditing ? (
+              /* ── Create / Edit Form ── */
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 flex flex-col gap-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-bold text-slate-800 dark:text-slate-200">
+                    {selectedMacro ? 'Edit macro' : 'New macro'}
+                  </h2>
+                  <button onClick={() => { setMacroEditing(false); }} className="p-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5">Title</label>
+                    <input
+                      value={macroForm.title}
+                      onChange={e => setMacroForm(f => ({ ...f, title: e.target.value }))}
+                      placeholder="e.g. 🙌 Feature Request"
+                      className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-800 dark:text-slate-200"
+                    />
+                    <p className="text-[11px] text-slate-400 mt-1">Give your macro a descriptive name. You can start with an emoji.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5">Shortcut trigger</label>
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-400 font-mono font-bold text-sm">/</span>
+                      <input
+                        value={macroForm.trigger.replace(/^\//, '')}
+                        onChange={e => setMacroForm(f => ({ ...f, trigger: e.target.value.replace(/\s/g, '-').replace(/^\//, '') }))}
+                        placeholder="feature-request"
+                        className="flex-1 px-3 py-2.5 text-sm font-mono bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-800 dark:text-slate-200"
+                      />
+                    </div>
+                    <p className="text-[11px] text-slate-400 mt-1">Type this trigger in chat (e.g. <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">/feature-request</code>) to insert this macro.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-1.5">Message content</label>
+                    <textarea
+                      value={macroForm.content}
+                      onChange={e => setMacroForm(f => ({ ...f, content: e.target.value }))}
+                      placeholder="Type your macro message here. Use **bold**, *italic*, or plain text."
+                      rows={6}
+                      className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-800 dark:text-slate-200 resize-none"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Available for Selector */}
+                    <div className="relative">
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5">Available for</label>
+                      <button
+                        type="button"
+                        onClick={() => { setShowForDropdown(!showForDropdown); setShowWhenDropdown(false); }}
+                        className="flex items-center justify-between px-3 py-2.5 bg-slate-55 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none w-full text-left"
+                      >
+                        <span>{AVAILABLE_FOR_LABELS[macroForm.availableFor || 'everyone']}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+                      {showForDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowForDropdown(false)} />
+                          <div className="absolute left-0 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-20 py-1 divide-y divide-slate-100 dark:divide-slate-800/60">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMacroForm(f => ({ ...f, availableFor: 'everyone' }));
+                                setShowForDropdown(false);
+                              }}
+                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-355 hover:bg-slate-50 dark:hover:bg-slate-805 flex items-center justify-between"
+                            >
+                              <span>Everyone</span>
+                              {macroForm.availableFor === 'everyone' && <Check className="w-3.5 h-3.5 text-orange-500" />}
+                            </button>
+                            <div className="w-full text-left px-4 py-2 text-xs font-medium text-slate-400 dark:text-slate-500 flex items-center justify-between cursor-not-allowed bg-slate-50/30 dark:bg-slate-900/30">
+                              <span>Specific team(s)</span>
+                              <span className="inline-flex items-center gap-0.5 bg-violet-100 text-violet-750 dark:bg-violet-900/40 dark:text-violet-300 px-1.5 py-0.5 rounded text-[9px] font-bold border border-violet-200/50 dark:border-violet-800/50">
+                                <ArrowLeft className="w-2 h-2 rotate-90 stroke-[3px]" /> Get feature
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMacroForm(f => ({ ...f, availableFor: 'myself' }));
+                                setShowForDropdown(false);
+                              }}
+                              className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-355 hover:bg-slate-50 dark:hover:bg-slate-805 flex items-center justify-between"
+                            >
+                              <span>Myself only</span>
+                              {macroForm.availableFor === 'myself' && <Check className="w-3.5 h-3.5 text-orange-500" />}
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* Available when Selector */}
+                    <div className="relative">
+                      <label className="block text-xs font-bold text-slate-500 mb-1.5">Available when</label>
+                      <button
+                        type="button"
+                        onClick={() => { setShowWhenDropdown(!showWhenDropdown); setShowForDropdown(false); }}
+                        className="flex items-center justify-between px-3 py-2.5 bg-slate-55 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-slate-200 focus:outline-none w-full text-left"
+                      >
+                        <span className="truncate">
+                          {macroForm.availableWhen && macroForm.availableWhen.length > 0
+                            ? macroForm.availableWhen.map(w => AVAILABLE_WHEN_LABELS[w]).join(', ')
+                            : 'Select scenarios...'}
+                        </span>
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      </button>
+                      {showWhenDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setShowWhenDropdown(false)} />
+                          <div className="absolute left-0 mt-1 w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-lg z-20 py-1">
+                            {(['starting_conversations', 'replying', 'adding_notes'] as const).map(option => {
+                              const active = macroForm.availableWhen && macroForm.availableWhen.includes(option);
+                              return (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  onClick={() => {
+                                    setMacroForm(f => {
+                                      const already = f.availableWhen && f.availableWhen.includes(option);
+                                      const updated = already
+                                        ? f.availableWhen.filter(o => o !== option)
+                                        : [...(f.availableWhen || []), option];
+                                      return { ...f, availableWhen: updated };
+                                    });
+                                  }}
+                                  className="w-full text-left px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-355 hover:bg-slate-50 dark:hover:bg-slate-805 flex items-center justify-between"
+                                >
+                                  <span>{AVAILABLE_WHEN_LABELS[option]}</span>
+                                  {active && <Check className="w-3.5 h-3.5 text-orange-500" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    onClick={selectedMacro ? handleUpdateMacro : handleCreateMacro}
+                    disabled={macroSaving || !macroForm.trigger || !macroForm.content}
+                    className="px-5 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-semibold rounded-xl disabled:opacity-40 disabled:pointer-events-none transition-colors"
+                  >
+                    {macroSaving ? 'Saving...' : (selectedMacro ? 'Save changes' : 'Create macro')}
+                  </button>
+                  <button
+                    onClick={() => setMacroEditing(false)}
+                    className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : selectedMacro ? (
+              /* ── View Detail ── */
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                {/* Header */}
+                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <h2 className="font-bold text-slate-800 dark:text-slate-200 text-base">{selectedMacro.title}</h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleDeleteMacro(selectedMacro.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-50 dark:bg-red-950/20 hover:bg-red-100 dark:hover:bg-red-950/40 rounded-lg transition-colors border border-red-200 dark:border-red-900"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete macro
+                    </button>
+                    <button
+                      onClick={() => startEdit(selectedMacro)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors border border-slate-200 dark:border-slate-700"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={() => startEdit(selectedMacro)}
+                      className="px-3 py-1.5 text-xs font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg transition-colors"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+
+                {/* Trigger badge & Creator info */}
+                <div className="px-6 pt-4 pb-2 flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold rounded-full border border-emerald-200 dark:border-emerald-900">
+                      <Hash className="w-3 h-3" /> {selectedMacro.trigger}
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-1">
+                    <span>Created by</span>
+                    {selectedMacro.creator ? (
+                      <>
+                        <div className="w-4 h-4 rounded-full bg-violet-605 text-white flex items-center justify-center font-bold text-[8px] uppercase">
+                          {selectedMacro.creator.name.slice(0, 1)}
+                        </div>
+                        <span className="font-semibold text-slate-600 dark:text-slate-300">{selectedMacro.creator.name}</span>
+                      </>
+                    ) : (
+                      <span className="font-semibold text-slate-650 dark:text-slate-300">System</span>
+                    )}
+                    <span>• Not used yet</span>
+                  </div>
+                </div>
+
+                {/* Content preview */}
+                <div className="px-6 py-4">
+                  <div className="p-4 border border-dashed border-slate-200 dark:border-slate-700 rounded-xl bg-slate-50/50 dark:bg-slate-950/30 min-h-[120px]">
+                    <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">{selectedMacro.content}</p>
+                  </div>
+                </div>
+
+                {/* Meta */}
+                <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Available for</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2.5 py-1 bg-slate-105 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-full flex items-center gap-1">
+                        {AVAILABLE_FOR_LABELS[selectedMacro.availableFor || 'everyone']}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1">Available when</p>
+                    <div className="flex flex-wrap gap-1">
+                      {(selectedMacro.availableWhen && selectedMacro.availableWhen.length > 0
+                        ? selectedMacro.availableWhen
+                        : ['starting_conversations', 'replying']
+                      ).map(w => (
+                        <span key={w} className="px-2.5 py-1 bg-slate-105 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-semibold rounded-full">
+                          {AVAILABLE_WHEN_LABELS[w as 'starting_conversations' | 'replying' | 'adding_notes']}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ── Empty state ── */
+              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-12 flex flex-col items-center justify-center text-center h-full">
+                <div className="w-16 h-16 rounded-2xl bg-brand-50 dark:bg-brand-950/20 flex items-center justify-center mb-4">
+                  <Zap className="w-8 h-8 text-brand-500" />
+                </div>
+                <h3 className="font-bold text-slate-800 dark:text-slate-200 mb-1">Select a macro to preview</h3>
+                <p className="text-sm text-slate-400 max-w-xs">Pick a macro from the list, or create a new one to get started.</p>
+                <button onClick={startCreate} className="mt-4 text-sm text-brand-600 font-semibold hover:underline">
+                  + Create new macro
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full bg-slate-50 dark:bg-slate-950 overflow-hidden">
       {/* Left Nav */}
@@ -863,6 +1427,9 @@ function App() {
         <SettingsNavItem icon={MessageSquare} label="Messenger" active={section === 'messenger'} onClick={() => setSection('messenger')} />
         <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => setSection('profile')} />
         <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => setSection('profile')} />
+        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1">Inbox</p>
+        <SettingsNavItem icon={Zap} label="Macros" active={section === 'macros'} onClick={() => setSection('macros')} badge={macros.length > 0 ? String(macros.length) : undefined} />
         <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-3 py-1">Workspace</p>
         <SettingsNavItem icon={User} label="Profile" active={section === 'profile'} onClick={() => setSection('profile')} />
@@ -877,6 +1444,7 @@ function App() {
         {section === 'messenger' && <MessengerSection />}
         {section === 'integrations' && <IntegrationsSection />}
         {(section === 'profile' || section === 'workspace') && <ProfileSection />}
+        {section === 'macros' && <MacrosSection />}
       </div>
     </div>
   );

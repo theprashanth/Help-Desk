@@ -8,7 +8,9 @@ export interface AuthenticatedRequest extends Request {
     id: string;
     email: string;
     role: 'admin' | 'support_agent';
+    workspaceId: string;
   };
+  workspaceId?: string;
 }
 
 export function authenticateJWT(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -27,8 +29,10 @@ export function authenticateJWT(req: AuthenticatedRequest, res: Response, next: 
     req.user = {
       id: payload.id,
       email: payload.email,
-      role: payload.role
+      role: payload.role,
+      workspaceId: payload.workspaceId
     };
+    req.workspaceId = payload.workspaceId;
     next();
   } catch (err) {
     return res.status(403).json({ error: 'Invalid or expired token' });

@@ -6,6 +6,44 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const BACKEND_URL = 'http://localhost:3000';
 
+/** Read widget settings from localStorage, with fallback defaults */
+function getStoredSettings() {
+  try {
+    const raw = localStorage.getItem('widget_settings');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {
+    themeColor: '#8B5CF6',
+    brandName: 'Pebble SaaS',
+    greeting: 'We reply in a few minutes',
+    welcome: 'Ask us anything, or share your feedback.',
+    darkTheme: false,
+  };
+}
+
+function getStoredChatTheme(): 'sky-blue' | 'classic' {
+  return (localStorage.getItem('chat_color_theme') as any) || 'sky-blue';
+}
+
+/** Simple markdown bold/italic/inline-code renderer */
+const formatMarkdown = (text: string) => {
+  if (!text) return null;
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+  html = html.replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.1);padding:1px 4px;border-radius:4px;font-size:0.8em">$1</code>');
+  html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="text-decoration:underline;opacity:0.85">$1</a>');
+  return (
+    <div
+      className="leading-relaxed whitespace-pre-wrap"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+};
+
 export const MessengerWidget: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'chat'>('home');
@@ -14,48 +52,167 @@ export const MessengerWidget: React.FC = () => {
   const [localConversations, setLocalConversations] = useState<Conversation[]>([]);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
-  
+
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
-  
+  // True when the user clicked "Start New Chat" but hasn't sent a first message yet.
+  // The actual ticket is created lazily on first send to avoid empty tickets.
+  const [isPendingNewConv, setIsPendingNewConv] = useState(false);
+  // Real geo-IP data fetched once and cached
+  const [geoInfo, setGeoInfo] = useState<{
+    country: string; city: string; ip: string; countryCode: string;
+  } | null>(null);
+
+  // ── Live theme settings (re-read whenever storage changes) ──────────────
+  const [widgetSettings, setWidgetSettings] = useState(getStoredSettings);
+  const [chatColorTheme, setChatColorTheme] = useState<'sky-blue' | 'classic'>(getStoredChatTheme);
+
+  useEffect(() => {
+    const onStorage = () => {
+      setWidgetSettings(getStoredSettings());
+      setChatColorTheme(getStoredChatTheme());
+    };
+    window.addEventListener('storage', onStorage);
+    // Also poll every 500ms for same-tab changes (Zustand writes to localStorage)
+    const interval = setInterval(onStorage, 500);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      clearInterval(interval);
+    };
+  }, []);
+
+  const themeColor = widgetSettings.themeColor || '#8B5CF6';
+
   const socket = useSocket();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
-  // Initialize Guest User
+  /** Parse OS name from userAgent string */
+  const parseOS = (): string => {
+    const ua = navigator.userAgent;
+    if (/Windows NT 10/.test(ua)) return 'Windows 10';
+    if (/Windows NT 6\.3/.test(ua)) return 'Windows 8.1';
+    if (/Windows NT 6\.1/.test(ua)) return 'Windows 7';
+    if (/Windows/.test(ua)) return 'Windows';
+    if (/Mac OS X 10[_\s]15/.test(ua)) return 'macOS Catalina';
+    if (/Mac OS X 10[_\s]14/.test(ua)) return 'macOS Mojave';
+    if (/Mac OS X/.test(ua)) return 'macOS';
+    if (/Android/.test(ua)) { const m = ua.match(/Android ([\d.]+)/); return `Android ${m?.[1] || ''}`; }
+    if (/iPhone OS/.test(ua)) { const m = ua.match(/iPhone OS ([\d_]+)/); return `iOS ${m?.[1]?.replace(/_/g, '.') || ''}`; }
+    if (/iPad/.test(ua)) return 'iPadOS';
+    if (/Linux/.test(ua)) return 'Linux';
+    return 'Unknown OS';
+  };
+
+  /** Parse short browser name from userAgent */
+  const parseBrowser = (): string => {
+    const ua = navigator.userAgent;
+    if (/Edg\//.test(ua)) { const m = ua.match(/Edg\/([\d.]+)/); return `Edge ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/OPR\//.test(ua)) { const m = ua.match(/OPR\/([\d.]+)/); return `Opera ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/Chrome\//.test(ua)) { const m = ua.match(/Chrome\/([\d.]+)/); return `Chrome ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/Firefox\//.test(ua)) { const m = ua.match(/Firefox\/([\d.]+)/); return `Firefox ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/Safari\//.test(ua)) { const m = ua.match(/Version\/([\d.]+)/); return `Safari ${m?.[1]?.split('.')[0] || ''}`; }
+    return 'Unknown Browser';
+  };
+
+  // Initialize Guest/User
   useEffect(() => {
-    let id = localStorage.getItem('customer_guest_id');
-    if (!id) {
-      id = `guest_${Math.random().toString(36).substring(2, 11)}`;
+    const helpDeskConfig = (window as any).HelpDesk || {};
+    
+    // Read or generate unique user ID (MongoDB ObjectId or UUID format)
+    let id = localStorage.getItem('customer_guest_id') || '';
+    if (helpDeskConfig.userId) {
+      id = helpDeskConfig.userId;
+      localStorage.setItem('customer_guest_id', id);
+    } else if (!id) {
+      // Generate a standard UUID v4 format (e.g. 58fbd963-9b56-488c-8565-1ccb375f7b34)
+      id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
       localStorage.setItem('customer_guest_id', id);
     }
     setGuestId(id);
 
-    let name = localStorage.getItem('customer_guest_name');
-    if (!name) {
+    // Read or set display name
+    let name = localStorage.getItem('customer_guest_name') || '';
+    if (helpDeskConfig.userName) {
+      name = helpDeskConfig.userName;
+      localStorage.setItem('customer_guest_name', name);
+    } else if (!name) {
       name = `Guest #${id.slice(-4)}`;
       localStorage.setItem('customer_guest_name', name);
     }
     setGuestName(name);
+
+    // Cache email and phone if provided by parent host app config
+    if (helpDeskConfig.userEmail) {
+      localStorage.setItem('customer_guest_email', helpDeskConfig.userEmail);
+    }
+    if (helpDeskConfig.userPhone) {
+      localStorage.setItem('customer_guest_phone', helpDeskConfig.userPhone);
+    }
+
+    // Fetch geo-IP data once (cached in localStorage for 24h)
+    const geoKey = 'customer_geo_info';
+    const geoExpiry = 'customer_geo_expiry';
+    const cachedGeo = localStorage.getItem(geoKey);
+    const cachedExpiry = localStorage.getItem(geoExpiry);
+    const now = Date.now();
+
+    if (cachedGeo && cachedExpiry && now < parseInt(cachedExpiry)) {
+      setGeoInfo(JSON.parse(cachedGeo));
+    } else {
+      fetch('https://ipapi.co/json/')
+        .then(r => r.json())
+        .then(data => {
+          const geo = {
+            country: data.country_name || 'Unknown',
+            city: data.city || '',
+            ip: data.ip || '',
+            countryCode: data.country_code || '',
+          };
+          setGeoInfo(geo);
+          localStorage.setItem(geoKey, JSON.stringify(geo));
+          // Cache for 24 hours
+          localStorage.setItem(geoExpiry, String(now + 24 * 60 * 60 * 1000));
+        })
+        .catch(() => {
+          // Silently fall back — geo will be null
+        });
+    }
   }, []);
 
-  // Fetch Guest's active conversations
+  // Fetch Guest's previous conversations (stored IDs in localStorage)
   useEffect(() => {
     if (!guestId) return;
 
     const fetchGuestConvs = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/tickets?assignedAgentId=&search=${guestId}`);
-        if (res.ok) {
-          const data: Conversation[] = await res.json();
-          // Filter strictly owned conversations
-          const filtered = data.filter(c => c.customer.id === guestId);
-          setLocalConversations(filtered);
-        }
+        // IDs are stored in localStorage when tickets are created (guest has no auth token)
+        const raw = localStorage.getItem(`guest_conv_ids_${guestId}`);
+        const ids: string[] = raw ? JSON.parse(raw) : [];
+        if (ids.length === 0) return;
+
+        // Fetch each ticket individually via the open endpoint
+        const results = await Promise.all(
+          ids.map(id =>
+            fetch(`${BACKEND_URL}/api/tickets/${id}`)
+              .then(r => (r.ok ? r.json() : null))
+              .catch(() => null)
+          )
+        );
+        const convs: Conversation[] = results
+          .filter(Boolean)
+          .filter((c: Conversation) => c.customer.id === guestId);
+        setLocalConversations(convs.sort(
+          (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+        ));
       } catch (err) {
         console.error('Failed to fetch customer conversations:', err);
       }
@@ -63,7 +220,7 @@ export const MessengerWidget: React.FC = () => {
 
     fetchGuestConvs();
 
-    // Listen for updates with explicit callbacks
+    // Keep list fresh via real-time socket events
     const handleConvUpdate = (conv: Conversation) => {
       if (conv.customer.id === guestId) {
         setLocalConversations(prev => {
@@ -71,7 +228,9 @@ export const MessengerWidget: React.FC = () => {
           if (idx === -1) return [conv, ...prev];
           const next = [...prev];
           next[idx] = conv;
-          return next;
+          return next.sort(
+            (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
+          );
         });
         if (activeConv && activeConv.id === conv.id) {
           setActiveConv(conv);
@@ -79,223 +238,174 @@ export const MessengerWidget: React.FC = () => {
       }
     };
 
-    const handleConvNew = (conv: Conversation) => {
-      if (conv.customer.id === guestId) {
-        setLocalConversations(prev => [conv, ...prev]);
-      }
-    };
-
-    if (socket) {
-      socket.on('conversation:update', handleConvUpdate);
-      socket.on('conversation:new', handleConvNew);
-    }
+    // Server emits 'conversation:update' and 'conversation:new'
+    socket?.on('conversation:update', handleConvUpdate);
+    socket?.on('conversation:new', handleConvUpdate);
 
     return () => {
-      if (socket) {
-        socket.off('conversation:update', handleConvUpdate);
-        socket.off('conversation:new', handleConvNew);
-      }
+      socket?.off('conversation:update', handleConvUpdate);
+      socket?.off('conversation:new', handleConvUpdate);
     };
   }, [guestId, socket, activeConv]);
 
-  // Handle socket rooms and live messaging for selected conversation
+  // Load messages when entering an active conversation
   useEffect(() => {
-    if (!activeConv || !socket) return;
+    if (!activeConv) return;
 
-    // Join room
-    socket.emit('join', activeConv.id);
-
-    // Fetch message logs
     const fetchMessages = async () => {
       try {
         const res = await fetch(`${BACKEND_URL}/api/messages/${activeConv.id}`);
         if (res.ok) {
           const data: Message[] = await res.json();
-          // Filter out internal notes for customer view
-          const publicMsgs = data.filter(m => !m.isInternalNote);
-          setChatMessages(publicMsgs);
-          
-          // Mark seen on load
-          await fetch(`${BACKEND_URL}/api/messages/seen/${activeConv.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: 'customer' })
-          });
+          setChatMessages(data);
         }
-      } catch (e) {
-        console.error('Error fetching chat logs:', e);
+      } catch (err) {
+        console.error('Failed to fetch messages:', err);
       }
     };
 
     fetchMessages();
 
-    // Handle typing events with explicit callback references
-    const handleTyping = (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => {
-      if (payload.conversationId === activeConv.id && payload.senderType === 'agent') {
-        setAgentTyping(payload.isTyping ? payload.senderName : null);
-      }
-    };
-
-    // Handle seen receipts
-    const handleSeen = (payload: { conversationId: string; seenAt: string; role: 'customer' | 'agent' }) => {
-      if (payload.conversationId === activeConv.id && payload.role === 'agent') {
-        setChatMessages(prev => prev.map(m => m.sender.type === 'customer' ? { ...m, seen: true, seenAt: payload.seenAt } : m));
-      }
-    };
-
-    // Handle new messages
-    const handleNewMsg = (msg: Message) => {
-      if (msg.conversationId === activeConv.id && !msg.isInternalNote) {
+    const handleNewMessage = (msg: Message) => {
+      if (msg.conversationId === activeConv.id) {
         setChatMessages(prev => {
           if (prev.some(m => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
-
-        // Auto seen if window is active
-        if (isOpen && activeTab === 'chat') {
-          fetch(`${BACKEND_URL}/api/messages/seen/${activeConv.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ role: 'customer' })
-          });
-        }
       }
     };
 
-    socket.on('message:typing', handleTyping);
-    socket.on('message:seen', handleSeen);
-    socket.on('message:new', handleNewMsg);
+    const handleTyping = ({ agentName }: { agentName: string }) => {
+      setAgentTyping(agentName);
+      setTimeout(() => setAgentTyping(null), 3000);
+    };
+
+    socket?.on('message:new', handleNewMessage);
+    socket?.on('agent:typing', handleTyping);
 
     return () => {
-      socket.emit('leave', activeConv.id);
-      socket.off('message:typing', handleTyping);
-      socket.off('message:seen', handleSeen);
-      socket.off('message:new', handleNewMsg);
+      socket?.off('message:new', handleNewMessage);
+      socket?.off('agent:typing', handleTyping);
     };
-  }, [activeConv, socket, isOpen, activeTab]);
+  }, [activeConv, socket]);
 
-  // Scroll to bottom helper
+  // Auto-scroll to latest message
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages, agentTyping]);
 
-  // Typing event emitter
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputText(e.target.value);
-    
-    if (!socket || !activeConv) return;
-    
-    if (!isTyping) {
-      setIsTyping(true);
-      socket.emit('typing', {
-        conversationId: activeConv.id,
-        senderType: 'customer',
-        senderName: guestName,
-        isTyping: true
-      });
-    }
-
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
-
-    // Debounce type turning off
-    typingTimeoutRef.current = setTimeout(() => {
-      setIsTyping(false);
-      socket.emit('typing', {
-        conversationId: activeConv.id,
-        senderType: 'customer',
-        senderName: guestName,
-        isTyping: false
-      });
-    }, 2000);
+  // Navigate to the chat view but do NOT create the ticket yet.
+  // The ticket is created lazily when the customer sends their first message.
+  const startNewConversation = () => {
+    setActiveConv(null);
+    setChatMessages([]);
+    setIsPendingNewConv(true);
+    setActiveTab('chat');
   };
 
-  const handleSendMessage = async (textToSend?: string, files?: Attachment[]) => {
-    const text = textToSend !== undefined ? textToSend : inputText;
-    if (!text.trim() && (!files || files.length === 0)) return;
-    if (!activeConv) return;
+  const handleSendMessage = async (text?: string, attachments?: Attachment[]) => {
+    const content = text ?? inputText;
+    if (!content.trim() && (!attachments || attachments.length === 0)) return;
+
+    setInputText('');
 
     try {
+      // ── Lazy ticket creation: first message creates the conversation ──────
+      if (isPendingNewConv) {
+        const res = await fetch(`${BACKEND_URL}/api/tickets`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customerId: guestId,
+            name: guestName,
+            email: localStorage.getItem('customer_guest_email') || undefined,
+            phone: localStorage.getItem('customer_guest_phone') || undefined,
+            initialMessage: content,
+            session: {
+              browser: parseBrowser(),
+              os: parseOS(),
+              currentPage: window.location.href,
+              firstSeen: new Date().toISOString(),
+              lastSeen: new Date().toISOString(),
+              country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
+              ip: geoInfo?.ip || undefined,
+            }
+          })
+        });
+
+        if (res.ok || res.status === 210) {
+          const conv: Conversation = await res.json();
+
+          // Persist conv ID so it survives page refresh (guest has no auth)
+          const storageKey = `guest_conv_ids_${guestId}`;
+          const existing: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          if (!existing.includes(conv.id)) {
+            localStorage.setItem(storageKey, JSON.stringify([conv.id, ...existing]));
+          }
+
+          setLocalConversations(prev => [conv, ...prev]);
+          setActiveConv(conv);
+          setIsPendingNewConv(false);
+          // Fetch the messages that now include the initial message
+          const msgRes = await fetch(`${BACKEND_URL}/api/messages/${conv.id}`);
+          if (msgRes.ok) {
+            setChatMessages(await msgRes.json());
+          }
+        } else {
+          console.error('Failed to create ticket:', await res.text());
+        }
+        return;
+      }
+
+      // ── Normal send to existing conversation ─────────────────────────────
+      if (!activeConv) return;
+
       const res = await fetch(`${BACKEND_URL}/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationId: activeConv.id,
-          sender: {
-            type: 'customer',
-            id: guestId,
-            name: guestName
-          },
-          content: text,
-          attachments: files || [],
-          isInternalNote: false
+          sender: { id: guestId, name: guestName, type: 'customer' },
+          content,
+          attachments: attachments || []
         })
       });
 
       if (res.ok) {
-        if (textToSend === undefined) setInputText('');
-        // Trigger scroll
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
+        const msg: Message = await res.json();
+        setChatMessages(prev => {
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+      } else {
+        console.error('Failed to send message:', await res.text());
       }
     } catch (err) {
-      console.error('Failed to post customer message:', err);
+      console.error('Failed to send message:', err);
     }
   };
 
-  // Launch a new Support conversation ticket
-  const startNewConversation = async () => {
-    try {
-      const userAgent = navigator.userAgent;
-      const browser = userAgent.includes('Chrome') ? 'Chrome' : userAgent.includes('Safari') ? 'Safari' : 'Firefox';
-      
-      const res = await fetch(`${BACKEND_URL}/api/tickets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: guestId,
-          name: guestName,
-          priority: 'medium',
-          category: 'general',
-          initialMessage: 'Hi there! I would like to start a support request.',
-          session: {
-            country: 'United States',
-            browser,
-            os: 'macOS',
-            device: 'Desktop',
-            ip: '127.0.0.1',
-            currentPage: window.location.pathname,
-            firstSeen: new Date().toISOString(),
-            lastSeen: new Date().toISOString()
-          }
-        })
-      });
-
-      if (res.ok) {
-        const conv: Conversation = await res.json();
-        setActiveConv(conv);
-        setActiveTab('chat');
-      }
-    } catch (err) {
-      console.error('Failed to start chat:', err);
+  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputText(e.target.value);
+    if (!isTyping) {
+      setIsTyping(true);
+      socket?.emit('customer:typing', { conversationId: activeConv?.id, guestName });
     }
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 2000);
   };
 
-  // Upload attachment file handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeConv) return;
-
     setUploading(true);
-    const formData = new FormData();
-    formData.append('file', file);
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/messages/upload`, {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('conversationId', activeConv.id);
+
+      const res = await fetch(`${BACKEND_URL}/api/attachments/upload`, {
         method: 'POST',
         body: formData
       });
@@ -316,6 +426,17 @@ export const MessengerWidget: React.FC = () => {
     setShowEmoji(false);
   };
 
+  // ── Bubble style helpers ─────────────────────────────────────────────────
+  const senderBubbleStyle =
+    chatColorTheme === 'sky-blue'
+      ? { background: '#0284c7', color: '#fff' }
+      : { background: 'linear-gradient(135deg, #7c3aed, #4f46e5)', color: '#fff' };
+
+  const recipientBubbleClass =
+    chatColorTheme === 'sky-blue'
+      ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100'
+      : 'bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-200';
+
   return (
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {/* Messenger Screen Container */}
@@ -328,29 +449,32 @@ export const MessengerWidget: React.FC = () => {
             transition={{ duration: 0.25, ease: 'easeOut' }}
             className="w-96 h-[550px] bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden mb-4"
           >
-            {/* Header: Intercom Gradient style */}
-            <div className="bg-gradient-to-r from-brand-600 to-brand-500 p-6 text-white flex flex-col gap-4 relative">
-              <button 
+            {/* Header — uses themeColor */}
+            <div
+              className="p-6 text-white flex flex-col gap-4 relative"
+              style={{ background: `linear-gradient(135deg, ${themeColor}ee, ${themeColor})` }}
+            >
+              <button
                 onClick={() => setIsOpen(false)}
                 className="absolute top-4 right-4 text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
               >
                 <X className="w-5 h-5" />
               </button>
-              
+
               <div className="flex items-center gap-3">
                 {activeTab === 'chat' && (
-                  <button 
-                    onClick={() => setActiveTab('home')}
+                  <button
+                    onClick={() => { setActiveTab('home'); setIsPendingNewConv(false); }}
                     className="p-1 rounded-full hover:bg-white/10 mr-1 transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                 )}
                 <div>
-                  <h3 className="font-bold text-lg tracking-wide">Customer Messenger</h3>
-                  <p className="text-xs text-brand-100 flex items-center gap-1.5 mt-0.5">
+                  <h3 className="font-bold text-lg tracking-wide">{widgetSettings.brandName}</h3>
+                  <p className="text-xs text-white/80 flex items-center gap-1.5 mt-0.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    We reply in a few minutes
+                    {widgetSettings.greeting}
                   </p>
                 </div>
               </div>
@@ -358,10 +482,10 @@ export const MessengerWidget: React.FC = () => {
               {/* Support Avatars Facepile */}
               <div className="flex items-center gap-2 mt-1">
                 <div className="flex -space-x-2">
-                  <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-brand-500 object-cover" alt="Agent" />
-                  <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-brand-500 object-cover" alt="Agent" />
+                  <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-white/40 object-cover" alt="Agent" />
+                  <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-white/40 object-cover" alt="Agent" />
                 </div>
-                <span className="text-xs text-brand-50 font-medium">Sarah & Emma are online</span>
+                <span className="text-xs text-white/80 font-medium">Sarah &amp; Emma are online</span>
               </div>
             </div>
 
@@ -371,18 +495,22 @@ export const MessengerWidget: React.FC = () => {
                 /* Home View: Create / Join existing conversations */
                 <div className="p-6 flex flex-col gap-6 flex-1 justify-center text-center">
                   <div className="flex flex-col items-center gap-3">
-                    <div className="p-4 bg-brand-50 dark:bg-brand-950/40 rounded-full text-brand-500 mb-2">
+                    <div
+                      className="p-4 rounded-full mb-2"
+                      style={{ background: `${themeColor}18`, color: themeColor }}
+                    >
                       <MessageSquare className="w-10 h-10" />
                     </div>
                     <h4 className="font-bold text-slate-800 dark:text-slate-100 text-lg">Hello there!</h4>
                     <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[280px]">
-                      Start a chat with our support team or resume previous discussions.
+                      {widgetSettings.welcome}
                     </p>
                   </div>
 
                   <button
                     onClick={startNewConversation}
-                    className="w-full bg-brand-500 hover:bg-brand-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-brand-500/20 active:scale-[0.98] transition-all"
+                    className="w-full text-white font-semibold py-3 px-4 rounded-xl shadow-lg active:scale-[0.98] transition-all"
+                    style={{ background: themeColor }}
                   >
                     Start a New Chat
                   </button>
@@ -408,7 +536,10 @@ export const MessengerWidget: React.FC = () => {
                               <span className="text-sm text-slate-800 dark:text-slate-200 truncate">{c.lastMessageSnippet || 'Open ticket'}</span>
                             </div>
                             {c.unreadCountCustomer > 0 && (
-                              <span className="bg-brand-500 text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shrink-0">
+                              <span
+                                className="text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shrink-0"
+                                style={{ background: themeColor }}
+                              >
                                 {c.unreadCountCustomer}
                               </span>
                             )}
@@ -426,7 +557,7 @@ export const MessengerWidget: React.FC = () => {
                     {chatMessages.length === 0 && (
                       <p className="text-xs text-slate-400 text-center my-6">Beginning of secure chat session.</p>
                     )}
-                    
+
                     {chatMessages.map(m => {
                       const isMe = m.sender.type === 'customer';
                       return (
@@ -437,16 +568,13 @@ export const MessengerWidget: React.FC = () => {
                           <span className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 px-1">
                             {m.sender.name}
                           </span>
-                          
+
                           <div
-                            className={`p-3 rounded-2xl text-sm ${
-                              isMe
-                                ? 'bg-brand-500 text-white rounded-tr-none'
-                                : 'bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none'
-                            }`}
+                            className={`p-3 rounded-2xl text-sm ${isMe ? 'rounded-tr-none' : `${recipientBubbleClass} rounded-tl-none`}`}
+                            style={isMe ? senderBubbleStyle : undefined}
                           >
-                            {m.content && <p className="leading-relaxed whitespace-pre-wrap">{m.content}</p>}
-                            
+                            {m.content && formatMarkdown(m.content)}
+
                             {/* File Attachments */}
                             {m.attachments && m.attachments.length > 0 && (
                               <div className="flex flex-col gap-1.5 mt-1">
@@ -458,7 +586,7 @@ export const MessengerWidget: React.FC = () => {
                                     rel="noreferrer"
                                     className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${
                                       isMe
-                                        ? 'bg-brand-600/50 border-brand-400/50 hover:bg-brand-600 text-white'
+                                        ? 'bg-black/20 border-white/20 hover:bg-black/30 text-white'
                                         : 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
                                     }`}
                                   >
@@ -473,13 +601,13 @@ export const MessengerWidget: React.FC = () => {
                               </div>
                             )}
                           </div>
-                          
+
                           {/* Receipt */}
                           {isMe && (
                             <span className="text-[9px] text-slate-400 mt-1 flex items-center gap-0.5">
                               {m.seen ? (
                                 <>
-                                  <CheckCheck className="w-3.5 h-3.5 text-brand-500" /> Seen
+                                  <CheckCheck className="w-3.5 h-3.5" style={{ color: themeColor }} /> Seen
                                 </>
                               ) : (
                                 <>
@@ -503,13 +631,13 @@ export const MessengerWidget: React.FC = () => {
                         </div>
                       </div>
                     )}
-                    
+
                     <div ref={messagesEndRef} />
                   </div>
 
                   {/* Typing Composer Panel */}
                   <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 relative">
-                    {/* Emoji dropdown picker (simple mockup for UI speed) */}
+                    {/* Emoji dropdown picker */}
                     {showEmoji && (
                       <div className="absolute bottom-14 left-4 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl flex gap-2 z-20">
                         {['👍', '👋', '❤️', '😊', '💡', '🎉'].map(emoji => (
@@ -554,16 +682,20 @@ export const MessengerWidget: React.FC = () => {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleSendMessage();
                         }}
-                        placeholder="Write a message..."
-                        className="flex-1 bg-slate-50 dark:bg-slate-950 border-none rounded-xl text-sm px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        placeholder={isPendingNewConv ? 'Type your first message to start the chat...' : 'Write a message...'}
+                        className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none"
+                        style={{ '--tw-ring-color': themeColor } as any}
+                        onFocus={e => (e.target.style.borderColor = themeColor)}
+                        onBlur={e => (e.target.style.borderColor = '')}
                       />
 
                       <button
                         onClick={() => handleSendMessage()}
                         disabled={!inputText.trim()}
-                        className="p-2 bg-brand-500 text-white rounded-xl hover:bg-brand-600 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md shadow-brand-500/10"
+                        className="p-2 text-white rounded-xl active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md"
+                        style={{ background: themeColor }}
                       >
-                        <Send className="w-4.5 h-4.5" />
+                        <Send className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
@@ -574,12 +706,13 @@ export const MessengerWidget: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Floating launcher bubble */}
+      {/* Floating launcher bubble — uses themeColor */}
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         onClick={() => setIsOpen(!isOpen)}
-        className="bg-brand-500 text-white p-4 rounded-full shadow-2xl hover:bg-brand-600 transition-all flex items-center justify-center border-none"
+        className="text-white p-4 rounded-full shadow-2xl transition-all flex items-center justify-center border-none"
+        style={{ background: themeColor }}
       >
         {isOpen ? <X className="w-6 h-6 animate-fade-in" /> : <MessageSquare className="w-6 h-6 animate-fade-in" />}
       </motion.button>

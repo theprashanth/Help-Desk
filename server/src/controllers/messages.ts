@@ -43,7 +43,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       isInternalNote: !!isInternalNote,
       seen: false,
       delivered: true,
-      reactions: []
+      reactions: [],
+      metadata: req.body.metadata
     });
 
     // Update unread count based on sender type

@@ -1,14 +1,14 @@
 import { 
   IUserRepository, ICustomerRepository, IConversationRepository,
-  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository 
+  IMessageRepository, ISavedReplyRepository, ITagRepository, ISettingsRepository, IWorkspaceRepository 
 } from './interfaces';
 import { 
   MongooseUserRepository, MongooseCustomerRepository, MongooseConversationRepository,
-  MongooseMessageRepository, MongooseSavedReplyRepository, MongooseTagRepository, MongooseSettingsRepository 
+  MongooseMessageRepository, MongooseSavedReplyRepository, MongooseTagRepository, MongooseSettingsRepository, MongooseWorkspaceRepository 
 } from './mongoose.repo';
 import { 
   JsonUserRepository, JsonCustomerRepository, JsonConversationRepository,
-  JsonMessageRepository, JsonSavedReplyRepository, JsonTagRepository, JsonSettingsRepository 
+  JsonMessageRepository, JsonSavedReplyRepository, JsonTagRepository, JsonSettingsRepository, JsonWorkspaceRepository 
 } from './json.repo';
 
 export class RepositoryFactory {
@@ -21,6 +21,10 @@ export class RepositoryFactory {
 
   static isJson(): boolean {
     return this.useJson;
+  }
+
+  static getWorkspaceRepository(): IWorkspaceRepository {
+    return this.useJson ? new JsonWorkspaceRepository() : new MongooseWorkspaceRepository();
   }
 
   static getUserRepository(): IUserRepository {
@@ -36,7 +40,7 @@ export class RepositoryFactory {
   }
 
   static getMessageRepository(): IMessageRepository {
-    return this.useJson ? new JsonMessageRepository() : new MongooseMessageRepository();
+     return this.useJson ? new JsonMessageRepository() : new MongooseMessageRepository();
   }
 
   static getSavedReplyRepository(): ISavedReplyRepository {

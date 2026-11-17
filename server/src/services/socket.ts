@@ -3,6 +3,7 @@ import { Conversation, Message } from '../../../shared/src/types';
 
 export class SocketService {
   private static io: Server | null = null;
+  public static onlineAgents = new Map<string, { socketId: string; name: string }>();
 
   static init(ioInstance: Server) {
     this.io = ioInstance;
@@ -52,6 +53,11 @@ export class SocketService {
   static broadcastConversationUpdate(conv: Conversation) {
     this.emitToRoom(conv.id, 'conversation:update', conv);
     this.emitGlobal('conversation:update', conv);
+  }
+
+  static broadcastConversationDeleted(conversationId: string) {
+    this.emitToRoom(conversationId, 'conversation:deleted', conversationId);
+    this.emitGlobal('conversation:deleted', conversationId);
   }
 
   static broadcastAgentOnline(agentId: string, name: string) {
