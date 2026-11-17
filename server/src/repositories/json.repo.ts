@@ -265,6 +265,7 @@ export class JsonConversationRepository implements IConversationRepository {
       unreadCountAgent: conv.unreadCountAgent || 0,
       unreadCountCustomer: conv.unreadCountCustomer || 0,
       starred: conv.starred || false,
+      snoozedUntil: conv.snoozedUntil || null,
       createdAt: now,
       updatedAt: now
     };
@@ -334,6 +335,7 @@ export class JsonConversationRepository implements IConversationRepository {
         unreadCountAgent: raw.unreadCountAgent,
         unreadCountCustomer: raw.unreadCountCustomer,
         starred: raw.starred || false,
+        snoozedUntil: raw.snoozedUntil || null,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

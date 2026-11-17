@@ -65,57 +65,49 @@ export const MergedConversationPanel: React.FC = () => {
   const ticketNumber = mergedConv?.ticketNumber || 'Ticket';
 
   return (
-    <div className="w-96 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/95 h-full flex flex-col shrink-0 animate-slide-left z-20">
+    <div className="ic-panel w-[320px] 2xl:w-[360px] h-full flex flex-col shrink-0 animate-slide-left z-20">
       {/* Header with back button */}
-      <div className="p-4 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
+      <div className="ic-panel-header gap-2 pl-3 pr-3">
         <button
           onClick={() => setViewingMergedConversationId(null)}
-          className="flex items-center gap-2 text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white font-extrabold text-xs tracking-wide transition-colors"
+          className="flex items-center gap-2 min-w-0 flex-1 h-9 pl-2 pr-3 rounded-full text-ink hover:bg-ink/[0.05] transition-colors text-left"
         >
-          <ArrowLeft className="w-4 h-4 text-slate-500" />
-          <span className="truncate max-w-[200px]">{customerName} from {customerLocation}</span>
+          <ArrowLeft className="w-[18px] h-[18px] text-muted shrink-0" />
+          <span className="truncate text-[15px] font-semibold">{customerName} from {customerLocation}</span>
         </button>
         <button 
           onClick={() => setViewingMergedConversationId(null)}
           title="Return to details"
-          className="p-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-slate-600 transition-colors"
+          className="ic-icon-btn-ghost"
         >
           <ExternalLink className="w-4 h-4" />
         </button>
       </div>
 
       {/* Tabs Menu */}
-      <div className="flex border-b border-slate-100 dark:border-slate-850 px-4">
+      <div className="ic-tabs pt-3">
         <button
           onClick={() => setActiveTab('activity')}
-          className={`py-3 px-3 text-xs font-black transition-all border-b-2 tracking-wide uppercase ${
-            activeTab === 'activity'
-              ? 'border-violet-500 text-violet-600 dark:text-violet-400 font-extrabold'
-              : 'border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-700 font-bold'
-          }`}
+          className={`ic-tab ${activeTab === 'activity' ? 'ic-tab-active' : ''}`}
         >
           Activity
         </button>
         <button
           onClick={() => setActiveTab('details')}
-          className={`py-3 px-3 text-xs font-black transition-all border-b-2 tracking-wide uppercase ${
-            activeTab === 'details'
-              ? 'border-violet-500 text-violet-600 dark:text-violet-400 font-extrabold'
-              : 'border-transparent text-slate-400 dark:text-slate-500 hover:text-slate-700 font-bold'
-          }`}
+          className={`ic-tab ${activeTab === 'details' ? 'ic-tab-active' : ''}`}
         >
           Details
         </button>
       </div>
 
       {/* Pane Content */}
-      <div className="flex-1 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/20">
+      <div className="flex-1 overflow-y-auto bg-surface">
         {loading ? (
-          <div className="h-full flex items-center justify-center text-xs text-slate-400 font-semibold">
+          <div className="h-full flex items-center justify-center text-[14px] text-muted">
             Loading merged conversation…
           </div>
         ) : activeTab === 'activity' ? (
-          <div className="p-4 flex flex-col gap-4">
+          <div className="px-4 py-5 flex flex-col gap-4">
             {messages.map((m) => {
               const isCustomer = m.sender.type === 'customer';
               // Check if it is a merge indicator
@@ -123,8 +115,8 @@ export const MergedConversationPanel: React.FC = () => {
 
               if (isMergeIndicator) {
                 return (
-                  <div key={m.id} className="flex items-start gap-2 text-[11px] text-slate-500 dark:text-slate-400 font-semibold bg-slate-100/50 dark:bg-slate-850/40 p-3 rounded-xl border border-slate-200/40 dark:border-slate-800/40">
-                    <span className="text-slate-400 dark:text-slate-600">↳</span>
+                  <div key={m.id} className="flex items-start gap-2 text-[13px] text-muted bg-subtle px-3.5 py-2.5 rounded-xl">
+                    <span className="text-faint">↳</span>
                     <span>{m.content}</span>
                   </div>
                 );
@@ -137,28 +129,28 @@ export const MergedConversationPanel: React.FC = () => {
                     isCustomer ? 'self-start items-start' : 'self-end items-end'
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1 px-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold">{m.sender.name}</span>
-                    <span className="text-[8px] text-slate-400 dark:text-slate-600">
-                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-
                   <div
-                    className={`p-3 rounded-2xl text-[11px] leading-relaxed shadow-sm ${
+                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed text-ink ${
                       m.isInternalNote
-                        ? 'bg-amber-500/5 dark:bg-amber-950/15 border border-amber-300/40 dark:border-amber-900/40 text-amber-950 dark:text-amber-300 rounded-tr-none'
+                        ? 'bg-note border border-note-line'
                         : isCustomer
-                        ? 'bg-white dark:bg-[#0c1220] border border-slate-200/60 dark:border-slate-800/80 text-slate-850 dark:text-slate-200 rounded-tl-none'
-                        : 'bg-gradient-to-tr from-violet-600 to-indigo-600 text-white rounded-tr-none'
+                        ? 'bg-bubble-customer'
+                        : 'bg-bubble-agent'
                     }`}
                   >
                     {m.isInternalNote && (
-                      <div className="flex items-center gap-1 text-[8px] font-black text-amber-500 dark:text-amber-455 uppercase tracking-widest mb-1">
+                      <div className="flex items-center gap-1 text-[12px] font-medium text-muted mb-1">
                         <Lock className="w-3 h-3" /> Note
                       </div>
                     )}
-                    <p className="whitespace-pre-line font-medium">{m.content}</p>
+                    <p className="whitespace-pre-line">{m.content}</p>
+                    <div className="flex items-center gap-1.5 mt-1 text-[12px] text-muted">
+                      <span className="font-medium">{m.sender.name}</span>
+                      <span className="text-faint">·</span>
+                      <span>
+                        {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
                   </div>
                 </div>
               );
@@ -167,22 +159,26 @@ export const MergedConversationPanel: React.FC = () => {
           </div>
         ) : (
           /* Render simple details card */
-          <div className="p-4 flex flex-col gap-4 font-semibold text-xs text-slate-600 dark:text-slate-400">
-            <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-850">
-              <span className="text-slate-400">Ticket Number</span>
-              <span className="font-extrabold text-slate-800 dark:text-slate-200">{ticketNumber}</span>
+          <div className="px-5 py-3 flex flex-col">
+            <div className="ic-detail-row">
+              <span className="ic-detail-label">Ticket number</span>
+              <span className="ic-detail-value font-medium">{ticketNumber}</span>
             </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-850">
-              <span className="text-slate-400">Category</span>
-              <span className="capitalize font-extrabold text-slate-800 dark:text-slate-200">{mergedConv?.category || 'general'}</span>
+            <div className="ic-detail-row">
+              <span className="ic-detail-label">Category</span>
+              <span className="ic-detail-value capitalize">{mergedConv?.category || 'general'}</span>
             </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-850">
-              <span className="text-slate-400">Priority</span>
-              <span className="capitalize font-extrabold text-slate-800 dark:text-slate-200">{mergedConv?.priority || 'medium'}</span>
+            <div className="ic-detail-row">
+              <span className="ic-detail-label">Priority</span>
+              <span className="ic-detail-value capitalize">{mergedConv?.priority || 'medium'}</span>
             </div>
-            <div className="flex justify-between items-center py-2 border-b border-slate-100 dark:border-slate-850">
-              <span className="text-slate-400">Status</span>
-              <span className="uppercase text-[10px] text-amber-600 font-extrabold bg-amber-100/50 dark:bg-amber-955/20 px-2 py-0.5 rounded-full">{mergedConv?.status || 'merged'}</span>
+            <div className="ic-detail-row">
+              <span className="ic-detail-label">Status</span>
+              <span className="ic-detail-value">
+                <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-medium capitalize bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                  {mergedConv?.status || 'merged'}
+                </span>
+              </span>
             </div>
           </div>
         )}

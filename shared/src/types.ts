@@ -76,6 +76,7 @@ export interface Message {
   seenAt?: string;
   delivered: boolean;
   reactions?: MessageReaction[];
+  tags?: string[]; // tag names applied to this message
   createdAt: string;
   metadata?: any;
 }
@@ -93,6 +94,7 @@ export interface Conversation {
   unreadCountAgent: number;
   unreadCountCustomer: number;
   starred?: boolean;
+  snoozedUntil?: string | null; // ISO time; conversation is snoozed while this is in the future
   createdAt: string;
   updatedAt: string;
 }

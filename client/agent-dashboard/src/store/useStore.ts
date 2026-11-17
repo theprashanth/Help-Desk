@@ -26,6 +26,14 @@ interface AppState {
   setViewingMergedConversationId: (id: string | null) => void;
   setCurrentQueue: (queue: string) => void;
 
+  // Layout: whether the Inbox navigation panel is expanded
+  inboxNavOpen: boolean;
+  setInboxNavOpen: (open: boolean) => void;
+
+  // Deep link target: scroll to and highlight this message once it's loaded
+  focusMessageId: string | null;
+  setFocusMessageId: (id: string | null) => void;
+
   // Messages
   messages: Record<string, Message[]>; // conversationId -> messages
   setMessages: (conversationId: string, messages: Message[]) => void;
@@ -85,6 +93,8 @@ export const useStore = create<AppState>((set) => ({
   activeConversationId: null,
   viewingMergedConversationId: null,
   currentQueue: 'open',
+  inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
+  focusMessageId: null,
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
@@ -138,6 +148,8 @@ export const useStore = create<AppState>((set) => ({
   setActiveConversationId: (id) => set({ activeConversationId: id, viewingMergedConversationId: null }), // Clear merged view when changing active chat
   setViewingMergedConversationId: (id) => set({ viewingMergedConversationId: id }),
   setCurrentQueue: (queue) => set({ currentQueue: queue }),
+  setInboxNavOpen: (open) => set({ inboxNavOpen: open }),
+  setFocusMessageId: (id) => set({ focusMessageId: id }),
 
   // Messages
   messages: {},

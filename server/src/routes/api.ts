@@ -10,7 +10,7 @@ import {
   deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets
 } from '../controllers/tickets';
 import { 
-  getMessages, createMessage, addReaction, deleteMessage, uploadFiles, markSeen 
+  getMessages, createMessage, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
 } from '../controllers/messages';
 import { getAnalytics } from '../controllers/analytics';
 import { resetDatabase, seedData, simulateActivity } from '../controllers/simulation';
@@ -60,6 +60,7 @@ router.delete('/tags/:id', authenticateJWT, deleteTag);
 router.get('/messages/:conversationId', getMessages); // Open for guest testing
 router.post('/messages', createMessage); // Guest & Agent can post messages
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
+router.put('/messages/:messageId/tags', authenticateJWT, updateMessageTags);
 router.delete('/messages/:messageId', authenticateJWT, deleteMessage);
 router.post('/messages/upload', upload.single('file'), uploadFiles); // File attachments
 router.post('/attachments/upload', upload.single('file'), uploadFiles); // Alias for widget file attachments

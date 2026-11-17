@@ -46,7 +46,7 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
 }
 
 export async function createTicket(req: AuthenticatedRequest, res: Response) {
-  const { customerId, name, email, phone, priority, category, initialMessage, session } = req.body;
+  const { customerId, name, email, phone, priority, category, initialMessage, session, messageMetadata } = req.body;
   
   if (!customerId) {
     return res.status(400).json({ error: 'customerId is required' });
@@ -129,11 +129,12 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
         isInternalNote: false,
         seen: false,
         delivered: true,
-        metadata: {
-          platform: 'web',
-          sourceUrl: session?.currentPage || 'https://sudoprashanth.com/',
-          browser: session?.browser || 'Chrome (149.0.0.0)',
-          os: session?.os || 'OS X 10.15.7'
+        // Device the customer wrote from (sent by the widget); fall back to the session info
+        metadata: messageMetadata || {
+          platform: /ios|ipad|iphone/i.test(session?.os || '') ? 'ios' : /android/i.test(session?.os || '') ? 'android' : 'web',
+          sourceUrl: session?.currentPage,
+          browser: session?.browser,
+          os: session?.os
         }
       });
       // Retrieve updated conversation with correct last message snippet

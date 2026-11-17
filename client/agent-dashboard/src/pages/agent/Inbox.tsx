@@ -22,6 +22,45 @@ export const Inbox: React.FC = () => {
   const logout = useStore((state) => state.logout);
   const activeConversationId = useStore((state) => state.activeConversationId);
   const viewingMergedConversationId = useStore((state) => state.viewingMergedConversationId);
+  const inboxNavOpen = useStore((state) => state.inboxNavOpen);
+  const setActiveConversationId = useStore((state) => state.setActiveConversationId);
+  const setFocusMessageId = useStore((state) => state.setFocusMessageId);
+
+  // Deep links from "Copy link": /agent/inbox?conversation=<id>&message=<id>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const convId = params.get('conversation');
+    if (!convId || !token) return;
+    const messageId = params.get('message');
+    const queueForStatus: Record<string, string> = { open: 'open', waiting: 'waiting', resolved: 'resolved', closed: 'closed', archived: 'archived' };
+    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(res => (res.ok ? res.json() : null))
+      .then(conv => {
+        if (!conv) return;
+        setActiveTab(queueForStatus[conv.status] || 'open');
+        setActiveConversationId(conv.id);
+        if (messageId) setFocusMessageId(messageId);
+      })
+      .catch(e => console.error(e))
+      .finally(() => window.history.replaceState(null, '', window.location.pathname));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const setInboxNavOpen = useStore((state) => state.setInboxNavOpen);
+
+  // Auto-collapse the inbox nav on narrower windows (only when crossing the breakpoint,
+  // so a manual toggle isn't overridden by every resize event)
+  useEffect(() => {
+    let wide = window.innerWidth >= 1440;
+    const onResize = () => {
+      const nowWide = window.innerWidth >= 1440;
+      if (nowWide !== wide) {
+        wide = nowWide;
+        setInboxNavOpen(nowWide);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [setInboxNavOpen]);
   const navigate = useNavigate();
 
   // Redirect if unauthenticated
@@ -60,120 +99,150 @@ export const Inbox: React.FC = () => {
 
   // Sidebar item helper
   const sidebarItems = [
-    { id: 'open', label: 'Open Inbox', icon: <InboxIcon className="w-4 h-4" /> },
-    { id: 'assigned', label: 'My Assigned', icon: <User className="w-4 h-4" /> },
-    { id: 'waiting', label: 'Waiting', icon: <Clock className="w-4 h-4" /> },
-    { id: 'resolved', label: 'Resolved Today', icon: <CheckSquare className="w-4 h-4" /> },
-    { id: 'closed', label: 'Closed Tickets', icon: <Archive className="w-4 h-4" /> },
+    { id: 'open', label: 'Open Inbox', icon: <InboxIcon className="w-[18px] h-[18px]" /> },
+    { id: 'assigned', label: 'My Assigned', icon: <User className="w-[18px] h-[18px]" /> },
+    { id: 'waiting', label: 'Waiting', icon: <Clock className="w-[18px] h-[18px]" /> },
+    { id: 'resolved', label: 'Resolved Today', icon: <CheckSquare className="w-[18px] h-[18px]" /> },
+    { id: 'closed', label: 'Closed Tickets', icon: <Archive className="w-[18px] h-[18px]" /> },
   ];
 
   const mainTabs = [
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'settings', label: 'Settings', icon: <SettingsIcon className="w-4 h-4" /> },
-    { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-4.5 h-4.5" /> },
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
+    { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
   ];
 
   const isChatTab = ['open', 'assigned', 'waiting', 'resolved', 'closed', 'archived'].includes(activeTab);
 
+  // Remember the last inbox queue so the rail's Inbox icon returns to it
+  const [lastQueue, setLastQueue] = useState<string>('open');
+  useEffect(() => {
+    if (isChatTab) setLastQueue(activeTab);
+  }, [activeTab, isChatTab]);
+
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
   if (!agent) return null;
 
   return (
-    <div className="h-screen w-screen bg-[#fafafa] dark:bg-[#030712] flex overflow-hidden">
-      {/* Sidebar navigation */}
-      <div className="w-64 h-full bg-[#0d0e12] border-r border-[#1f212a] text-slate-400 flex flex-col shrink-0">
-        {/* Sidebar Header Logo */}
-        <div className="p-6 flex items-center gap-3 border-b border-[#1f212a]/60">
-          <div className="p-2 bg-gradient-to-tr from-violet-600 to-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-500/30">
-            <Globe className="w-5 h-5 animate-pulse" />
-          </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-slate-100 tracking-wide text-sm">Pebble Help</span>
-            <span className="text-[9px] text-violet-400 font-bold uppercase tracking-widest mt-0.5">Workspace</span>
-          </div>
+    <div className="h-screen w-screen bg-canvas text-ink flex overflow-hidden p-2 pl-0 gap-2">
+      {/* Far-left icon rail */}
+      <nav className="w-14 h-full shrink-0 flex flex-col items-center py-1.5 gap-1">
+        {/* Logo mark */}
+        <div className="w-9 h-9 mb-2 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Pebble Help">
+          <Globe className="w-[18px] h-[18px]" />
         </div>
 
-        {/* Sidebar Middle items */}
-        <div className="flex-1 overflow-y-auto py-6 px-4 flex flex-col gap-6">
-          {/* Inbox section */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 px-3">Queues</span>
-            {sidebarItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all duration-200 active:scale-95 ${
-                  activeTab === item.id 
-                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/25' 
-                    : 'hover:bg-slate-800/40 hover:text-slate-200 hover:scale-[1.01]'
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>
+        <button
+          onClick={() => setActiveTab(lastQueue)}
+          className={`ic-rail-btn ${isChatTab ? 'ic-rail-btn-active' : ''}`}
+          title="Inbox"
+        >
+          <InboxIcon className="w-[19px] h-[19px]" />
+        </button>
+        {mainTabs.map(item => (
+          <button
+            key={item.id}
+            onClick={() => setActiveTab(item.id)}
+            className={`ic-rail-btn ${activeTab === item.id ? 'ic-rail-btn-active' : ''}`}
+            title={item.label}
+          >
+            {item.icon}
+          </button>
+        ))}
 
-          {/* Administration settings */}
-          <div className="flex flex-col gap-1">
-            <span className="text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 px-3">Platform</span>
-            {mainTabs.map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 text-xs font-semibold rounded-xl transition-all duration-200 active:scale-95 ${
-                  activeTab === item.id 
-                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-indigo-600/25' 
-                    : 'hover:bg-slate-800/40 hover:text-slate-200 hover:scale-[1.01]'
-                }`}
-              >
-                {item.icon}
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <div className="flex-1" />
 
-        {/* Sidebar bottom */}
-        <div className="p-4 border-t border-[#1f212a]/60 flex flex-col gap-3">
-          {/* Profile bar */}
-          <div className="flex items-center gap-3 bg-[#161822] p-3 rounded-2xl border border-[#222533] shadow-inner">
-            <img 
-              src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'} 
-              className="w-8 h-8 rounded-full border border-slate-700 object-cover shrink-0" 
-              alt="Avatar" 
+        <button
+          onClick={toggleDarkMode}
+          className="ic-rail-btn"
+          title="Toggle Dark Mode"
+        >
+          {darkMode ? <Sun className="w-[19px] h-[19px]" /> : <Moon className="w-[19px] h-[19px]" />}
+        </button>
+        <button
+          onClick={() => setActiveTab('settings')}
+          className={`ic-rail-btn ${activeTab === 'settings' ? 'ic-rail-btn-active' : ''}`}
+          title="Settings"
+        >
+          <SettingsIcon className="w-[19px] h-[19px]" />
+        </button>
+
+        {/* Profile + sign out */}
+        <div className="relative mt-1">
+          <button
+            onClick={() => setProfileMenuOpen(o => !o)}
+            className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-ink/[0.06]"
+            title={agent.name}
+          >
+            <img
+              src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'}
+              className="w-7 h-7 rounded-full object-cover"
+              alt="Avatar"
             />
-            <div className="flex flex-col truncate">
-              <span className="text-slate-100 text-xs font-bold truncate leading-tight">{agent.name}</span>
-              <span className="text-[10px] text-slate-500 truncate capitalize font-medium">{agent.role.replace('_', ' ')}</span>
-            </div>
-          </div>
+            <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-canvas" />
+          </button>
 
-          {/* Controls */}
-          <div className="flex justify-between items-center text-xs px-1">
-            <button
-              onClick={toggleDarkMode}
-              className="p-2 rounded-xl hover:bg-slate-800/50 hover:text-slate-250 transition-colors"
-              title="Toggle Dark Mode"
-            >
-              {darkMode ? <Sun className="w-4.5 h-4.5 text-amber-400" /> : <Moon className="w-4.5 h-4.5" />}
-            </button>
-
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-xl hover:bg-red-950/20 hover:text-red-400 transition-colors flex items-center gap-1 font-semibold"
-              title="Sign Out"
-            >
-              <LogOut className="w-4.5 h-4.5 text-red-500" /> Sign Out
-            </button>
-          </div>
+          {profileMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
+              <div className="ic-menu absolute left-11 bottom-0 w-60 animate-fade-in">
+                <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-line mb-1">
+                  <img
+                    src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'}
+                    className="w-8 h-8 rounded-full object-cover shrink-0"
+                    alt="Avatar"
+                  />
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[14px] font-semibold text-ink truncate">{agent.name}</span>
+                    <span className="text-[12px] text-muted truncate capitalize">{agent.role.replace('_', ' ')}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { setProfileMenuOpen(false); toggleDarkMode(); }}
+                  className="ic-menu-item"
+                >
+                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                  {darkMode ? 'Light mode' : 'Dark mode'}
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="ic-menu-item text-red-600"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" /> Sign Out
+                </button>
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      </nav>
 
       {/* Main Workspace content area */}
-      <div className="flex-1 h-full flex overflow-hidden bg-slate-50 dark:bg-[#030712] animate-fade-in">
+      <div className="flex-1 h-full min-w-0 flex gap-2 overflow-hidden animate-fade-in">
         {isChatTab ? (
           /* Render chat inbox screens */
           <>
+            {/* Inbox navigation panel (collapsible from the list header) */}
+            {inboxNavOpen && (
+            <aside className="ic-panel-side w-[220px] h-full shrink-0 flex flex-col animate-fade-in">
+              <div className="h-16 shrink-0 flex items-center px-5">
+                <h1 className="ic-title">Inbox</h1>
+              </div>
+              <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-0.5">
+                {sidebarItems.map(item => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`ic-nav-item ${activeTab === item.id ? 'ic-nav-item-active' : ''}`}
+                  >
+                    <span className="text-ink/80">{item.icon}</span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </aside>
+            )}
+
             {/* List column */}
             <InboxList currentQueue={activeTab} />
 

@@ -11,26 +11,26 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full flex flex-col gap-1.5">
         {label && (
-          <label className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <label className="text-[14px] font-medium text-ink">
             {label}
           </label>
         )}
         <div className="relative flex items-center">
           {icon && (
-            <div className="absolute left-3 text-slate-400 pointer-events-none">
+            <div className="absolute left-3 text-faint pointer-events-none">
               {icon}
             </div>
           )}
           <input
             ref={ref}
-            className={`w-full text-sm rounded-lg border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all ${
+            className={`w-full h-10 text-[14px] rounded-lg border bg-surface border-line text-ink placeholder:text-faint focus:outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/[0.06] transition-colors ${
               icon ? 'pl-10' : 'pl-3'
-            } pr-3 py-2 ${error ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''} ${className}`}
+            } pr-3 ${error ? 'border-red-500 focus:ring-red-500/20 focus:border-red-500' : ''} ${className}`}
             {...props}
           />
         </div>
         {error && (
-          <span className="text-xs text-red-500 font-medium">{error}</span>
+          <span className="text-[13px] text-red-600 font-medium">{error}</span>
         )}
       </div>
     );

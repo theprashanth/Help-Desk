@@ -2,133 +2,338 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   Design tokens (Intercom-style). Values are RGB triplets so Tailwind's
+   opacity modifiers work: bg-ink/5, border-line/60, etc.
+   ========================================================================== */
 @layer base {
   :root {
-    --brand-color: 124, 58, 237; /* #7C3AED */
+    --ic-canvas: 240 239 236;        /* #f0efec */
+    --ic-surface: 255 255 255;       /* #ffffff */
+    --ic-sidebar: 250 250 249;       /* #fafaf9 */
+    --ic-subtle: 241 241 239;        /* #f1f1ef */
+    --ic-line: 233 232 229;          /* #e9e8e5 */
+    --ic-ink: 26 26 26;              /* #1a1a1a */
+    --ic-muted: 110 110 106;         /* #6e6e6a */
+    --ic-faint: 156 155 151;         /* #9c9b97 */
+    --ic-accent: 229 98 45;          /* #e5622d */
+    --ic-link: 42 91 215;            /* #2a5bd7 */
+    --ic-bubble-agent: 220 231 251;  /* #dce7fb */
+    --ic-bubble-customer: 244 244 242; /* #f4f4f2 */
+    --ic-note: 254 246 219;          /* #fef6db */
+    --ic-note-line: 245 222 160;     /* #f5dea0 */
+    --ic-on-ink: 255 255 255;
+
+    /* legacy vars kept for any untouched usage */
+    --brand-color: 124, 58, 237;
     --brand-gradient: linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%);
-    --background: 249, 250, 251; /* #f9fafb */
-    --foreground: 17, 24, 39; /* #111827 */
+    --background: 240, 239, 236;
+    --foreground: 26, 26, 26;
     --card: 255, 255, 255;
-    --card-foreground: 17, 24, 39;
-    --border: 229, 231, 235;
+    --card-foreground: 26, 26, 26;
+    --border: 233, 232, 229;
   }
 
   .dark {
-    --brand-color: 139, 92, 246; /* #8b5cf6 */
+    --ic-canvas: 10 10 11;
+    --ic-surface: 24 24 26;
+    --ic-sidebar: 19 19 21;
+    --ic-subtle: 36 36 39;
+    --ic-line: 44 44 48;
+    --ic-ink: 237 237 235;
+    --ic-muted: 160 160 156;
+    --ic-faint: 115 115 112;
+    --ic-accent: 240 120 70;
+    --ic-link: 120 160 255;
+    --ic-bubble-agent: 33 50 84;
+    --ic-bubble-customer: 36 36 39;
+    --ic-note: 58 48 20;
+    --ic-note-line: 98 80 30;
+    --ic-on-ink: 18 18 20;
+
+    --brand-color: 139, 92, 246;
     --brand-gradient: linear-gradient(135deg, #a78bfa 0%, #7c3aed 100%);
-    --background: 3, 7, 18; /* #030712 - Deep dark rich gray */
-    --foreground: 243, 244, 246; /* #f3f4f6 */
-    --card: 17, 24, 39; /* #111827 */
-    --card-foreground: 243, 244, 246;
-    --border: 31, 41, 55;
+    --background: 10, 10, 11;
+    --foreground: 237, 237, 235;
+    --card: 24, 24, 26;
+    --card-foreground: 237, 237, 235;
+    --border: 44, 44, 48;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    background-color: rgb(var(--background));
-    color: rgb(var(--foreground));
+    background-color: rgb(var(--ic-canvas));
+    color: rgb(var(--ic-ink));
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
   }
 }
 
-/* Glassmorphism Styles */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(229, 231, 235, 0.5);
+/* ==========================================================================
+   Reusable component classes. Prefer these over ad-hoc color utilities so
+   every screen stays consistent.
+   ========================================================================== */
+@layer components {
+  /* ---- Panels ---- */
+  .ic-panel {          /* main white panel: chat, settings content */
+    @apply bg-surface rounded-panel border border-line/70 overflow-hidden;
+  }
+  .ic-panel-side {     /* off-white panel: nav sidebar, conversation list, details */
+    @apply bg-sidebar rounded-panel border border-line/70 overflow-hidden;
+  }
+  .ic-panel-header {   /* 64px panel header row with large title */
+    @apply h-16 shrink-0 flex items-center gap-3 px-5 border-b border-line;
+  }
+  .ic-title {          /* panel title: "Inbox", "All", "Settings" */
+    @apply text-[22px] leading-7 font-semibold tracking-tight text-ink truncate;
+  }
+  .ic-section-title {  /* section heading inside content: "Workspace" */
+    @apply text-[17px] font-semibold text-ink;
+  }
+
+  /* ---- Navigation lists (inbox sidebar, settings sidebar) ---- */
+  .ic-nav-item {
+    @apply w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-[14px] text-ink/90 font-medium
+           hover:bg-ink/[0.04] transition-colors text-left;
+  }
+  .ic-nav-item-active {
+    @apply bg-surface shadow-pill text-ink hover:bg-surface;
+  }
+  .ic-nav-group {      /* collapsible group heading: "Fin for Service", "Workspace" */
+    @apply flex items-center justify-between px-3 h-9 text-[14px] font-medium text-ink;
+  }
+
+  /* ---- Rail (far-left icon strip) ---- */
+  .ic-rail-btn {
+    @apply w-9 h-9 flex items-center justify-center rounded-lg text-ink/80 hover:bg-ink/[0.06] hover:text-ink transition-colors;
+  }
+  .ic-rail-btn-active {
+    @apply bg-surface shadow-pill text-ink hover:bg-surface;
+  }
+
+  /* ---- Buttons ---- */
+  .ic-btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-9 px-4 rounded-full text-[14px] font-semibold
+           transition-colors disabled:opacity-40 disabled:pointer-events-none focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-link/40 whitespace-nowrap;
+  }
+  .ic-btn-primary {    /* black pill: Save, Upload CSV, Send */
+    @apply ic-btn bg-ink text-on-ink hover:bg-ink/85;
+  }
+  .ic-btn-secondary {  /* light gray pill: Learn, secondary actions */
+    @apply ic-btn bg-subtle text-ink hover:bg-ink/10;
+  }
+  .ic-btn-outline {
+    @apply ic-btn bg-surface text-ink border border-line hover:bg-subtle;
+  }
+  .ic-btn-ghost {
+    @apply ic-btn bg-transparent text-ink hover:bg-ink/[0.05];
+  }
+  .ic-btn-danger {
+    @apply ic-btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .ic-btn-sm {
+    @apply h-8 px-3 text-[13px];
+  }
+  .ic-icon-btn {       /* round gray icon button in panel headers */
+    @apply w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-full bg-subtle text-ink
+           hover:bg-ink/10 transition-colors disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .ic-icon-btn-ghost { /* round icon button without fill */
+    @apply w-8 h-8 shrink-0 inline-flex items-center justify-center rounded-full text-ink/80
+           hover:bg-ink/[0.06] hover:text-ink transition-colors;
+  }
+  .ic-icon-btn-primary { /* black round icon button: close/resolve conversation */
+    @apply w-9 h-9 shrink-0 inline-flex items-center justify-center rounded-full bg-ink text-on-ink hover:bg-ink/85 transition-colors;
+  }
+  .ic-link {
+    @apply text-link hover:underline underline-offset-2;
+  }
+  .ic-add-link {       /* orange "+ Add hours" style action */
+    @apply inline-flex items-center gap-1.5 text-accent font-medium hover:opacity-80;
+  }
+
+  /* ---- Form controls ---- */
+  .ic-input {
+    @apply w-full h-10 px-3 rounded-lg border border-line bg-surface text-[14px] text-ink placeholder:text-faint
+           focus:outline-none focus:border-ink/40 focus:ring-2 focus:ring-ink/[0.06] transition-colors
+           disabled:bg-subtle disabled:text-faint;
+  }
+  .ic-textarea {
+    @apply ic-input h-auto py-2.5 leading-relaxed resize-none;
+  }
+  .ic-select {
+    @apply ic-input appearance-none pr-9 bg-no-repeat cursor-pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236e6e6a' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-position: right 12px center;
+  }
+  .ic-label {          /* form field label */
+    @apply block text-[14px] font-medium text-ink mb-1.5;
+  }
+  .ic-help {           /* helper text under fields */
+    @apply text-[13px] text-muted leading-relaxed;
+  }
+
+  /* toggle switch: <button role="switch" className={`ic-toggle ${on ? 'ic-toggle-on' : ''}`}><span className="ic-toggle-knob" /></button> */
+  .ic-toggle {
+    @apply relative inline-flex h-6 w-11 shrink-0 items-center rounded-full bg-ink/20 transition-colors cursor-pointer;
+  }
+  .ic-toggle-on {
+    @apply bg-accent;
+  }
+  .ic-toggle-knob {
+    @apply inline-block h-[18px] w-[18px] translate-x-[3px] rounded-full bg-white shadow transition-transform;
+  }
+  .ic-toggle-on .ic-toggle-knob {
+    @apply translate-x-[23px];
+  }
+
+  /* ---- Tabs (orange underline) ---- */
+  .ic-tabs {
+    @apply flex items-end gap-7 border-b border-line px-5;
+  }
+  .ic-tab {
+    @apply relative pb-3 pt-1 text-[15px] font-medium text-muted hover:text-ink transition-colors whitespace-nowrap;
+  }
+  .ic-tab-active {
+    @apply text-ink after:absolute after:left-0 after:right-0 after:-bottom-px after:h-[2px] after:rounded-full after:bg-accent;
+  }
+
+  /* ---- Cards ---- */
+  .ic-card {           /* bordered content card (settings sections, stat tiles) */
+    @apply bg-surface border border-line rounded-xl;
+  }
+  .ic-card-hover {
+    @apply ic-card hover:border-ink/20 hover:shadow-card transition-all cursor-pointer;
+  }
+  .ic-tile-icon {      /* tinted rounded square holding an icon (settings home cards) */
+    @apply w-11 h-11 shrink-0 rounded-[10px] flex items-center justify-center;
+  }
+
+  /* ---- Chips / pills ---- */
+  .ic-chip {           /* "5 Open", "Last activity" filter pills */
+    @apply inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-line bg-surface text-[14px] font-medium text-ink
+           hover:bg-subtle transition-colors;
+  }
+  .ic-badge {          /* small neutral badge */
+    @apply inline-flex items-center gap-1 h-5 px-2 rounded-full bg-subtle text-[12px] font-medium text-muted;
+  }
+  .ic-count {          /* right-aligned count in nav lists */
+    @apply ml-auto text-[13px] text-muted tabular-nums;
+  }
+
+  /* ---- Detail rows (label / value) in details sidebar ---- */
+  .ic-detail-row {
+    @apply grid grid-cols-[112px_1fr] items-center gap-3 min-h-[36px] text-[14px];
+  }
+  .ic-detail-label {
+    @apply text-muted truncate;
+  }
+  .ic-detail-value {
+    @apply text-ink truncate min-w-0;
+  }
+  .ic-detail-section {
+    @apply border-b border-line px-5 py-4;
+  }
+  .ic-detail-section-title {
+    @apply flex items-center gap-2.5 text-[15px] font-semibold text-ink;
+  }
+
+  /* ---- Menus / popovers ---- */
+  .ic-menu {
+    @apply bg-surface rounded-xl shadow-pop py-1.5 min-w-[220px] z-50;
+  }
+  .ic-menu-item {
+    @apply w-full flex items-center gap-3 px-3.5 h-9 text-[14px] text-ink hover:bg-subtle text-left transition-colors;
+  }
+  .ic-kbd {
+    @apply inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded border border-line text-[11px] text-muted font-medium;
+  }
+
+  /* ---- Avatars ---- */
+  .ic-avatar {
+    @apply shrink-0 rounded-full flex items-center justify-center font-semibold text-ink/80 overflow-hidden;
+  }
+
+  /* ---- Empty states ---- */
+  .ic-empty {
+    @apply flex flex-col items-center justify-center text-center gap-2 text-muted;
+  }
+  .ic-empty-title {
+    @apply text-[18px] font-semibold text-ink/80;
+  }
 }
 
-.dark .glass-panel {
-  background: rgba(17, 24, 39, 0.45);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.03);
-}
-
-.glass-card-active {
-  background: linear-gradient(135deg, rgba(124, 58, 237, 0.08) 0%, rgba(79, 70, 229, 0.03) 100%);
-  border: 1px solid rgba(124, 58, 237, 0.15);
-}
-
-.dark .glass-card-active {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.12) 0%, rgba(124, 58, 237, 0.03) 100%);
-  border: 1px solid rgba(139, 92, 246, 0.2);
-}
-
-/* Custom Scrollbar Styles */
+/* ==========================================================================
+   Scrollbars: thin and neutral
+   ========================================================================== */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
-
 ::-webkit-scrollbar-track {
   background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: rgba(124, 58, 237, 0.15);
+  background: rgb(var(--ic-ink) / 0.12);
   border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(124, 58, 237, 0.35);
+  background: rgb(var(--ic-ink) / 0.25);
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(139, 92, 246, 0.15);
+/* ==========================================================================
+   Legacy helpers (still referenced in a few places)
+   ========================================================================== */
+.glass-panel {
+  background: rgb(var(--ic-surface));
+  border: 1px solid rgb(var(--ic-line));
 }
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(139, 92, 246, 0.35);
+.glass-card-active {
+  background: rgb(var(--ic-surface));
+  border: 1px solid rgb(var(--ic-line));
 }
-
-/* Premium gradient accents */
 .text-gradient {
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: rgb(var(--ic-ink));
 }
-
-/* Smooth active indicator */
 .active-accent-bar::before {
   content: '';
   position: absolute;
   left: 0;
   top: 15%;
   height: 70%;
-  width: 4px;
-  background: var(--brand-gradient);
-  border-radius: 0 4px 4px 0;
+  width: 3px;
+  background: rgb(var(--ic-accent));
+  border-radius: 0 3px 3px 0;
 }
 
-/* Custom typing dot animation */
+/* Typing dots */
 @keyframes blink {
   0% { opacity: .2; }
   20% { opacity: 1; }
   100% { opacity: .2; }
 }
-
 .typing-dot {
   animation-name: blink;
   animation-duration: 1.4s;
   animation-iteration-count: infinite;
   animation-fill-mode: both;
 }
+.typing-dot:nth-child(2) { animation-delay: .2s; }
+.typing-dot:nth-child(3) { animation-delay: .4s; }
 
-.typing-dot:nth-child(2) {
-  animation-delay: .2s;
-}
-
-.typing-dot:nth-child(3) {
-  animation-delay: .4s;
-}
-
-/* Premium Animations */
 @keyframes glowPulse {
-  0%, 100% { box-shadow: 0 0 4px 0px rgba(139, 92, 246, 0.2); }
-  50% { box-shadow: 0 0 12px 2px rgba(139, 92, 246, 0.4); }
+  0%, 100% { box-shadow: 0 0 0 0 rgb(var(--ic-accent) / 0.25); }
+  50% { box-shadow: 0 0 0 4px rgb(var(--ic-accent) / 0.12); }
 }
-
 .animate-glow-pulse {
   animation: glowPulse 2s infinite ease-in-out;
 }

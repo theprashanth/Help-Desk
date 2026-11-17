@@ -103,6 +103,7 @@ export interface IConversationDoc extends Document {
   unreadCountAgent: number;
   unreadCountCustomer: number;
   starred?: boolean;
+  snoozedUntil?: Date | null;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -116,7 +117,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   lastMessageSnippet: { type: String, default: '' },
   unreadCountAgent: { type: Number, default: 0 },
   unreadCountCustomer: { type: Number, default: 0 },
-  starred: { type: Boolean, default: false }
+  starred: { type: Boolean, default: false },
+  snoozedUntil: { type: Date, default: null }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);
@@ -147,6 +149,7 @@ export interface IMessageDoc extends Document {
     agentName: string;
     emoji: string;
   }>;
+  tags?: string[];
   metadata?: any;
 }
 
@@ -175,6 +178,7 @@ export const MessageSchema = new Schema<IMessageDoc>({
     agentName: { type: String, required: true },
     emoji: { type: String, required: true }
   }],
+  tags: { type: [String], default: [] },
   metadata: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 

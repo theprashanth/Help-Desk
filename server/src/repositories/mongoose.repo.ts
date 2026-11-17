@@ -102,6 +102,8 @@ const mapMessage = (doc: any): Message => ({
     agentName: r.agentName,
     emoji: r.emoji
   })) || [],
+  tags: doc.tags || [],
+  metadata: doc.metadata,
   createdAt: doc.createdAt?.toISOString(),
 });
 
@@ -247,6 +249,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       unreadCountAgent: doc.unreadCountAgent,
       unreadCountCustomer: doc.unreadCountCustomer,
       starred: doc.starred || false,
+      snoozedUntil: doc.snoozedUntil ? new Date(doc.snoozedUntil).toISOString() : null,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -278,6 +281,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       unreadCountAgent: conv.unreadCountAgent || 0,
       unreadCountCustomer: conv.unreadCountCustomer || 0,
       starred: conv.starred || false,
+      snoozedUntil: conv.snoozedUntil || null,
     });
     await doc.save();
     return this.buildConversationObject(doc);

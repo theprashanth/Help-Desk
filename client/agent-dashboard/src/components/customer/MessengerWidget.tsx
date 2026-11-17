@@ -98,12 +98,13 @@ export const MessengerWidget: React.FC = () => {
     if (/Windows NT 6\.3/.test(ua)) return 'Windows 8.1';
     if (/Windows NT 6\.1/.test(ua)) return 'Windows 7';
     if (/Windows/.test(ua)) return 'Windows';
+    // iOS/iPadOS first: their user agents also contain "like Mac OS X"
+    if (/iPhone OS/.test(ua)) { const m = ua.match(/iPhone OS ([\d_]+)/); return `iOS ${m?.[1]?.replace(/_/g, '.') || ''}`; }
+    if (/iPad/.test(ua)) return 'iPadOS';
+    if (/Android/.test(ua)) { const m = ua.match(/Android ([\d.]+)/); return `Android ${m?.[1] || ''}`; }
     if (/Mac OS X 10[_\s]15/.test(ua)) return 'macOS Catalina';
     if (/Mac OS X 10[_\s]14/.test(ua)) return 'macOS Mojave';
     if (/Mac OS X/.test(ua)) return 'macOS';
-    if (/Android/.test(ua)) { const m = ua.match(/Android ([\d.]+)/); return `Android ${m?.[1] || ''}`; }
-    if (/iPhone OS/.test(ua)) { const m = ua.match(/iPhone OS ([\d_]+)/); return `iOS ${m?.[1]?.replace(/_/g, '.') || ''}`; }
-    if (/iPad/.test(ua)) return 'iPadOS';
     if (/Linux/.test(ua)) return 'Linux';
     return 'Unknown OS';
   };
@@ -111,12 +112,36 @@ export const MessengerWidget: React.FC = () => {
   /** Parse short browser name from userAgent */
   const parseBrowser = (): string => {
     const ua = navigator.userAgent;
-    if (/Edg\//.test(ua)) { const m = ua.match(/Edg\/([\d.]+)/); return `Edge ${m?.[1]?.split('.')[0] || ''}`; }
+    // iOS browsers all use WebKit but identify themselves with their own tokens
+    if (/CriOS\//.test(ua)) { const m = ua.match(/CriOS\/([\d.]+)/); return `Chrome ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/FxiOS\//.test(ua)) { const m = ua.match(/FxiOS\/([\d.]+)/); return `Firefox ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/EdgiOS\//.test(ua)) { const m = ua.match(/EdgiOS\/([\d.]+)/); return `Edge ${m?.[1]?.split('.')[0] || ''}`; }
+    if (/Edg[A]?\//.test(ua)) { const m = ua.match(/Edg[A]?\/([\d.]+)/); return `Edge ${m?.[1]?.split('.')[0] || ''}`; }
     if (/OPR\//.test(ua)) { const m = ua.match(/OPR\/([\d.]+)/); return `Opera ${m?.[1]?.split('.')[0] || ''}`; }
     if (/Chrome\//.test(ua)) { const m = ua.match(/Chrome\/([\d.]+)/); return `Chrome ${m?.[1]?.split('.')[0] || ''}`; }
     if (/Firefox\//.test(ua)) { const m = ua.match(/Firefox\/([\d.]+)/); return `Firefox ${m?.[1]?.split('.')[0] || ''}`; }
     if (/Safari\//.test(ua)) { const m = ua.match(/Version\/([\d.]+)/); return `Safari ${m?.[1]?.split('.')[0] || ''}`; }
     return 'Unknown Browser';
+  };
+
+  /**
+   * Device the message is sent from. Native apps that embed the widget in a webview can
+   * set `window.HelpDesk = { platform: 'ios' | 'android', channel: 'app' }` to be explicit.
+   */
+  const getDeviceMetadata = () => {
+    const ua = navigator.userAgent;
+    const cfg = (window as any).HelpDesk || {};
+    const isIOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const isAndroid = /Android/.test(ua);
+    // In-app webviews: iOS WKWebView lacks the "Safari/" token; Android WebView adds "; wv)"
+    const isWebView = isIOS ? !/Safari\//.test(ua) : isAndroid ? /; wv\)/.test(ua) : false;
+    return {
+      platform: cfg.platform || (isIOS ? 'ios' : isAndroid ? 'android' : 'web'),
+      channel: cfg.channel || (isWebView ? 'app' : 'browser'),
+      browser: parseBrowser(),
+      os: isIOS && /Macintosh/.test(ua) ? 'iPadOS' : parseOS(),
+      sourceUrl: window.location.href,
+    };
   };
 
   // Initialize Guest/User
@@ -321,6 +346,7 @@ export const MessengerWidget: React.FC = () => {
             email: localStorage.getItem('customer_guest_email') || undefined,
             phone: localStorage.getItem('customer_guest_phone') || undefined,
             initialMessage: content,
+            messageMetadata: getDeviceMetadata(),
             session: {
               browser: parseBrowser(),
               os: parseOS(),
@@ -367,7 +393,8 @@ export const MessengerWidget: React.FC = () => {
           conversationId: activeConv.id,
           sender: { id: guestId, name: guestName, type: 'customer' },
           content,
-          attachments: attachments || []
+          attachments: attachments || [],
+          metadata: getDeviceMetadata()
         })
       });
 
