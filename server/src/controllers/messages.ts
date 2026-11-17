@@ -43,13 +43,17 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       isInternalNote: !!isInternalNote,
       seen: false,
       delivered: true,
-      reactions: []
+      reactions: [],
+      metadata: req.body.metadata
     });
 
     // Update unread count based on sender type
     const updateData: any = {};
     if (sender.type === 'customer') {
       updateData.unreadCountAgent = conv.unreadCountAgent + 1;
+      // A customer reply wakes the conversation up (Intercom-style)
+      if (conv.snoozedUntil) updateData.snoozedUntil = null;
+      if (conv.status === 'waiting') updateData.status = 'open';
     } else if (sender.type === 'agent' && !isInternalNote) {
       updateData.unreadCountCustomer = conv.unreadCountCustomer + 1;
     }
@@ -120,6 +124,28 @@ export async function addReaction(req: AuthenticatedRequest, res: Response) {
       return res.status(404).json({ error: 'Message update failed' });
     }
 
+    SocketService.broadcastMessageUpdate(updated);
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+export async function updateMessageTags(req: AuthenticatedRequest, res: Response) {
+  const { messageId } = req.params;
+  const { tags } = req.body;
+
+  if (!Array.isArray(tags) || !tags.every(t => typeof t === 'string')) {
+    return res.status(400).json({ error: 'tags must be an array of strings' });
+  }
+
+  try {
+    const msgRepo = RepositoryFactory.getMessageRepository();
+    const uniqueTags = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
+    const updated = await msgRepo.update(messageId, { tags: uniqueTags });
+    if (!updated) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
     SocketService.broadcastMessageUpdate(updated);
     return res.json(updated);
   } catch (err: any) {

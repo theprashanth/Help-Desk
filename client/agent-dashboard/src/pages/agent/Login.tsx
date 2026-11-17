@@ -44,60 +44,59 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8 select-none">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
-        <div className="p-3 bg-brand-500 rounded-2xl text-white shadow-lg shadow-brand-500/20 mb-4">
-          <Globe className="w-8 h-8" />
-        </div>
-        <h2 className="text-center text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
-          Agent Dashboard
-        </h2>
-        <p className="mt-1.5 text-center text-xs font-semibold text-slate-400 uppercase tracking-wide">
-          Help Desk Customer Support Platform
-        </p>
-      </div>
-
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white dark:bg-slate-900 py-8 px-4 border border-slate-200/50 dark:border-slate-800 shadow-xl rounded-3xl sm:px-10 glass-panel">
-          <form className="space-y-6" onSubmit={handleLogin}>
-            {error && (
-              <div className="p-3 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/30 text-xs font-medium text-red-650 dark:text-red-400 rounded-xl">
-                {error}
-              </div>
-            )}
-
-            <Input
-              label="Email Address"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              icon={<Mail className="w-4 h-4" />}
-            />
-
-            <Input
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              icon={<Lock className="w-4 h-4" />}
-            />
-
-            <div>
-              <Button
-                type="submit"
-                loading={loading}
-                className="w-full py-2.5 font-semibold shadow-brand-500/20"
-              >
-                Sign In to Dashboard
-              </Button>
-            </div>
-          </form>
-
-          <div className="mt-6 border-t pt-6 text-center text-xs text-slate-400">
-            <span className="font-bold">Testing Preset:</span> admin@localhost / admin123
+    <div className="min-h-screen bg-canvas flex items-center justify-center px-4 py-12">
+      <div className="w-full max-w-[400px] bg-surface rounded-panel border border-line p-8">
+        <div className="flex flex-col items-start">
+          <div className="w-10 h-10 bg-ink text-on-ink rounded-xl flex items-center justify-center mb-6">
+            <Globe className="w-5 h-5" />
           </div>
+          <h2 className="text-[24px] leading-8 font-semibold tracking-tight text-ink">
+            Agent Dashboard
+          </h2>
+          <p className="mt-1 text-[14px] text-muted">
+            Help Desk customer support platform
+          </p>
+        </div>
+
+        <form className="mt-8 space-y-5" onSubmit={handleLogin}>
+          {error && (
+            <div className="px-3 py-2.5 bg-red-50 dark:bg-red-500/15 border border-red-200 dark:border-red-500/20 text-[13px] font-medium text-red-700 dark:text-red-300 rounded-lg">
+              {error}
+            </div>
+          )}
+
+          <Input
+            label="Email address"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            icon={<Mail className="w-4 h-4" />}
+          />
+
+          <Input
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            icon={<Lock className="w-4 h-4" />}
+          />
+
+          <div className="pt-1">
+            <Button
+              type="submit"
+              size="lg"
+              loading={loading}
+              className="w-full"
+            >
+              Sign in to dashboard
+            </Button>
+          </div>
+        </form>
+
+        <div className="mt-6 border-t border-line pt-5 text-center text-[13px] text-muted">
+          <span className="font-medium text-ink">Testing preset:</span> admin@localhost / admin123
         </div>
       </div>
     </div>

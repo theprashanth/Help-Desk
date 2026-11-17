@@ -3,19 +3,69 @@ import { useStore } from '../../store/useStore';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, SavedReply } from '../../../../../shared/src/types';
 import { 
-  Send, Paperclip, Smile, CheckCheck, Check, Trash2, 
-  CheckCircle, Lock, Globe, ExternalLink, Star, MoreHorizontal,
+  Send, Paperclip, Smile, CheckCheck, Check, 
+  Lock, Globe, ExternalLink, Star, MoreHorizontal,
   Clock, GitMerge, Ban, UserPlus, FileText, FileDown,
-  Activity, AlarmClock, X, BellOff
+  Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
+  SendHorizontal, Hourglass, CheckCircle2, Inbox as InboxIcon, Archive, ArrowLeft, Search, CircleDot,
+  Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus
 } from 'lucide-react';
+import { getDeviceInfo, DeviceIcon } from '../../lib/device';
+import { SNOOZE_OPTIONS, computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
+
+// Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
+const TICKET_STATES: {
+  status: string; label: string; hint?: string; kbd?: string[];
+  icon: React.ElementType; color: string;
+}[] = [
+  { status: 'open', label: 'In progress', hint: 'Keep working on it', icon: CircleDot, color: 'text-accent' },
+  { status: 'waiting', label: 'Waiting on customer', hint: 'Moves back to In progress when they reply', icon: Hourglass, color: 'text-red-500' },
+  { status: 'resolved', label: 'Resolved', hint: 'The problem is solved', icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400' },
+  { status: 'closed', label: 'Close', kbd: ['⌘', '⇧', 'Y'], icon: InboxIcon, color: 'text-ink' },
+  { status: 'archived', label: 'Archive', hint: 'Hide from every queue', icon: Archive, color: 'text-muted' },
+];
+const STATE_LABELS: Record<string, string> = {
+  open: 'In progress', waiting: 'Waiting on customer', resolved: 'Resolved',
+  closed: 'Closed', archived: 'Archived', merged: 'Merged'
+};
 
 const BACKEND_URL = 'http://localhost:3000';
+
+const getInitials = (name?: string, id?: string) => {
+  if (name && name.trim()) {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length > 1 && parts[0][0] && parts[1][0]) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.trim().substring(0, 2).toUpperCase();
+  }
+  if (id && id.trim()) {
+    const cleanId = id.replace(/guest_?/i, '').trim();
+    return cleanId.substring(0, 2).toUpperCase();
+  }
+  return 'G';
+};
+
+const formatRelativeTime = (dateString: string) => {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return 'now';
+  if (diffMins < 60) return `${diffMins}m`;
+  const diffHours = Math.floor(diffMins / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d`;
+};
+
 
 export const ChatWindow: React.FC = () => {
   const activeConversationId = useStore((state) => state.activeConversationId);
   const conversations = useStore((state) => state.conversations);
   const token = useStore((state) => state.token);
   const agent = useStore((state) => state.agent);
+  const chatColorTheme = useStore((state) => (state as any).chatColorTheme);
   
   const [ticket, setTicket] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -30,21 +80,58 @@ export const ChatWindow: React.FC = () => {
   const [filteredReplies, setFilteredReplies] = useState<SavedReply[]>([]);
   const savedReplies = useStore((state) => state.savedReplies);
   const setSavedReplies = useStore((state) => state.setSavedReplies);
+  const allTags = useStore((state) => state.tags);
+  const setAllTags = useStore((state) => state.setTags);
+  const focusMessageId = useStore((state) => state.focusMessageId);
+  const setFocusMessageId = useStore((state) => state.setFocusMessageId);
+
+  // Per-message action menus (agent messages): "…" actions, tag picker, reactions
+  const [msgMenu, setMsgMenu] = useState<{ id: string; kind: 'actions' | 'tags' | 'react' } | null>(null);
+  const [msgMenuQuery, setMsgMenuQuery] = useState('');
+  const [macroDraft, setMacroDraft] = useState<{ title: string; trigger: string; content: string } | null>(null);
+  const [macroSaving, setMacroSaving] = useState(false);
+  const [macroError, setMacroError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
   
   // Typing state
   const [isTyping, setIsTyping] = useState(false);
   const [customerTyping, setCustomerTyping] = useState(false);
   
-  // Assignee agents
-  const [agents, setAgents] = useState<any[]>([]);
 
   // Header action states
-  const [isStarred, setIsStarred] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
-  const [snoozeActive, setSnoozeActive] = useState<string | null>(null);
+  const [duplicateTickets, setDuplicateTickets] = useState<any[]>([]);
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
+  const [mergeConfirmLoading, setMergeConfirmLoading] = useState(false);
+  const [mergeSearchText, setMergeSearchText] = useState('');
+
+  // Load other open duplicate tickets for the same customer
+  useEffect(() => {
+    if (!showMergePanel || !token || !ticket?.customer?.id) return;
+    const fetchDuplicates = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/customers/${ticket.customer.id}/tickets`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const openOthers = data.filter((c: any) => 
+            c.id !== ticket.id && 
+            (c.status === 'open' || c.status === 'waiting')
+          );
+          setDuplicateTickets(openOthers);
+        }
+      } catch (e) {
+        console.error('Failed to load duplicate tickets:', e);
+      }
+    };
+    fetchDuplicates();
+  }, [showMergePanel, token, ticket?.id, ticket?.customer?.id]);
+
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -53,6 +140,19 @@ export const ChatWindow: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+
+  // Derived state
+  const isStarred = ticket?.starred || false;
+
+  // Auto-grow textarea viewport based on text length
+  useEffect(() => {
+    const textarea = composerRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      const newHeight = Math.max(45, Math.min(textarea.scrollHeight, 180));
+      textarea.style.height = `${newHeight}px`;
+    }
+  }, [inputText]);
 
   // Sync ticket details
   useEffect(() => {
@@ -65,16 +165,6 @@ export const ChatWindow: React.FC = () => {
     if (t) setTicket(t);
   }, [activeConversationId, conversations]);
 
-  // Fetch agents list
-  useEffect(() => {
-    if (!token) return;
-    fetch(`${BACKEND_URL}/api/auth/agents`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    })
-      .then(res => res.json())
-      .then(data => setAgents(data))
-      .catch(e => console.error(e));
-  }, [token]);
 
   // Fetch saved replies from backend
   useEffect(() => {
@@ -220,7 +310,31 @@ export const ChatWindow: React.FC = () => {
     const match = val.match(/\/(\w*)$/);
     if (match) {
       const searchTrigger = match[1].toLowerCase();
-      const filtered = savedReplies.filter(r => r.trigger.substring(1).toLowerCase().startsWith(searchTrigger));
+      let filtered = savedReplies.filter(r => r.trigger.substring(1).toLowerCase().startsWith(searchTrigger));
+      
+      // Filter by availability restrictions
+      filtered = filtered.filter(r => {
+        // Available For filter
+        if (r.availableFor === 'myself' && r.creator?.id !== agent?.id) {
+          return false;
+        }
+        
+        // Available When filter
+        if (r.availableWhen && r.availableWhen.length > 0) {
+          if (isInternal) {
+            return r.availableWhen.includes('adding_notes');
+          } else {
+            const hasMessages = messages.length > 0;
+            if (!hasMessages) {
+              return r.availableWhen.includes('starting_conversations');
+            } else {
+              return r.availableWhen.includes('replying');
+            }
+          }
+        }
+        return true;
+      });
+
       setFilteredReplies(filtered);
       setShowReplies(filtered.length > 0);
     } else {
@@ -345,7 +459,7 @@ export const ChatWindow: React.FC = () => {
     }
   };
 
-  const handlePriorityChange = async (newPriority: string) => {
+  const handleStarToggle = async () => {
     if (!ticket) return;
     try {
       await fetch(`${BACKEND_URL}/api/tickets/${ticket.id}`, {
@@ -354,28 +468,162 @@ export const ChatWindow: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ priority: newPriority })
+        body: JSON.stringify({ starred: !isStarred })
       });
     } catch (e) {
       console.error(e);
     }
   };
 
-  const handleAssigneeChange = async (agentId: string) => {
+  const showToast = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast(t => (t === text ? null : t)), 2200);
+  };
+
+  const openMsgMenu = (id: string, kind: 'actions' | 'tags' | 'react') => {
+    setMsgMenuQuery('');
+    setMsgMenu(prev => (prev && prev.id === id && prev.kind === kind ? null : { id, kind }));
+  };
+
+  // Toggle a tag on a message (creates the tag first if it doesn't exist yet)
+  const handleToggleMessageTag = async (m: Message, tagName: string) => {
+    const name = tagName.trim();
+    if (!name) return;
+    try {
+      if (!allTags.some(t => t.name.toLowerCase() === name.toLowerCase())) {
+        const palette = ['#2a5bd7', '#e5622d', '#14b8a6', '#8b5cf6', '#db2777', '#ca8a04'];
+        const res = await fetch(`${BACKEND_URL}/api/tags`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify({ name, color: palette[allTags.length % palette.length] })
+        });
+        if (res.ok) setAllTags([...allTags, await res.json()]);
+      }
+      const current = m.tags || [];
+      const next = current.includes(name) ? current.filter(t => t !== name) : [...current, name];
+      const res = await fetch(`${BACKEND_URL}/api/messages/${m.id}/tags`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ tags: next })
+      });
+      if (res.ok) {
+        const updated: Message = await res.json();
+        setMessages(prev => prev.map(x => (x.id === updated.id ? updated : x)));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCopyMessageLink = async (m: Message) => {
+    const url = `${window.location.origin}/agent/inbox?conversation=${encodeURIComponent(m.conversationId)}&message=${encodeURIComponent(m.id)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast('Link copied');
+    } catch {
+      window.prompt('Copy this link', url);
+    }
+  };
+
+  const startSaveAsMacro = (m: Message) => {
+    const title = (m.content || 'New macro').replace(/\s+/g, ' ').trim().slice(0, 48);
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || 'macro';
+    setMacroError(null);
+    setMacroDraft({ title, trigger: `/${slug}`, content: m.content || '' });
+  };
+
+  const handleSaveMacro = async () => {
+    if (!macroDraft) return;
+    const trigger = macroDraft.trigger.startsWith('/') ? macroDraft.trigger : `/${macroDraft.trigger}`;
+    if (!macroDraft.title.trim() || trigger.length < 2 || !macroDraft.content.trim()) {
+      setMacroError('Title, shortcut and content are required.');
+      return;
+    }
+    if (savedReplies.some(r => r.trigger.toLowerCase() === trigger.toLowerCase())) {
+      setMacroError(`The shortcut ${trigger} is already used by another macro.`);
+      return;
+    }
+    setMacroSaving(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/saved-replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ title: macroDraft.title.trim(), trigger, content: macroDraft.content })
+      });
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to save macro');
+      setSavedReplies([...savedReplies, await res.json()]);
+      setMacroDraft(null);
+      showToast(`Saved as macro ${trigger}`);
+    } catch (e: any) {
+      setMacroError(e.message);
+    } finally {
+      setMacroSaving(false);
+    }
+  };
+
+  // Deep link (?message=…): scroll to the message once it's loaded, then highlight it briefly
+  useEffect(() => {
+    if (!focusMessageId || !messages.some(x => x.id === focusMessageId)) return;
+    const el = document.getElementById(`msg-${focusMessageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightMsgId(focusMessageId);
+      setTimeout(() => setHighlightMsgId(null), 2400);
+    }
+    setFocusMessageId(null);
+  }, [focusMessageId, messages, setFocusMessageId]);
+
+  // Persisted snooze: pass an ISO time, or null to unsnooze
+  const handleSnoozeChange = async (snoozedUntil: string | null) => {
     if (!ticket) return;
     try {
-      await fetch(`${BACKEND_URL}/api/tickets/${ticket.id}/assign`, {
+      await fetch(`${BACKEND_URL}/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ agentId: agentId === 'unassigned' ? null : agentId })
+        body: JSON.stringify({ snoozedUntil })
       });
     } catch (e) {
       console.error(e);
     }
   };
+
+  // "Update ticket state" palette
+  const [showStateMenu, setShowStateMenu] = useState(false);
+  const [stateQuery, setStateQuery] = useState('');
+  const [stateIndex, setStateIndex] = useState(0);
+  const filteredStates = TICKET_STATES.filter(st =>
+    st.label.toLowerCase().includes(stateQuery.trim().toLowerCase())
+  );
+  const openStateMenu = () => {
+    setStateQuery('');
+    const currentIdx = TICKET_STATES.findIndex(st => st.status === ticket?.status);
+    setStateIndex(currentIdx >= 0 ? currentIdx : 0);
+    setShowStateMenu(true);
+    setShowMoreMenu(false);
+    setShowSnoozeMenu(false);
+  };
+  const chooseState = (status: string) => {
+    setShowStateMenu(false);
+    if (ticket && status !== ticket.status) handleStatusChange(status);
+  };
+
+  // ⌘⇧Y closes the open conversation (shown as a hint in the palette)
+  useEffect(() => {
+    if (!ticket) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        setShowStateMenu(false);
+        if (ticket.status !== 'closed') handleStatusChange('closed');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ticket?.id, ticket?.status]);
 
   const formatMarkdown = (text: string) => {
     if (!text) return '';
@@ -386,254 +634,201 @@ export const ChatWindow: React.FC = () => {
     
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    html = html.replace(/`(.*?)`/g, '<code class="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-xs text-red-500 font-mono">$1</code>');
-    html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="text-brand-500 hover:underline">$1</a>');
+    html = html.replace(/`(.*?)`/g, '<code class="bg-ink/[0.06] px-1 py-0.5 rounded text-[13px] text-ink font-mono">$1</code>');
+    html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="text-link underline underline-offset-2">$1</a>');
     
     return <div dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
   if (!ticket) {
     return (
-      <div className="flex-1 h-full bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center text-slate-400 gap-3">
-        <div className="p-4 bg-white dark:bg-slate-900 rounded-full border border-slate-200/50 dark:border-slate-800 shadow-sm">
-          <Globe className="w-10 h-10 text-brand-500 animate-pulse" />
+      <div className="ic-panel flex-1 min-w-0 h-full flex flex-col relative">
+        <div className="ic-empty flex-1 px-8">
+          <MessageSquare className="w-12 h-12 text-muted mb-2" strokeWidth={1.5} />
+          <h3 className="ic-empty-title">No conversation selected</h3>
+          <p className="text-[14px] text-muted">Select a conversation from the inbox to respond.</p>
         </div>
-        <h3 className="font-bold text-slate-800 dark:text-slate-200">No ticket selected</h3>
-        <p className="text-xs text-slate-500 dark:text-slate-400">Select a conversation from the inbox side menu to respond.</p>
       </div>
     );
   }
+  const ticketSnoozedUntil = isSnoozed(ticket) ? ticket.snoozedUntil || null : null;
 
   return (
-    <div className="flex-1 h-full bg-slate-50 dark:bg-slate-950 flex flex-col overflow-hidden relative">
+    <div className="ic-panel flex-1 min-w-0 h-full flex flex-col relative">
       {/* ═══ HEADER ═══════════════════════════════════════════════════════ */}
-      <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex items-center justify-between gap-3 shrink-0">
-        {/* Left: Customer name + ticket badge */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="font-bold text-slate-900 dark:text-slate-50 text-base truncate max-w-[180px]">{ticket.customer.name}</h2>
-              <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-700 shrink-0">
-                {ticket.ticketNumber}
-              </span>
-              {/* Priority highlight badge */}
-              {ticket.priority === 'critical' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400 border border-red-200 dark:border-red-900/50 shrink-0 animate-pulse">
-                  🔴 Critical
-                </span>
-              )}
-              {ticket.priority === 'high' && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-400 border border-orange-200 dark:border-orange-900/50 shrink-0">
-                  🟠 High
-                </span>
-              )}
-              {isBlocked && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border shrink-0 flex items-center gap-1">
-                  <Ban className="w-3 h-3" /> Blocked
-                </span>
-              )}
-              {snoozeActive && (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50 shrink-0 flex items-center gap-1">
-                  <AlarmClock className="w-3 h-3" /> Snoozed · {snoozeActive}
-                </span>
+      <div className="flex flex-col shrink-0 bg-surface">
+        
+        {/* Row 1: Title & Main Actions */}
+        <div className="ic-panel-header justify-between gap-3">
+          <h2 className="ic-title flex-1 min-w-0" title={ticket.customer.name}>{ticket.customer.name}</h2>
+
+          {/* Right Action Buttons */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            {/* ★ Star / Priority flag */}
+            <button
+              onClick={handleStarToggle}
+              title={isStarred ? 'Remove priority flag' : 'Flag as priority'}
+              className={`ic-icon-btn ${isStarred ? 'text-amber-500' : ''}`}
+            >
+              <Star className={`w-4 h-4 ${isStarred ? 'fill-amber-500' : ''}`} />
+            </button>
+
+            {/* Snooze */}
+            <div className="relative" ref={snoozeMenuRef}>
+              <button
+                onClick={() => { setShowSnoozeMenu(v => !v); setShowMoreMenu(false); }}
+                title={ticketSnoozedUntil ? `Snoozed until ${formatSnoozeUntil(ticketSnoozedUntil)}` : 'Snooze conversation'}
+                className={`ic-icon-btn ${
+                  ticketSnoozedUntil
+                    ? 'bg-amber-50 text-amber-700 hover:bg-amber-100 dark:bg-amber-500/15 dark:text-amber-300'
+                    : showSnoozeMenu ? 'bg-ink/10' : ''
+                }`}
+              >
+                <AlarmClock className="w-4 h-4" />
+              </button>
+
+              {showSnoozeMenu && (
+                <div className="ic-menu absolute top-full right-0 mt-2 w-64">
+                  <div className="px-3.5 pt-1 pb-2 text-[13px] font-medium text-muted">
+                    {ticketSnoozedUntil ? `Snoozed until ${formatSnoozeUntil(ticketSnoozedUntil)}` : 'Snooze until…'}
+                  </div>
+                  {SNOOZE_OPTIONS.map(opt => (
+                    <button
+                       key={opt.value}
+                       onClick={() => { setShowSnoozeMenu(false); handleSnoozeChange(computeSnoozeUntil(opt.value)); }}
+                       className="ic-menu-item justify-between"
+                    >
+                      <span>{opt.label}</span>
+                      <span className="text-[13px] text-faint">{opt.sub}</span>
+                    </button>
+                  ))}
+                  {ticketSnoozedUntil && (
+                    <>
+                      <div className="my-1.5 border-t border-line" />
+                      <button
+                        onClick={() => { setShowSnoozeMenu(false); handleSnoozeChange(null); }}
+                        className="ic-menu-item text-red-600 dark:text-red-400"
+                      >
+                        <X className="w-4 h-4" /> Unsnooze
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
             </div>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {ticket.category} · {ticket.customer.email || 'Guest'}
-            </p>
+
+            {/* ··· More Options Menu */}
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                onClick={() => { setShowMoreMenu(v => !v); setShowSnoozeMenu(false); }}
+                className={`ic-icon-btn ${showMoreMenu ? 'bg-ink/10' : ''}`}
+                title="More options"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+              {showMoreMenu && (
+                <div className="ic-menu absolute top-full right-0 mt-2 w-[300px]">
+                  {[
+                    { icon: UserPlus, label: 'Manage participants', divider: false },
+                    { icon: GitMerge, label: 'Merge into…', kbd: '⌘ ⇧ M', divider: false,
+                      action: () => { setShowMergePanel(true); setShowMoreMenu(false); } },
+                    { icon: Globe, label: 'New conversation', divider: true },
+                    { icon: FileText, label: 'Export conversation as text', divider: false,
+                      action: () => {
+                        const text = `Ticket: ${ticket.ticketNumber}\nCustomer: ${ticket.customer.name}\n\n[Export feature coming soon]`;
+                        const blob = new Blob([text], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url; a.download = `${ticket.ticketNumber}.txt`; a.click();
+                        setShowMoreMenu(false);
+                      }
+                    },
+                    { icon: FileDown, label: 'Export conversation as PDF', divider: false },
+                    { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true },
+                    { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
+                    { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',
+                      danger: true, divider: false,
+                      action: () => { setIsBlocked(v => !v); setShowMoreMenu(false); }
+                    },
+                  ].map((item, i) => (
+                    <React.Fragment key={i}>
+                      {item.divider && <div className="my-1.5 border-t border-line" />}
+                      <button
+                        onClick={item.action || (() => setShowMoreMenu(false))}
+                        className={`ic-menu-item ${item.danger ? 'text-red-600 dark:text-red-400' : ''}`}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0 opacity-80" />
+                        <span className="flex-1 truncate">{item.label}</span>
+                        {item.kbd && (
+                          <span className="flex items-center gap-1 shrink-0">
+                            {item.kbd.split(' ').map((k, ki) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
+                          </span>
+                        )}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Update ticket state */}
+            <button
+              onClick={openStateMenu}
+              className="ic-icon-btn bg-link/15 text-link hover:bg-link/25"
+              title={`Update ticket state (now: ${STATE_LABELS[ticket.status] || ticket.status})`}
+            >
+              <SendHorizontal className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Right: Intercom-style action bar */}
-        <div className="flex items-center gap-1 shrink-0">
-
-          {/* ★ Star / Priority flag */}
+        {/* Row 2: Ticket chips (wraps instead of overflowing) */}
+        <div className="px-5 py-2.5 flex flex-wrap items-center gap-1.5 border-b border-line text-[13px] min-w-0">
+          <span className="inline-flex items-center h-7 px-2.5 rounded-full bg-subtle font-medium text-ink tabular-nums shrink-0">
+            {ticket.ticketNumber}
+          </span>
+          <span className="inline-flex items-center gap-1.5 h-7 pl-1 pr-2.5 rounded-full bg-subtle text-ink min-w-0 max-w-[260px]">
+            <span className="w-5 h-5 rounded-full bg-sky-100 text-sky-900 dark:bg-sky-500/20 dark:text-sky-200 text-[11px] font-semibold flex items-center justify-center shrink-0 uppercase">
+              {ticket.customer.name.charAt(0) || 'G'}
+            </span>
+            <span className="truncate">{ticket.customer.email || 'Guest'}</span>
+          </span>
+          <span className="inline-flex items-center h-7 px-2.5 rounded-full bg-subtle text-muted capitalize shrink-0">
+            {ticket.category.replace('_', ' ')}
+          </span>
           <button
-            onClick={() => setIsStarred(v => !v)}
-            title={isStarred ? 'Remove priority flag' : 'Flag as priority'}
-            className={`p-2 rounded-lg transition-colors ${
-              isStarred
-                ? 'text-amber-400 bg-amber-50 dark:bg-amber-950/30 hover:bg-amber-100'
-                : 'text-slate-400 hover:text-amber-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-            }`}
+            onClick={openStateMenu}
+            className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-subtle text-ink hover:bg-ink/10 shrink-0"
+            title="Update ticket state"
           >
-            <Star className={`w-4 h-4 ${isStarred ? 'fill-amber-400' : ''}`} />
+            <span className={`w-2 h-2 rounded-full ${
+              ticket.status === 'open' ? 'bg-accent'
+              : ticket.status === 'waiting' ? 'bg-red-500'
+              : ticket.status === 'resolved' ? 'bg-emerald-500'
+              : 'bg-faint'
+            }`} />
+            {STATE_LABELS[ticket.status] || ticket.status}
           </button>
-
-          {/* ··· More Options Menu */}
-          <div className="relative" ref={moreMenuRef}>
-            <button
-              onClick={() => { setShowMoreMenu(v => !v); setShowSnoozeMenu(false); }}
-              className={`p-2 rounded-lg transition-colors ${
-                showMoreMenu
-                  ? 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
-                  : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
-              title="More options"
-            >
-              <MoreHorizontal className="w-4 h-4" />
-            </button>
-
-            {showMoreMenu && (
-              <div className="absolute top-full right-0 mt-1.5 w-60 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-slide-up">
-                {[
-                  { icon: UserPlus, label: 'Manage participants', divider: false },
-                  { icon: GitMerge, label: 'Merge into…', kbd: '⌘ Shift M', divider: false,
-                    action: () => { setShowMergePanel(true); setShowMoreMenu(false); } },
-                  { icon: Globe, label: 'New conversation', divider: true },
-                  { icon: FileText, label: 'Export conversation as text', divider: false,
-                    action: () => {
-                      const text = `Ticket: ${ticket.ticketNumber}\nCustomer: ${ticket.customer.name}\n\n[Export feature coming soon]`;
-                      const blob = new Blob([text], { type: 'text/plain' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url; a.download = `${ticket.ticketNumber}.txt`; a.click();
-                      setShowMoreMenu(false);
-                    }
-                  },
-                  { icon: FileDown, label: 'Export conversation as PDF', divider: false },
-                  { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true },
-                  { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
-                  { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',
-                    danger: true, divider: false,
-                    action: () => { setIsBlocked(v => !v); setShowMoreMenu(false); }
-                  },
-                ].map((item, i) => (
-                  <React.Fragment key={i}>
-                    {item.divider && <div className="my-1 border-t border-slate-100 dark:border-slate-700" />}
-                    <button
-                      onClick={item.action || (() => setShowMoreMenu(false))}
-                      className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left ${
-                        item.danger
-                          ? 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20'
-                          : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'
-                      }`}
-                    >
-                      <item.icon className="w-4 h-4 shrink-0 opacity-70" />
-                      <span className="flex-1">{item.label}</span>
-                      {item.kbd && <kbd className="text-[10px] text-slate-400 font-mono bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-600">{item.kbd}</kbd>}
-                    </button>
-                  </React.Fragment>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 🔔 Snooze */}
-          <div className="relative" ref={snoozeMenuRef}>
-            <button
-              onClick={() => { setShowSnoozeMenu(v => !v); setShowMoreMenu(false); }}
-              title="Snooze conversation"
-              className={`p-2 rounded-lg transition-colors ${
-                snoozeActive
-                  ? 'text-amber-500 bg-amber-50 dark:bg-amber-950/30'
-                  : 'text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
-            >
-              <AlarmClock className="w-4 h-4" />
-            </button>
-
-            {showSnoozeMenu && (
-              <div className="absolute top-full right-0 mt-1.5 w-52 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden py-1 animate-slide-up">
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-700">
-                  Snooze until…
-                </div>
-                {[
-                  { label: 'Later today', sub: 'In 3 hours', value: '3h' },
-                  { label: 'Tomorrow morning', sub: '9:00 AM', value: 'tomorrow' },
-                  { label: 'Next week', sub: 'Monday 9:00 AM', value: 'next-week' },
-                  { label: 'Next month', sub: '1st of next month', value: 'next-month' },
-                ].map(opt => (
-                  <button
-                    key={opt.value}
-                    onClick={() => { setSnoozeActive(opt.label); setShowSnoozeMenu(false); handleStatusChange('waiting'); }}
-                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
-                  >
-                    <div>
-                      <p className="text-sm text-slate-700 dark:text-slate-300 font-medium">{opt.label}</p>
-                      <p className="text-[11px] text-slate-400">{opt.sub}</p>
-                    </div>
-                    {snoozeActive === opt.label && <Check className="w-3.5 h-3.5 text-brand-500" />}
-                  </button>
-                ))}
-                {snoozeActive && (
-                  <>
-                    <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
-                    <button
-                      onClick={() => { setSnoozeActive(null); setShowSnoozeMenu(false); }}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                    >
-                      <X className="w-3.5 h-3.5" /> Cancel snooze
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Divider */}
-          <div className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-          {/* Assignee quick select */}
-          <select
-            value={ticket.assignedAgentId || 'unassigned'}
-            onChange={(e) => handleAssigneeChange(e.target.value)}
-            className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 font-medium max-w-[130px] truncate"
-          >
-            <option value="unassigned">Unassigned</option>
-            {agents.map(a => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
-
-          {/* Priority select */}
-          <select
-            value={ticket.priority}
-            onChange={(e) => handlePriorityChange(e.target.value)}
-            className={`text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 font-semibold capitalize ${
-              ticket.priority === 'critical'
-                ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-950/30 dark:border-red-800 dark:text-red-400'
-                : ticket.priority === 'high'
-                ? 'bg-orange-50 border-orange-200 text-orange-700 dark:bg-orange-950/30 dark:border-orange-800 dark:text-orange-400'
-                : ticket.priority === 'medium'
-                ? 'bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400'
-                : 'bg-slate-50 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-400'
-            }`}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </select>
-
-          {/* Status select */}
-          <select
-            value={ticket.status}
-            onChange={(e) => handleStatusChange(e.target.value)}
-            className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 font-medium"
-          >
-            <option value="open">Open</option>
-            <option value="waiting">Waiting</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-            <option value="archived">Archived</option>
-          </select>
-
-          {/* Primary CTA: Resolve / Reopen */}
-          {['resolved', 'closed'].includes(ticket.status) ? (
-            <button
-              onClick={() => handleStatusChange('open')}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg border border-slate-200 dark:border-slate-700 transition-colors"
-            >
-              Reopen
-            </button>
-          ) : (
-            <button
-              onClick={() => handleStatusChange('resolved')}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg shadow-sm shadow-emerald-500/20 transition-colors"
-            >
-              <CheckCircle className="w-3.5 h-3.5" /> Resolve
-            </button>
+          {ticket.priority === 'critical' && (
+            <span className="inline-flex items-center h-7 px-2.5 rounded-full font-medium bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 shrink-0">
+              Critical
+            </span>
+          )}
+          {ticket.priority === 'high' && (
+            <span className="inline-flex items-center h-7 px-2.5 rounded-full font-medium bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300 shrink-0">
+              High
+            </span>
+          )}
+          {isBlocked && (
+            <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-subtle text-muted shrink-0">
+              <Ban className="w-3.5 h-3.5" /> Blocked
+            </span>
+          )}
+          {ticketSnoozedUntil && (
+            <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 min-w-0">
+              <AlarmClock className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">Snoozed · {formatSnoozeUntil(ticketSnoozedUntil)}</span>
+            </span>
           )}
         </div>
 
@@ -646,160 +841,649 @@ export const ChatWindow: React.FC = () => {
         )}
       </div>
 
+      {/* Close message menus on outside click */}
+      {msgMenu && <div className="fixed inset-0 z-20" onClick={() => setMsgMenu(null)} />}
+
+      {/* Toast */}
+      {toast && (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-28 z-[70] px-3.5 h-9 rounded-full bg-ink text-on-ink text-[13px] font-medium flex items-center gap-2 shadow-pop animate-fade-in">
+          <Check className="w-4 h-4" /> {toast}
+        </div>
+      )}
+
+      {/* Save as macro */}
+      {macroDraft && (
+        <div className="fixed inset-0 z-[60] bg-black/30 flex items-start justify-center px-4 pt-[12vh] animate-fade-in" onClick={() => setMacroDraft(null)}>
+          <div className="w-full max-w-[520px] bg-surface rounded-2xl shadow-pop overflow-hidden" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Save as macro">
+            <div className="flex items-center gap-2 px-5 h-14 border-b border-line">
+              <BookmarkPlus className="w-[18px] h-[18px] text-muted" />
+              <h3 className="text-[16px] font-semibold text-ink flex-1">Save as macro</h3>
+              <button onClick={() => setMacroDraft(null)} className="ic-icon-btn-ghost" title="Close"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="p-5 flex flex-col gap-4">
+              <div>
+                <label className="ic-label">Title</label>
+                <input className="ic-input" value={macroDraft.title} onChange={(e) => setMacroDraft({ ...macroDraft, title: e.target.value })} />
+              </div>
+              <div>
+                <label className="ic-label">Shortcut</label>
+                <input className="ic-input font-mono" value={macroDraft.trigger} onChange={(e) => setMacroDraft({ ...macroDraft, trigger: e.target.value.replace(/\s+/g, '-') })} />
+                <p className="ic-help mt-1.5">Type this in the composer to insert the macro.</p>
+              </div>
+              <div>
+                <label className="ic-label">Content</label>
+                <textarea rows={5} className="ic-textarea" value={macroDraft.content} onChange={(e) => setMacroDraft({ ...macroDraft, content: e.target.value })} />
+              </div>
+              {macroError && <p className="text-[13px] text-red-600 dark:text-red-400">{macroError}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t border-line">
+              <button onClick={() => setMacroDraft(null)} className="ic-btn-ghost">Cancel</button>
+              <button onClick={handleSaveMacro} disabled={macroSaving} className="ic-btn-primary">{macroSaving ? 'Saving…' : 'Save macro'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update ticket state palette */}
+      {showStateMenu && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/30 flex items-start justify-center px-4 pt-[14vh] animate-fade-in"
+          onClick={() => setShowStateMenu(false)}
+        >
+          <div
+            className="w-full max-w-[560px] bg-surface rounded-2xl shadow-pop overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-label="Update ticket state"
+          >
+            <div className="flex items-center gap-2 px-3 h-14 border-b border-line">
+              <button onClick={() => setShowStateMenu(false)} className="ic-icon-btn-ghost" title="Back">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+              <h3 className="text-[16px] font-semibold text-ink">Update ticket state</h3>
+            </div>
+            <div className="flex items-center gap-2.5 px-4 h-12 border-b border-line">
+              <Search className="w-4 h-4 text-faint shrink-0" />
+              <input
+                autoFocus
+                value={stateQuery}
+                onChange={(e) => { setStateQuery(e.target.value); setStateIndex(0); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setStateIndex(i => Math.min(i + 1, Math.max(filteredStates.length - 1, 0))); }
+                  else if (e.key === 'ArrowUp') { e.preventDefault(); setStateIndex(i => Math.max(i - 1, 0)); }
+                  else if (e.key === 'Enter') { e.preventDefault(); const st = filteredStates[stateIndex]; if (st) chooseState(st.status); }
+                  else if (e.key === 'Escape') { e.preventDefault(); setShowStateMenu(false); }
+                }}
+                placeholder="Search..."
+                className="flex-1 min-w-0 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none"
+              />
+            </div>
+            <div className="p-2 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto">
+              {filteredStates.length === 0 && (
+                <div className="px-3 py-6 text-center text-[14px] text-muted">No matching state</div>
+              )}
+              {filteredStates.map((st, i) => {
+                const isCurrent = st.status === ticket.status;
+                return (
+                  <button
+                    key={st.status}
+                    onMouseEnter={() => setStateIndex(i)}
+                    onClick={() => chooseState(st.status)}
+                    className={`w-full flex items-center gap-3 px-3 h-12 rounded-xl text-left transition-colors ${
+                      i === stateIndex ? 'bg-subtle' : ''
+                    }`}
+                  >
+                    <st.icon className={`w-[18px] h-[18px] shrink-0 ${st.color}`} />
+                    <span className="text-[15px] text-ink truncate">{st.label}</span>
+                    {isCurrent && <Check className="w-4 h-4 text-accent shrink-0" />}
+                    <span className="flex-1" />
+                    {st.kbd ? (
+                      <span className="flex items-center gap-1 shrink-0">
+                        {st.kbd.map((k, ki) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
+                      </span>
+                    ) : st.hint ? (
+                      <span className="text-[13px] text-muted truncate hidden sm:block">{st.hint}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="px-4 h-10 flex items-center border-t border-line text-[12px] text-muted">
+              ↑↓ navigate · ↵ select · esc close
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Merge Panel overlay */}
       {showMergePanel && (
-        <div className="absolute inset-0 bg-black/30 z-50 flex items-center justify-center backdrop-blur-sm">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 w-96 flex flex-col gap-4 animate-slide-up">
+        <div className="absolute inset-0 bg-ink/20 z-50 flex items-center justify-center select-none">
+          <div className="bg-surface border border-line rounded-2xl shadow-pop p-6 w-[420px] flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
-                <GitMerge className="w-4 h-4 text-brand-500" /> Merge into…
+              <h3 className="text-[17px] font-semibold text-ink flex items-center gap-2">
+                <GitMerge className="w-4 h-4 text-muted" /> Merge conversation into…
               </h3>
-              <button onClick={() => setShowMergePanel(false)} className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 p-1 rounded">
+              <button onClick={() => { setShowMergePanel(false); setSelectedTargetId(null); }} className="ic-icon-btn-ghost">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Merge this conversation into another existing ticket. All messages will be consolidated.
+            
+            <p className="text-[14px] text-muted leading-relaxed">
+              Consolidate messages from ticket <span className="font-semibold text-ink">{ticket?.ticketNumber}</span> into another active ticket from <span className="font-semibold text-ink">{ticket?.customer.name}</span>.
             </p>
+
             <input
               type="text"
-              placeholder="Search by ticket # or customer name…"
-              className="w-full border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-sm bg-white dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-brand-500/30 focus:border-brand-500"
+              value={mergeSearchText}
+              onChange={(e) => setMergeSearchText(e.target.value)}
+              placeholder="Search by ticket # or category…"
+              className="ic-input"
             />
-            <div className="text-xs text-slate-400 text-center py-4">No matching conversations found</div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowMergePanel(false)} className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg transition-colors">Cancel</button>
-              <button className="px-4 py-2 text-sm font-bold bg-brand-500 hover:bg-brand-600 text-white rounded-lg transition-colors opacity-40 cursor-not-allowed">Merge</button>
+
+            <div className="max-h-56 overflow-y-auto flex flex-col gap-1.5">
+              {duplicateTickets
+                .filter(dt => {
+                  const query = mergeSearchText.toLowerCase();
+                  return (
+                    dt.ticketNumber.toLowerCase().includes(query) ||
+                    dt.category.toLowerCase().includes(query)
+                  );
+                })
+                .map(dt => {
+                  const isSelected = selectedTargetId === dt.id;
+                  return (
+                    <button
+                      key={dt.id}
+                      onClick={() => setSelectedTargetId(dt.id)}
+                      className={`w-full flex flex-col gap-1 px-3.5 py-3 rounded-xl border text-left transition-colors ${
+                        isSelected
+                          ? 'border-ink/60 bg-subtle text-ink'
+                          : 'border-line bg-surface hover:bg-subtle text-ink'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center w-full">
+                        <span className="font-semibold text-[14px]">{dt.ticketNumber}</span>
+                        <span className="ic-badge capitalize">{dt.status}</span>
+                      </div>
+                      <span className="text-[12px] text-muted capitalize">{dt.category} • Priority: {dt.priority}</span>
+                      <p className="text-[13px] text-muted truncate">{dt.lastMessageSnippet || 'No messages yet'}</p>
+                    </button>
+                  );
+                })}
+
+              {duplicateTickets.length === 0 && (
+                <div className="text-[14px] text-muted text-center py-8 rounded-xl border border-dashed border-line">No other open tickets found for this user.</div>
+              )}
+            </div>
+
+            <div className="flex gap-2 justify-end mt-1">
+              <button 
+                onClick={() => { setShowMergePanel(false); setSelectedTargetId(null); }} 
+                className="ic-btn-ghost"
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={!selectedTargetId || mergeConfirmLoading}
+                onClick={async () => {
+                  if (!ticket || !selectedTargetId) return;
+                  setMergeConfirmLoading(true);
+                  try {
+                    const res = await fetch(`${BACKEND_URL}/api/tickets/${selectedTargetId}/merge`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                      },
+                      body: JSON.stringify({ sourceId: ticket.id })
+                    });
+                    if (res.ok) {
+                      // Transition active view to the target ticket!
+                      useStore.getState().setActiveConversationId(selectedTargetId);
+                      setShowMergePanel(false);
+                      setSelectedTargetId(null);
+                    } else {
+                      const err = await res.json();
+                      alert('Merge failed: ' + err.error);
+                    }
+                  } catch (e) {
+                    console.error(e);
+                  } finally {
+                    setMergeConfirmLoading(false);
+                  }
+                }}
+                className="ic-btn-primary"
+              >
+                {mergeConfirmLoading ? 'Merging…' : 'Merge'}
+              </button>
             </div>
           </div>
         </div>
       )}
 
       {/* Message feed */}
-      <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
-        {messages.map((m) => {
+      <div className="flex-1 overflow-y-auto px-8 py-8 flex flex-col gap-4">
+        {messages.map((m, idx) => {
+          // Check if this message is a merge event
+          if (m.metadata?.type === 'merge') {
+            const { mergeDetails } = m.metadata;
+            return (
+              <div 
+                key={m.id}
+                className="w-full flex justify-center my-3 select-none"
+              >
+                <div className="ic-card p-5 max-w-xl w-full flex flex-col gap-3.5">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="font-semibold text-ink text-[14px] leading-snug">
+                      {mergeDetails.mergedBy} merged #{mergeDetails.sourceTicketNumber} into this conversation
+                    </span>
+                    <span className="text-muted text-[14px]">
+                      chat with {mergeDetails.customerName} from {mergeDetails.customerLocation}
+                    </span>
+                  </div>
+
+                  {mergeDetails.question && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[13px] text-muted font-medium">Question</span>
+                      <p className="text-[14px] text-ink leading-relaxed">
+                        {mergeDetails.question}
+                      </p>
+                    </div>
+                  )}
+
+                  {mergeDetails.summary && mergeDetails.summary.length > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[13px] text-muted font-medium">Summary</span>
+                      <ul className="text-[14px] text-ink flex flex-col gap-1.5">
+                        {mergeDetails.summary.map((bullet: string, idx: number) => (
+                          <li key={idx} className="flex items-start gap-2.5">
+                            <span className="w-1.5 h-1.5 bg-faint rounded-full mt-2 shrink-0" />
+                            <span className="leading-normal">{bullet}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center mt-1">
+                    <button 
+                      onClick={() => useStore.getState().setViewingMergedConversationId(mergeDetails.sourceConversationId)}
+                      className="ic-btn-primary ic-btn-sm"
+                    >
+                      View conversation
+                    </button>
+                    <span className="text-[12px] text-faint">
+                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           const isCustomer = m.sender.type === 'customer';
+          
+          if (isCustomer) {
+            const device = getDeviceInfo(m.metadata, ticket.customer.session);
+            const next = messages[idx + 1];
+            const deviceChangesNext = !!next && next.sender.type === 'customer' &&
+              getDeviceInfo(next.metadata, ticket.customer.session).label !== device.label;
+            const isLastInBlock = deviceChangesNext || idx === messages.length - 1 || 
+              messages[idx + 1].sender.type !== 'customer' ||
+              messages[idx + 1].isInternalNote ||
+              messages[idx + 1].metadata?.type === 'merge';
+
+            return (
+              <div
+                key={m.id}
+                className="flex items-end gap-3 self-start max-w-[80%] xl:max-w-[65%] min-w-0 group/msg relative pl-10"
+              >
+                {/* Platform Avatar Icon on the Left */}
+                <div className="absolute left-0 bottom-0 w-7 h-7 flex items-center justify-center">
+                  {isLastInBlock && (
+                    <div className="relative cursor-default select-none">
+                      {/* Circle Avatar (pastel with customer initials or ID initials) */}
+                      <div className="ic-avatar w-7 h-7 bg-amber-200/80 text-amber-900 dark:bg-amber-500/25 dark:text-amber-200 text-[11px]">
+                        {getInitials(m.sender.name, m.sender.id)}
+                      </div>
+                      
+                      {/* Green online dot */}
+                      <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 border-2 border-surface rounded-full" />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col min-w-0">
+                  {/* Bubble */}
+                  <div
+                    className={`px-5 py-3 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap break-words text-ink ${
+                      chatColorTheme === 'classic'
+                        ? 'bg-surface border border-line'
+                        : 'bg-bubble-customer'
+                    }`}
+                  >
+                    {m.content && formatMarkdown(m.content)}
+                    
+                    {/* File Attachments */}
+                    {m.attachments && m.attachments.length > 0 && (
+                      <div className="flex flex-col gap-2 mt-2.5">
+                        {m.attachments.map((a, aIdx) => (
+                          <a
+                            key={aIdx}
+                            href={a.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2.5 p-2 rounded-xl border border-line bg-surface text-[13px] text-ink hover:bg-subtle transition-colors whitespace-normal"
+                          >
+                            {a.type === 'image' ? (
+                              <img src={a.url} alt={a.name} className="w-20 h-20 rounded-lg object-cover border border-line" />
+                            ) : (
+                              <Paperclip className="w-4 h-4 shrink-0 text-muted" />
+                            )}
+                            <div className="flex flex-col truncate">
+                              <span className="truncate max-w-[180px] font-medium">{a.name}</span>
+                              <span className="text-[12px] text-muted">{(a.size || 0) > 0 ? `${Math.round(a.size! / 1024)} KB` : ''}</span>
+                            </div>
+                            <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted ml-auto" />
+                          </a>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Relative timestamp details shown at the bottom of the last message in block */}
+                    {isLastInBlock && (
+                      <div className="flex items-center gap-1 mt-1.5 text-[13px] text-muted select-none relative group/tooltip cursor-pointer w-fit whitespace-normal">
+                        <DeviceIcon info={device} />
+                        <span>
+                          {formatRelativeTime(m.createdAt)}
+                        </span>
+
+                        {/* Hover Tooltip Details */}
+                        <div className="absolute left-0 top-[16px] pt-2.5 hidden group-hover/tooltip:block z-50">
+                          <div className="bg-surface border border-line p-3.5 rounded-xl shadow-pop text-[13px] text-ink min-w-[260px] text-left">
+                            <div className="text-[12px] text-muted font-medium mb-1">Source URL</div>
+                            {device.sourceUrl ? (
+                              <a 
+                                href={device.sourceUrl} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="ic-link block truncate mb-2"
+                              >
+                                {device.sourceUrl}
+                              </a>
+                            ) : (
+                              <div className="text-faint mb-2">Unknown</div>
+                            )}
+                            <div className="flex items-center gap-2 font-medium text-ink mb-1.5">
+                              <DeviceIcon info={device} className="w-4 h-4" />
+                              {device.label}
+                            </div>
+                            <div className="text-[13px] text-ink leading-relaxed">
+                              <span className="text-muted">Platform:</span> {device.platform === 'ios' ? 'iOS' : device.platform === 'android' ? 'Android' : 'Web'} {device.channel === 'app' ? 'app' : 'browser'}<br />
+                              <span className="text-muted">Browser:</span> {device.browser || 'Unknown'}<br />
+                              <span className="text-muted">OS:</span> {device.os || 'Unknown'}<br />
+                              <span className="text-muted">Time:</span> {new Date(m.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          const isLastAgentInBlock = idx === messages.length - 1 ||
+            messages[idx + 1].sender.type !== 'agent' ||
+            messages[idx + 1].sender.id !== m.sender.id ||
+            !!messages[idx + 1].isInternalNote !== !!m.isInternalNote ||
+            messages[idx + 1].metadata?.type === 'merge';
+          const menuOpenHere = msgMenu?.id === m.id;
+          const q = msgMenuQuery.trim().toLowerCase();
+          const messageActions = [
+            { key: 'tag', label: 'Add tag', icon: TagIcon, run: () => openMsgMenu(m.id, 'tags') },
+            { key: 'react', label: 'Add reaction', icon: SmilePlus, run: () => openMsgMenu(m.id, 'react') },
+            { key: 'link', label: 'Copy link', icon: Link2, run: () => { setMsgMenu(null); handleCopyMessageLink(m); } },
+            ...(m.content ? [{ key: 'macro', label: 'Save as macro', icon: BookmarkPlus, run: () => { setMsgMenu(null); startSaveAsMacro(m); } }] : []),
+          ].filter(act => act.label.toLowerCase().includes(q));
+          const showDelete = 'delete'.includes(q);
+          const tagMatches = allTags.filter(t => t.name.toLowerCase().includes(q));
+          const canCreateTag = q.length > 0 && !allTags.some(t => t.name.toLowerCase() === q);
+
           return (
             <div
               key={m.id}
-              className={`flex flex-col group relative max-w-[70%] ${
-                isCustomer ? 'self-start items-start' : 'self-end items-end'
-              }`}
+              id={`msg-${m.id}`}
+              className={`flex items-end gap-2.5 self-end max-w-[85%] xl:max-w-[70%] min-w-0 group relative ${menuOpenHere ? 'z-30' : ''}`}
             >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] text-slate-400 font-semibold">{m.sender.name}</span>
-                <span className="text-[9px] text-slate-300 dark:text-slate-500">
-                  {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                
-                {/* Delete Message for Agent */}
-                {!isCustomer && (
-                  <button
-                    onClick={() => handleMessageDelete(m.id)}
-                    className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-red-500 transition-opacity ml-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
+              <div className="flex flex-col items-end min-w-0 relative">
+                {/* Message box */}
+                <div
+                  className={`px-5 py-3 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap break-words text-ink transition-shadow ${
+                    m.isInternalNote
+                      ? 'bg-note border border-note-line'
+                      : chatColorTheme === 'classic'
+                        ? 'bg-surface border border-line'
+                        : 'bg-bubble-agent'
+                  } relative ${highlightMsgId === m.id ? 'ring-2 ring-accent ring-offset-2 ring-offset-surface' : ''}`}
+                >
+                  {/* Render indicators for internal note */}
+                  {m.isInternalNote && (
+                    <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink/70 mb-1">
+                      <Lock className="w-3.5 h-3.5" /> Internal note
+                    </div>
+                  )}
 
-              {/* Message box */}
-              <div
-                className={`p-3 rounded-2xl text-sm leading-relaxed ${
-                  m.isInternalNote
-                    ? 'bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-300 rounded-tr-none'
-                    : isCustomer
-                    ? 'bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none'
-                    : 'bg-brand-500 text-white rounded-tr-none shadow-sm'
-                }`}
-              >
-                {/* Render indicators for internal note */}
-                {m.isInternalNote && (
-                  <div className="flex items-center gap-1 text-[10px] font-bold text-amber-500 uppercase tracking-wider mb-1">
-                    <Lock className="w-3.5 h-3.5" /> Internal Note
+                  {/* Markdown parser content */}
+                  {m.content && formatMarkdown(m.content)}
+
+                  {/* File Attachments */}
+                  {m.attachments && m.attachments.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-2.5">
+                      {m.attachments.map((a, aIdx) => (
+                        <a
+                          key={aIdx}
+                          href={a.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className={`flex items-center gap-2.5 p-2 rounded-xl border text-[13px] text-ink transition-colors whitespace-normal ${
+                            m.isInternalNote
+                              ? 'bg-surface/60 border-note-line hover:bg-surface'
+                              : 'bg-surface/70 border-line hover:bg-surface'
+                          }`}
+                        >
+                          {a.type === 'image' ? (
+                            <img src={a.url} alt={a.name} className="w-20 h-20 rounded-lg object-cover border border-line" />
+                          ) : (
+                            <Paperclip className="w-4 h-4 shrink-0 text-muted" />
+                          )}
+                          <div className="flex flex-col truncate">
+                            <span className="truncate max-w-[180px] font-medium">{a.name}</span>
+                            <span className="text-[12px] text-muted">{(a.size || 0) > 0 ? `${Math.round(a.size! / 1024)} KB` : ''}</span>
+                          </div>
+                          <ExternalLink className="w-3.5 h-3.5 shrink-0 text-muted ml-auto" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Meta line: "Not seen • Now" (Intercom style); sender shown on the avatar */}
+                  <div className="flex items-center justify-end gap-1.5 mt-1 text-[13px] text-muted whitespace-nowrap">
+                    {m.isInternalNote ? (
+                      <span className="truncate">{m.sender.name}</span>
+                    ) : (
+                      <span className={`flex items-center gap-1 ${m.seen ? 'text-link' : ''}`} title={m.seen && m.seenAt ? `Seen ${new Date(m.seenAt).toLocaleString()}` : 'Delivered, not seen yet'}>
+                        {m.seen && <CheckCheck className="w-3.5 h-3.5" />}
+                        {m.seen ? 'Seen' : 'Not seen'}
+                      </span>
+                    )}
+                    <span className="text-faint">•</span>
+                    <span title={new Date(m.createdAt).toLocaleString()}>
+                      {(() => { const r = formatRelativeTime(m.createdAt); return r === 'now' ? 'Now' : r; })()}
+                    </span>
+                  </div>
+
+                  {/* Hover toolbar: … / save as macro / tag (Intercom style) */}
+                  <div className={`absolute -bottom-3.5 right-4 flex items-center gap-0.5 bg-surface border border-line rounded-full shadow-card p-0.5 transition-opacity z-10 ${
+                    menuOpenHere ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+                  }`}>
+                    <button onClick={() => openMsgMenu(m.id, 'actions')} className={`w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-subtle ${msgMenu?.id === m.id && msgMenu.kind === 'actions' ? 'bg-subtle' : ''}`} title="More actions">
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {m.content && (
+                      <button onClick={() => startSaveAsMacro(m)} className="w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-subtle" title="Save as macro">
+                        <CopyPlus className="w-4 h-4" />
+                      </button>
+                    )}
+                    <button onClick={() => openMsgMenu(m.id, 'tags')} className={`w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-subtle ${msgMenu?.id === m.id && msgMenu.kind === 'tags' ? 'bg-subtle' : ''}`} title="Add tag">
+                      <TagIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Message tags */}
+                {m.tags && m.tags.length > 0 && (
+                  <div className="flex flex-wrap justify-end gap-1 mt-4 max-w-full">
+                    {m.tags.map(tn => {
+                      const color = allTags.find(t => t.name === tn)?.color;
+                      return (
+                        <span key={tn} className="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded-full bg-subtle text-[12px] font-medium text-ink">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: color || 'rgb(var(--ic-faint))' }} />
+                          {tn}
+                          <button
+                            onClick={() => handleToggleMessageTag(m, tn)}
+                            className="w-4 h-4 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-ink/10"
+                            title={`Remove tag ${tn}`}
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      );
+                    })}
                   </div>
                 )}
 
-                {/* Markdown parser content */}
-                {m.content && formatMarkdown(m.content)}
-
-                {/* File Attachments */}
-                {m.attachments && m.attachments.length > 0 && (
-                  <div className="flex flex-col gap-1.5 mt-2">
-                    {m.attachments.map((a, idx) => (
-                      <a
+                {/* Reactions facepile */}
+                {m.reactions && m.reactions.length > 0 && (
+                  <div className="flex gap-1 mt-1.5">
+                    {m.reactions.map((r, idx) => (
+                      <button
                         key={idx}
-                        href={a.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className={`flex items-center gap-2 p-2 rounded-lg border text-xs ${
-                          isCustomer
-                            ? 'bg-slate-50 dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                            : m.isInternalNote
-                            ? 'bg-amber-100/50 border-amber-200/50 text-amber-800'
-                            : 'bg-brand-600/50 border-brand-400/50 hover:bg-brand-600 text-white'
-                        }`}
+                        onClick={() => handleReactionToggle(m.id, r.emoji)}
+                        className="bg-surface hover:bg-subtle border border-line h-6 px-2 rounded-full text-[13px] flex items-center gap-1 transition-colors"
+                        title={`Added by ${r.agentName}`}
                       >
-                        {a.type === 'image' ? (
-                          <img src={a.url} alt={a.name} className="w-20 h-20 rounded object-cover border" />
-                        ) : (
-                          <Paperclip className="w-4 h-4 shrink-0" />
-                        )}
-                        <div className="flex flex-col truncate">
-                          <span className="truncate max-w-[150px] font-medium">{a.name}</span>
-                          <span className="opacity-70 text-[10px]">{(a.size || 0) > 0 ? `${Math.round(a.size! / 1024)} KB` : ''}</span>
-                        </div>
-                        <ExternalLink className="w-3.5 h-3.5 shrink-0 opacity-60 ml-auto" />
-                      </a>
+                        <span>{r.emoji}</span>
+                      </button>
                     ))}
                   </div>
                 )}
+
+                {/* Action menu / tag picker / reactions popover */}
+                {menuOpenHere && (
+                  <div className={`ic-menu absolute right-0 w-72 py-0 overflow-hidden animate-fade-in ${idx >= messages.length - 2 ? 'bottom-full mb-2' : 'top-full mt-5'}`}>
+                    {msgMenu!.kind === 'react' ? (
+                      <div className="flex items-center gap-1 p-2">
+                        {['👍', '❤️', '😊', '💡', '🎉', '🙏'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => { handleReactionToggle(m.id, emoji); setMsgMenu(null); }}
+                            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-subtle text-[18px]"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2.5 px-3.5 h-11 border-b border-line">
+                          <Search className="w-4 h-4 text-faint shrink-0" />
+                          <input
+                            autoFocus
+                            value={msgMenuQuery}
+                            onChange={(e) => setMsgMenuQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') setMsgMenu(null);
+                              if (e.key === 'Enter' && msgMenu!.kind === 'tags') {
+                                const exact = tagMatches[0]?.name || (canCreateTag ? msgMenuQuery.trim() : '');
+                                if (exact) handleToggleMessageTag(m, exact);
+                              }
+                              if (e.key === 'Enter' && msgMenu!.kind === 'actions' && messageActions[0]) messageActions[0].run();
+                            }}
+                            placeholder={msgMenu!.kind === 'tags' ? 'Search or create a tag...' : 'Search actions...'}
+                            className="flex-1 min-w-0 bg-transparent text-[14px] text-ink placeholder:text-faint focus:outline-none"
+                          />
+                        </div>
+
+                        {msgMenu!.kind === 'actions' ? (
+                          <div className="py-1.5">
+                            {messageActions.map(act => (
+                              <button key={act.key} onClick={act.run} className="ic-menu-item">
+                                <act.icon className="w-4 h-4" />
+                                {act.label}
+                              </button>
+                            ))}
+                            {showDelete && (
+                              <>
+                                {messageActions.length > 0 && <div className="my-1.5 border-t border-line" />}
+                                <button
+                                  onClick={() => { setMsgMenu(null); handleMessageDelete(m.id); }}
+                                  className="ic-menu-item text-red-600 dark:text-red-400"
+                                >
+                                  <XCircle className="w-4 h-4" /> Delete
+                                </button>
+                              </>
+                            )}
+                            {messageActions.length === 0 && !showDelete && (
+                              <div className="px-3.5 py-3 text-[13px] text-muted">No matching actions</div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="py-1.5 max-h-64 overflow-y-auto">
+                            {tagMatches.map(t => {
+                              const applied = (m.tags || []).includes(t.name);
+                              return (
+                                <button key={t.id} onClick={() => handleToggleMessageTag(m, t.name)} className="ic-menu-item">
+                                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: t.color }} />
+                                  <span className="flex-1 truncate">{t.name}</span>
+                                  {applied && <Check className="w-4 h-4 text-accent" />}
+                                </button>
+                              );
+                            })}
+                            {canCreateTag && (
+                              <button onClick={() => handleToggleMessageTag(m, msgMenuQuery)} className="ic-menu-item">
+                                <Plus className="w-4 h-4 text-muted" />
+                                <span className="truncate">Create tag "<span className="font-medium">{msgMenuQuery.trim()}</span>"</span>
+                              </button>
+                            )}
+                            {tagMatches.length === 0 && !canCreateTag && (
+                              <div className="px-3.5 py-3 text-[13px] text-muted">No tags yet — type to create one</div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Reactions facepile */}
-              {m.reactions && m.reactions.length > 0 && (
-                <div className="flex gap-1 mt-1">
-                  {m.reactions.map((r, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => handleReactionToggle(m.id, r.emoji)}
-                      className="bg-white dark:bg-slate-850 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-750 px-1.5 py-0.5 rounded-full text-xs shadow-sm flex items-center gap-1"
-                      title={`Added by ${r.agentName}`}
-                    >
-                      <span>{r.emoji}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* Quick reactions overlay drawer (visible on hover) */}
-              <div className={`absolute -top-3 ${
-                isCustomer ? 'right-0' : 'left-0'
-              } opacity-0 group-hover:opacity-100 flex items-center bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 px-1.5 py-0.5 rounded-full shadow-md gap-1.5 transition-all z-10`}>
-                {['👍', '❤️', '😊', '💡'].map(emoji => (
-                  <button
-                    key={emoji}
-                    onClick={() => handleReactionToggle(m.id, emoji)}
-                    className="hover:scale-125 transition-transform"
-                  >
-                    {emoji}
-                  </button>
-                ))}
-              </div>
-
-              {/* Read receipt check */}
-              {!isCustomer && !m.isInternalNote && (
-                <span className="text-[9px] text-slate-400 mt-1 flex items-center gap-0.5">
-                  {m.seen ? (
-                    <>
-                      <CheckCheck className="w-3.5 h-3.5 text-brand-500" /> Seen
-                    </>
+              {/* Agent avatar on the right (last message of a block) */}
+              {isLastAgentInBlock ? (
+                <div className="relative shrink-0 mb-0.5" title={m.sender.name}>
+                  {m.sender.avatar ? (
+                    <img src={m.sender.avatar} alt={m.sender.name} className="w-7 h-7 rounded-full object-cover" />
                   ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" /> Delivered
-                    </>
+                    <div className="w-7 h-7 rounded-full bg-subtle text-ink/80 text-[11px] font-semibold flex items-center justify-center">
+                      {getInitials(m.sender.name, m.sender.id)}
+                    </div>
                   )}
-                </span>
+                  {m.sender.id === agent?.id && (
+                    <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-surface" />
+                  )}
+                </div>
+              ) : (
+                <div className="w-7 shrink-0" />
               )}
             </div>
           );
@@ -807,12 +1491,12 @@ export const ChatWindow: React.FC = () => {
 
         {/* Customer typing */}
         {customerTyping && (
-          <div className="self-start flex flex-col items-start max-w-[70%]">
-            <span className="text-[10px] text-slate-400 mb-1">{ticket.customer.name} typing</span>
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 p-3 rounded-2xl rounded-tl-none flex gap-1 items-center shadow-sm">
-              <span className="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot" />
-              <span className="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot" />
-              <span className="w-1.5 h-1.5 bg-slate-400 rounded-full typing-dot" />
+          <div className="self-start flex flex-col items-start max-w-[65%] pl-10">
+            <span className="text-[13px] text-muted mb-1">{ticket.customer.name} typing</span>
+            <div className="bg-bubble-customer px-4 py-3.5 rounded-2xl flex gap-1 items-center">
+              <span className="w-1.5 h-1.5 bg-faint rounded-full typing-dot" />
+              <span className="w-1.5 h-1.5 bg-faint rounded-full typing-dot" />
+              <span className="w-1.5 h-1.5 bg-faint rounded-full typing-dot" />
             </div>
           </div>
         )}
@@ -821,26 +1505,22 @@ export const ChatWindow: React.FC = () => {
       </div>
 
       {/* Composer Panel */}
-      <div className={`p-4 border-t bg-white dark:bg-slate-900 relative shrink-0 ${
-        isInternal 
-          ? 'border-amber-200 dark:border-amber-800 bg-amber-50/10 dark:bg-amber-950/5' 
-          : 'border-slate-200 dark:border-slate-800'
-      }`}>
+      <div className="shrink-0 px-4 pb-4 pt-1 relative">
         {/* Saved replies trigger selector popup */}
         {showReplies && (
-          <div className="absolute bottom-[105%] left-4 w-72 bg-white dark:bg-slate-800 border border-slate-250 dark:border-slate-700 rounded-xl shadow-2xl overflow-hidden flex flex-col z-20 animate-slide-up">
-            <div className="bg-slate-50 dark:bg-slate-900 px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wide border-b">
-              Saved Replies
+          <div className="ic-menu absolute bottom-full left-4 mb-2 w-80 flex flex-col">
+            <div className="px-3.5 pt-1 pb-2 text-[13px] font-medium text-muted">
+              Saved replies
             </div>
-            <div className="max-h-40 overflow-y-auto">
+            <div className="max-h-48 overflow-y-auto">
               {filteredReplies.map(r => (
                 <button
                   key={r.id}
                   onClick={() => selectSavedReply(r)}
-                  className="w-full text-left px-3 py-2 text-xs hover:bg-brand-50 dark:hover:bg-brand-950/20 text-slate-700 dark:text-slate-300 border-b last:border-0"
+                  className="ic-menu-item h-auto py-2 flex-col items-start gap-0"
                 >
-                  <div className="font-bold text-brand-500">{r.trigger}</div>
-                  <div className="truncate opacity-75">{r.title}</div>
+                  <div className="font-semibold text-ink">{r.trigger}</div>
+                  <div className="truncate w-full text-[13px] text-muted">{r.title}</div>
                 </button>
               ))}
             </div>
@@ -849,12 +1529,12 @@ export const ChatWindow: React.FC = () => {
 
         {/* Emoji selection popup */}
         {showEmoji && (
-          <div className="absolute bottom-[105%] left-4 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl flex gap-2 z-20">
+          <div className="ic-menu min-w-0 absolute bottom-full left-4 mb-2 px-1.5 flex gap-0.5">
             {['👍', '👋', '❤️', '😊', '💡', '🎉'].map(emoji => (
               <button
                 key={emoji}
                 onClick={() => handleEmojiSelect(emoji)}
-                className="text-lg hover:scale-125 transition-transform"
+                className="w-9 h-9 flex items-center justify-center rounded-lg text-xl hover:bg-subtle transition-colors"
               >
                 {emoji}
               </button>
@@ -862,51 +1542,55 @@ export const ChatWindow: React.FC = () => {
           </div>
         )}
 
-        {/* Composer options */}
-        <div className="flex justify-between items-center mb-3">
-          {/* Public Reply vs Internal Note toggle tabs */}
-          <div className="flex bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200/50 dark:border-slate-700/50">
-            <button
-              onClick={() => setIsInternal(false)}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-md font-semibold transition-all ${
-                !isInternal
-                  ? 'bg-white dark:bg-slate-900 text-brand-600 dark:text-brand-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Globe className="w-3.5 h-3.5" /> Public Reply
-            </button>
-            <button
-              onClick={() => setIsInternal(true)}
-              className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-md font-semibold transition-all ${
-                isInternal
-                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-500 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Lock className="w-3.5 h-3.5" /> Internal Note
-            </button>
+        <div className={`rounded-2xl border shadow-card transition-colors ${
+          isInternal 
+            ? 'bg-note border-note-line' 
+            : 'bg-surface border-line'
+        }`}>
+          {/* Composer options */}
+          <div className="flex justify-between items-center gap-3 px-3 pt-3">
+            {/* Public Reply vs Internal Note mode switch */}
+            <div className="flex items-center gap-0.5">
+              <button
+                onClick={() => setIsInternal(false)}
+                className={`flex items-center gap-1.5 h-7 px-2.5 text-[14px] rounded-full transition-colors ${
+                  !isInternal
+                    ? 'font-semibold text-ink bg-subtle'
+                    : 'font-medium text-muted hover:text-ink hover:bg-ink/[0.05]'
+                }`}
+              >
+                <CornerUpLeft className="w-4 h-4" /> Reply
+              </button>
+              <button
+                onClick={() => setIsInternal(true)}
+                className={`flex items-center gap-1.5 h-7 px-2.5 text-[14px] rounded-full transition-colors ${
+                  isInternal
+                    ? 'font-semibold text-ink bg-note-line/70'
+                    : 'font-medium text-muted hover:text-ink hover:bg-ink/[0.05]'
+                }`}
+              >
+                <Lock className="w-3.5 h-3.5" /> Note
+              </button>
+            </div>
+
+            <div className="text-[12px] text-faint flex items-center gap-1.5 min-w-0 whitespace-nowrap overflow-hidden">
+              Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies
+            </div>
           </div>
 
-          <div className="text-[10px] text-slate-400 font-semibold">
-            Type <span className="text-brand-500">/</span> to insert saved replies
-          </div>
-        </div>
-
-        {/* Text Area Input */}
-        <div className="flex gap-2 items-end">
+          {/* Text Area Input */}
           <textarea
             ref={composerRef}
             rows={2}
             value={inputText}
             onChange={handleInputChange}
-            placeholder={isInternal ? 'Type internal notes (only agents see this)...' : 'Type public reply...'}
-            className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl px-3 py-2 text-sm text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none font-sans"
+            placeholder={isInternal ? 'Add an internal note — only teammates can see this' : 'Write a reply…'}
+            className="block w-full bg-transparent px-4 pt-2 pb-1 text-[15px] leading-relaxed text-ink placeholder:text-faint focus:outline-none resize-none"
           />
 
-          <div className="flex flex-col gap-1.5">
-            {/* Options bar */}
-            <div className="flex gap-1">
+          {/* Bottom bar */}
+          <div className="flex items-center justify-between px-2.5 pb-2.5">
+            <div className="flex items-center gap-0.5">
               <input
                 type="file"
                 ref={fileInputRef}
@@ -917,31 +1601,28 @@ export const ChatWindow: React.FC = () => {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850/50 transition-colors"
+                className="ic-icon-btn-ghost disabled:opacity-40"
                 title="Attach Files"
               >
-                <Paperclip className="w-4.5 h-4.5" />
+                <Paperclip className="w-4 h-4" />
               </button>
               
               <button
                 onClick={() => setShowEmoji(!showEmoji)}
-                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-850/50 transition-colors"
+                className={`ic-icon-btn-ghost ${showEmoji ? 'bg-ink/[0.06] text-ink' : ''}`}
                 title="Add Emoji"
               >
-                <Smile className="w-4.5 h-4.5" />
+                <Smile className="w-4 h-4" />
               </button>
             </div>
 
             <button
               onClick={() => handleSendMessage()}
               disabled={!inputText.trim()}
-              className={`p-2 rounded-xl text-white active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md flex items-center justify-center shrink-0 ${
-                isInternal 
-                  ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-500/10' 
-                  : 'bg-brand-500 hover:bg-brand-600 shadow-brand-500/10'
-              }`}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[14px] font-semibold text-ink hover:bg-ink/[0.06] disabled:text-faint disabled:pointer-events-none transition-colors"
             >
-              <Send className="w-4 h-4" />
+              {isInternal ? 'Add note' : 'Send'}
+              <Send className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>

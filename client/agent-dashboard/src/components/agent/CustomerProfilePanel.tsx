@@ -1,13 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
 import { Customer } from '../../../../../shared/src/types';
 import { 
-  Mail, Phone, Globe, Monitor, 
-  Tag as TagIcon, Plus, X, Edit2, Check, FileText
+  Mail, Phone, Globe, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
+  FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
+  Sidebar, Link2, ShieldAlert, Sparkles, Clock, GitMerge, MessageSquare, Copy
 } from 'lucide-react';
-import Button from '../ui/Button';
 
 const BACKEND_URL = 'http://localhost:3000';
+
+const InstantTooltip: React.FC<{ children: React.ReactNode; text: string }> = ({ children, text }) => {
+  return (
+    <div className="relative group/tooltip min-w-0">
+      {children}
+      {text && (
+        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-ink text-on-ink text-[12px] font-medium rounded-md shadow-pop opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity duration-100 whitespace-nowrap">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export const CustomerProfilePanel: React.FC = () => {
   const activeConversationId = useStore((state) => state.activeConversationId);
@@ -15,14 +28,53 @@ export const CustomerProfilePanel: React.FC = () => {
   const token = useStore((state) => state.token);
   const tags = useStore((state) => state.tags);
   const setTags = useStore((state) => state.setTags);
+  const updateConversation = useStore((state) => state.updateConversation);
 
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [agents, setAgents] = useState<any[]>([]);
   
+  // Tabs: Details / Copilot
+  const [activeTab, setActiveTab] = useState<'details' | 'copilot'>('details');
+
+  // Accordion Expand/Collapse States
+  const [linksOpen, setLinksOpen] = useState(true);
+  const [attrsOpen, setAttrsOpen] = useState(true);
+  const [userDataOpen, setUserDataOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(true);
+
   // Editable fields
   const [isEditing, setIsEditing] = useState(false);
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
+
+  // Copy state
+  const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  const handleCopy = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(label);
+    setTimeout(() => setCopiedText(null), 1500);
+  };
+
+  const renderCopyButton = (value: string | undefined | null, key: string) => {
+    if (!value) return null;
+    return (
+      <button
+        type="button"
+        onClick={() => handleCopy(value, key)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-subtle rounded-md text-muted hover:text-ink shrink-0"
+      >
+        {copiedText === key ? (
+          <span className="text-[12px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 whitespace-nowrap">
+            <Check className="w-3 h-3" /> Copied
+          </span>
+        ) : (
+          <Copy className="w-3.5 h-3.5" />
+        )}
+      </button>
+    );
+  };
 
   // Notes
   const [newNote, setNewNote] = useState('');
@@ -30,17 +82,85 @@ export const CustomerProfilePanel: React.FC = () => {
   // Tags select dropdown
   const [showAddTag, setShowAddTag] = useState(false);
 
+  // Recent conversations from same customer
+  const [recentConvs, setRecentConvs] = useState<any[]>([]);
+  const [recentOpen, setRecentOpen] = useState(true);
+  const [mergeConfirm, setMergeConfirm] = useState<string | null>(null);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const handleCategoryChange = async (newCategory: string) => {
+    if (!activeConversationId || !token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ category: newCategory })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateConversation(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handlePriorityChange = async (newPriority: string) => {
+    if (!activeConversationId || !token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ priority: newPriority })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateConversation(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Assign the conversation (moved here from the chat toolbar; same endpoint)
+  const handleAssigneeChange = async (agentId: string) => {
+    if (!activeConversationId || !token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}/assign`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ agentId: agentId === 'unassigned' ? null : agentId })
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        updateConversation(updated);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Retrieve current active conversation
+  const conv = conversations.find(c => c.id === activeConversationId);
+
   // Retrieve current active conversation's customer
   useEffect(() => {
     if (!activeConversationId) return;
-    const conv = conversations.find(c => c.id === activeConversationId);
     if (conv?.customer) {
       setCustomer(conv.customer);
       setEmail(conv.customer.email || '');
       setPhone(conv.customer.phone || '');
       setName(conv.customer.name || '');
     }
-  }, [activeConversationId, conversations]);
+  }, [activeConversationId, conversations, conv]);
 
   // Load tag options from backend
   useEffect(() => {
@@ -52,6 +172,37 @@ export const CustomerProfilePanel: React.FC = () => {
       .then(data => setTags(data))
       .catch(e => console.error(e));
   }, [token, setTags]);
+
+  // Load recent conversations for this customer
+  const fetchRecentConvs = useCallback(async () => {
+    if (!token || !conv?.customer?.id) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/customers/${conv.customer.id}/tickets`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRecentConvs(data);
+      }
+    } catch (e) {
+      console.error('Failed to load recent convs:', e);
+    }
+  }, [token, conv?.customer?.id]);
+
+  useEffect(() => {
+    fetchRecentConvs();
+  }, [fetchRecentConvs]);
+
+  // Load agents list to find assignee name
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/auth/agents`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => setAgents(data))
+      .catch(e => console.error(e));
+  }, [token]);
 
   const handleProfileSave = async () => {
     if (!customer) return;
@@ -153,244 +304,635 @@ export const CustomerProfilePanel: React.FC = () => {
     return matched ? matched.color : '#6B7280'; // gray-500 fallback
   };
 
-  if (!customer) {
+  if (!customer || !conv) {
     return (
-      <div className="w-80 h-full border-l border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 p-6 flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs text-center shrink-0">
-        No active user profile details loaded.
+      <div className="ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col items-center justify-center p-8 text-center">
+        <Sidebar className="w-10 h-10 mb-3 text-faint" />
+        <p className="text-[14px] text-muted leading-relaxed max-w-[240px]">
+          No active user profile details loaded. Select a conversation to view customer stats.
+        </p>
       </div>
     );
   }
 
+  // Find assigned agent object
+  const assignedAgent = agents.find(a => a.id === conv.assignedAgentId);
+
   return (
-    <div className="w-80 h-full border-l border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900/60 flex flex-col overflow-y-auto shrink-0 select-none">
-      {/* Customer Avatar & Bio */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col items-center gap-3">
-        <div className="w-16 h-16 rounded-full bg-brand-500 text-white flex items-center justify-center font-bold text-xl uppercase shadow-md shadow-brand-500/10 shrink-0">
-          {customer.name.slice(0, 2)}
-        </div>
-        
-        <div className="text-center w-full">
-          {isEditing ? (
-            <div className="flex flex-col gap-2">
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="text-sm font-semibold border rounded px-2 py-1 text-center bg-slate-50 focus:ring-1 focus:ring-brand-500 w-full dark:bg-slate-800"
-              />
-            </div>
-          ) : (
-            <h3 className="font-bold text-slate-900 dark:text-slate-50 text-base leading-tight">
-              {customer.name}
-            </h3>
-          )}
-          <span className="text-[10px] text-slate-400 font-bold tracking-wider uppercase mt-1 inline-block">
-            {customer.id.startsWith('guest_') ? 'Guest Client' : 'Registered Member'}
-          </span>
-        </div>
-
-        {/* Profile controls */}
-        {isEditing ? (
-          <div className="flex gap-2">
-            <Button size="sm" variant="success" onClick={handleProfileSave} className="!text-xs py-1">
-              <Check className="w-3.5 h-3.5 mr-1" /> Save
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} className="!text-xs border py-1">
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button size="sm" variant="secondary" onClick={() => setIsEditing(true)} className="!text-xs py-1">
-            <Edit2 className="w-3 h-3 mr-1" /> Edit Profile
-          </Button>
-        )}
-      </div>
-
-      {/* Profile Details Contact info */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col gap-4">
-        <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Contact Details</h4>
-        
-        {/* Email */}
-        <div className="flex items-center gap-3">
-          <Mail className="w-4 h-4 text-slate-400 shrink-0" />
-          <div className="flex-1 min-w-0">
-            {isEditing ? (
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="No email registered"
-                className="text-xs border rounded p-1 w-full bg-slate-50 dark:bg-slate-800 focus:outline-none"
-              />
-            ) : (
-              <span className="text-xs text-slate-700 dark:text-slate-300 truncate block font-medium">
-                {customer.email || <span className="text-slate-400 italic">No email registered</span>}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Phone */}
-        <div className="flex items-center gap-3">
-          <Phone className="w-4 h-4 text-slate-400 shrink-0" />
-          <div className="flex-1 min-w-0">
-            {isEditing ? (
-              <input
-                type="text"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="No phone registered"
-                className="text-xs border rounded p-1 w-full bg-slate-50 dark:bg-slate-800 focus:outline-none"
-              />
-            ) : (
-              <span className="text-xs text-slate-700 dark:text-slate-300 truncate block font-medium">
-                {customer.phone || <span className="text-slate-400 italic">No phone registered</span>}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Session Metadata details */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col gap-4">
-        <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Session Details</h4>
-        
-        <div className="grid grid-cols-2 gap-3 text-xs">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-slate-400 text-[10px] font-semibold">Location</span>
-            <span className="text-slate-700 dark:text-slate-200 font-medium flex items-center gap-1">
-              <Globe className="w-3.5 h-3.5 text-slate-400" /> {customer.session?.country || 'United States'}
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-0.5">
-            <span className="text-slate-400 text-[10px] font-semibold">Device / Browser</span>
-            <span className="text-slate-700 dark:text-slate-200 font-medium flex items-center gap-1 truncate">
-              <Monitor className="w-3.5 h-3.5 text-slate-400 shrink-0" /> 
-              {customer.session?.browser} • {customer.session?.os}
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-0.5">
-            <span className="text-slate-400 text-[10px] font-semibold">IP Address</span>
-            <span className="text-slate-700 dark:text-slate-200 font-medium font-mono">
-              {customer.session?.ip || '127.0.0.1'}
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-0.5">
-            <span className="text-slate-400 text-[10px] font-semibold">Session Duration</span>
-            <span className="text-slate-700 dark:text-slate-200 font-medium">
-              {customer.session?.sessionDuration 
-                ? `${Math.round(customer.session.sessionDuration / 60)} mins`
-                : 'Active now'}
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-0.5 col-span-2 border-t pt-2 border-slate-100 dark:border-slate-800">
-            <span className="text-slate-400 text-[10px] font-semibold">Active Current Page</span>
-            <span className="text-slate-700 dark:text-slate-200 font-medium font-mono text-[11px] truncate block" title={customer.session?.currentPage}>
-              {customer.session?.currentPage || '/'}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Tags Section */}
-      <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex flex-col gap-3">
-        <div className="flex justify-between items-center">
-          <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1.5">
-            <TagIcon className="w-3.5 h-3.5" /> Tags
-          </h4>
-          <button 
-            onClick={() => setShowAddTag(!showAddTag)}
-            className="text-slate-400 hover:text-brand-500 rounded hover:bg-slate-100 dark:hover:bg-slate-800 p-0.5 transition-all"
+    <div className="ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col overflow-hidden">
+      
+      {/* ═══ TABS HEADER ════════════════════════════════════════════════════ */}
+      <div className="ic-tabs pt-4 pr-3 justify-between shrink-0">
+        <div className="flex items-end gap-7">
+          <button
+            onClick={() => setActiveTab('details')}
+            className={`ic-tab ${activeTab === 'details' ? 'ic-tab-active' : ''}`}
           >
-            <Plus className="w-4 h-4" />
+            Details
+          </button>
+          <button
+            onClick={() => setActiveTab('copilot')}
+            className={`ic-tab flex items-center gap-1.5 ${activeTab === 'copilot' ? 'ic-tab-active' : ''}`}
+          >
+            <Sparkles className="w-4 h-4" /> Copilot
           </button>
         </div>
+        <div className="flex items-center gap-0.5 pb-2 text-muted">
+          <button className="ic-icon-btn-ghost" title="Open details link">
+            <ExternalLink className="w-4 h-4" />
+          </button>
+          <button className="ic-icon-btn-ghost" title="Collapse sidebar">
+            <Sidebar className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
 
-        {/* Dropdown to add tags */}
-        {showAddTag && (
-          <div className="flex flex-col gap-1 p-2 bg-slate-50 dark:bg-slate-850 rounded-xl border animate-slide-up">
-            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1 px-1">Select Tag</span>
-            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-              {tags.filter(t => !customer.tags.includes(t.name)).map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => handleAddTag(t.name)}
-                  style={{ backgroundColor: t.color + '15', color: t.color, borderColor: t.color + '40' }}
-                  className="px-2 py-0.5 rounded text-xs font-semibold border hover:scale-105 active:scale-95 transition-all"
-                >
-                  {t.name}
-                </button>
-              ))}
-              {tags.filter(t => !customer.tags.includes(t.name)).length === 0 && (
-                <span className="text-[10px] text-slate-400 italic p-1">No tags available.</span>
+      {/* ═══ SCROLLABLE CONTENT ═════════════════════════════════════════════ */}
+      <div className="flex-1 overflow-y-auto">
+        
+        {activeTab === 'details' ? (
+          <>
+            {/* SECTION 1: ASSIGNEE & TEAM DETAILS */}
+            <div className="ic-detail-section py-3">
+              <div className="ic-detail-row">
+                <span className="ic-detail-label">Assignee</span>
+                <div className="ic-detail-value flex items-center gap-1 min-w-0">
+                  {assignedAgent ? (
+                    <div className="w-5 h-5 shrink-0 rounded-full bg-subtle text-ink flex items-center justify-center font-semibold text-[11px] uppercase">
+                      {assignedAgent.name.slice(0, 1)}
+                    </div>
+                  ) : (
+                    <User className="w-4 h-4 text-muted shrink-0" />
+                  )}
+                  <select
+                    value={conv.assignedAgentId || 'unassigned'}
+                    onChange={(e) => handleAssigneeChange(e.target.value)}
+                    className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${assignedAgent ? 'text-ink' : 'text-muted'}`}
+                    title="Change assignee"
+                  >
+                    <option value="unassigned" className="bg-surface text-ink">Unassigned</option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id} className="bg-surface text-ink">{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="ic-detail-row">
+                <span className="ic-detail-label">State</span>
+                <div className="ic-detail-value flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${
+                    conv.status === 'open' ? 'bg-accent'
+                    : conv.status === 'waiting' ? 'bg-red-500'
+                    : conv.status === 'resolved' ? 'bg-emerald-500'
+                    : 'bg-faint'
+                  }`} />
+                  <span className="truncate">{
+                    ({ open: 'In progress', waiting: 'Waiting on customer', resolved: 'Resolved', closed: 'Closed', archived: 'Archived', merged: 'Merged' } as Record<string, string>)[conv.status] || conv.status
+                  }</span>
+                </div>
+              </div>
+
+              <div className="ic-detail-row">
+                <span className="ic-detail-label">Team Inbox</span>
+                <div className="ic-detail-value flex items-center gap-2">
+                  <Users className="w-4 h-4 text-muted shrink-0" />
+                  <span className="truncate">Support Team</span>
+                </div>
+              </div>
+            </div>
+
+            {/* SECTION 2: LINKS ACCORDION */}
+            <div className="ic-detail-section">
+              <button
+                onClick={() => setLinksOpen(!linksOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="ic-detail-section-title">
+                  <Link2 className="w-[18px] h-[18px]" /> Links
+                </span>
+                {linksOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+
+              {linksOpen && (
+                <div className="mt-2 flex flex-col">
+                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
+                    <span>Tracker ticket</span>
+                    <button className="ic-icon-btn w-8 h-8">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
+                    <span>Back-office tickets</span>
+                    <button className="ic-icon-btn w-8 h-8">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
+                    <span>Side conversations</span>
+                    <button className="ic-icon-btn w-8 h-8">
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
               )}
+            </div>
+
+            {/* SECTION 3: CONVERSATION ATTRIBUTES ACCORDION */}
+            <div className="ic-detail-section">
+              <button
+                onClick={() => setAttrsOpen(!attrsOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="ic-detail-section-title">
+                  <ShieldAlert className="w-[18px] h-[18px]" /> Conversation attributes
+                </span>
+                {attrsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+
+              {attrsOpen && (
+                <div className="mt-2 flex flex-col">
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Title</span>
+                    <span className="ic-detail-value capitalize">{conv.category} Assistance</span>
+                  </div>
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">ID</span>
+                    <span className="ic-detail-value">{conv.id}</span>
+                  </div>
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Ticket number</span>
+                    <span className="ic-detail-value">{conv.ticketNumber}</span>
+                  </div>
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Category</span>
+                    <select
+                      value={conv.category}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
+                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-2 px-2 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px]"
+                    >
+                      <option value="general" className="bg-surface text-ink">General</option>
+                      <option value="bug" className="bg-surface text-ink">Bug</option>
+                      <option value="payment" className="bg-surface text-ink">Payment</option>
+                      <option value="subscription" className="bg-surface text-ink">Subscription</option>
+                      <option value="refund" className="bg-surface text-ink">Refund</option>
+                      <option value="feature_request" className="bg-surface text-ink">Feature Request</option>
+                      <option value="other" className="bg-surface text-ink">Other</option>
+                    </select>
+                  </div>
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Priority</span>
+                    <select
+                      value={conv.priority}
+                      onChange={(e) => handlePriorityChange(e.target.value)}
+                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-2 px-2 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px]"
+                    >
+                      <option value="low" className="bg-surface text-ink">Low</option>
+                      <option value="medium" className="bg-surface text-ink">Medium</option>
+                      <option value="high" className="bg-surface text-ink">High</option>
+                      <option value="critical" className="bg-surface text-ink">Critical</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 4: USER DATA ACCORDION */}
+            <div className="ic-detail-section">
+              <button
+                onClick={() => setUserDataOpen(!userDataOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="ic-detail-section-title">
+                  <User className="w-[18px] h-[18px]" /> User data
+                </span>
+                {userDataOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+
+              {userDataOpen && (
+                <div className="mt-2 flex flex-col">
+                  {/* Name (Editable) */}
+                  {isEditing ? (
+                    <div className="flex flex-col gap-1.5 py-1.5">
+                      <span className="text-[14px] text-muted">Name</span>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className="ic-input h-9 flex-1 min-w-0"
+                        />
+                        <button onClick={handleProfileSave} className="ic-icon-btn-ghost text-emerald-600 dark:text-emerald-400" title="Save">
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setIsEditing(false)} className="ic-icon-btn-ghost text-muted" title="Cancel">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ic-detail-row group/name">
+                      <span className="ic-detail-label">Name</span>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <span className="ic-detail-value">{customer.name}</span>
+                        <button onClick={() => setIsEditing(true)} className="shrink-0 flex items-center gap-1 text-[13px] text-muted hover:text-ink transition-colors">
+                          <Edit2 className="w-3.5 h-3.5" /> Edit
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* User ID */}
+                  <div className="ic-detail-row group/userid relative">
+                    <span className="ic-detail-label">User id</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.id}>
+                        <span className="ic-detail-value block">
+                          {customer.id}
+                        </span>
+                      </InstantTooltip>
+                      <button
+                        onClick={() => handleCopy(customer.id, 'userid')}
+                        className="opacity-0 group-hover/userid:opacity-100 transition-opacity p-1 hover:bg-subtle rounded-md text-muted hover:text-ink shrink-0"
+                      >
+                        {copiedText === 'userid' ? (
+                          <span className="text-[12px] font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 whitespace-nowrap">
+                            <Check className="w-3 h-3" /> Copied
+                          </span>
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Email & Phone */}
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">Email</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.email || 'No email'}>
+                        <span className="ic-detail-value flex items-center gap-2">
+                          <Mail className="w-4 h-4 text-muted shrink-0" />
+                          <span className="truncate">{customer.email || 'N/A'}</span>
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(customer.email, 'email')}
+                    </div>
+                  </div>
+
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">Phone</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.phone || 'No phone'}>
+                        <span className="ic-detail-value flex items-center gap-2">
+                          <Phone className="w-4 h-4 text-muted shrink-0" />
+                          <span className="truncate">{customer.phone || 'N/A'}</span>
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(customer.phone, 'phone')}
+                    </div>
+                  </div>
+
+                  {/* Session properties */}
+
+                  {/* Location */}
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">Location</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.session?.country || 'Unknown'}>
+                        <span className="ic-detail-value flex items-center gap-2">
+                          <Globe className="w-4 h-4 text-muted shrink-0" />
+                          <span className="truncate">{customer.session?.country || 'Unknown'}</span>
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(customer.session?.country, 'location')}
+                    </div>
+                  </div>
+
+                  {/* Browser / OS */}
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">Browser/OS</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={`${customer.session?.browser || ''} • ${customer.session?.os || ''}`}>
+                        <span className="ic-detail-value flex items-center gap-2">
+                          <Monitor className="w-4 h-4 text-muted shrink-0" />
+                          <span className="truncate">{customer.session?.browser} • {customer.session?.os}</span>
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(`${customer.session?.browser || ''} • ${customer.session?.os || ''}`, 'browser_os')}
+                    </div>
+                  </div>
+
+                  {/* IP Address */}
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">IP address</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.session?.ip || '127.0.0.1'}>
+                        <span className="ic-detail-value block">
+                          {customer.session?.ip || '127.0.0.1'}
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(customer.session?.ip, 'ip_address')}
+                    </div>
+                  </div>
+
+                  {/* Total Chats */}
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Total chats</span>
+                    <span className="ic-detail-value">
+                      {customer.session?.totalConversations || 1} conversations
+                    </span>
+                  </div>
+
+                  {/* Current Page */}
+                  <div className="ic-detail-row group relative">
+                    <span className="ic-detail-label">Current page</span>
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <InstantTooltip text={customer.session?.currentPage || '/'}>
+                        <span className="ic-detail-value block">
+                          {customer.session?.currentPage || '/'}
+                        </span>
+                      </InstantTooltip>
+                      {renderCopyButton(customer.session?.currentPage, 'current_page')}
+                    </div>
+                  </div>
+
+                  {/* Tags sub-section */}
+                  <div className="flex flex-col gap-2.5 mt-2 pt-3 border-t border-line">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[14px] text-muted flex items-center gap-2">
+                        <TagIcon className="w-4 h-4" /> Tags
+                      </span>
+                      <button 
+                        onClick={() => setShowAddTag(!showAddTag)}
+                        className="ic-icon-btn w-8 h-8"
+                        title="Add tag"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {showAddTag && (
+                      <div className="flex flex-col gap-2 p-3 bg-surface rounded-xl border border-line shadow-pop animate-slide-up">
+                        <span className="text-[13px] text-muted">Select tag</span>
+                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                          {tags.filter(t => !customer.tags.includes(t.name)).map(t => (
+                            <button
+                              key={t.id}
+                              onClick={() => handleAddTag(t.name)}
+                              style={{ backgroundColor: t.color + '15', color: t.color, borderColor: t.color + '40' }}
+                              className="px-2.5 h-6 rounded-full text-[12px] font-medium border hover:opacity-80 transition-opacity"
+                            >
+                              {t.name}
+                            </button>
+                          ))}
+                          {tags.filter(t => !customer.tags.includes(t.name)).length === 0 && (
+                            <span className="text-[13px] text-faint p-1">No tags available.</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap gap-1.5">
+                      {customer.tags && customer.tags.length > 0 ? (
+                        customer.tags.map((t, i) => (
+                          <span
+                            key={i}
+                            style={{ backgroundColor: getTagColor(t) + '15', color: getTagColor(t), borderColor: getTagColor(t) + '40' }}
+                            className="inline-flex items-center gap-1 pl-2.5 pr-1 h-6 border text-[12px] font-medium rounded-full"
+                          >
+                            {t}
+                            <button onClick={() => handleRemoveTag(t)} className="opacity-60 hover:opacity-100 p-0.5 rounded-full hover:bg-ink/5">
+                              <X className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[14px] text-faint">No tags associated.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 5: CUSTOMER NOTES ACCORDION */}
+            <div className="ic-detail-section">
+              <button
+                onClick={() => setNotesOpen(!notesOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="ic-detail-section-title">
+                  <FileText className="w-[18px] h-[18px]" /> Customer notes
+                </span>
+                {notesOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+
+              {notesOpen && (
+                <div className="mt-3 flex flex-col gap-3">
+                  {/* Create inline note */}
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      placeholder="Add customer profile note..."
+                      className="ic-input h-9 flex-1 min-w-0"
+                    />
+                    <button 
+                      onClick={handleAddNote} 
+                      className="ic-icon-btn-primary"
+                      title="Add note"
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Note history */}
+                  <div className="flex flex-col gap-2">
+                    {customer.notes && customer.notes.length > 0 ? (
+                      customer.notes.map((note, index) => (
+                        <div key={index} className="px-3.5 py-3 bg-note border border-note-line rounded-xl relative group">
+                          <p className="text-[14px] text-ink leading-relaxed pr-6">{note}</p>
+                          <button
+                            onClick={() => handleRemoveNote(index)}
+                            className="absolute top-2.5 right-2.5 text-muted hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded"
+                            title="Delete Note"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-[14px] text-faint">No customer profile notes.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION 6: RECENT CONVERSATIONS FROM SAME CUSTOMER */}
+            <div className="ic-detail-section">
+              <button
+                onClick={() => setRecentOpen(!recentOpen)}
+                className="w-full flex items-center justify-between"
+              >
+                <span className="ic-detail-section-title">
+                  <MessageSquare className="w-[18px] h-[18px]" /> Previous conversations
+                  {recentConvs.length > 1 && (
+                    <span className="ic-badge">
+                      {recentConvs.length}
+                    </span>
+                  )}
+                </span>
+                {recentOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+
+              {recentOpen && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {recentConvs.length <= 1 ? (
+                    <span className="text-[14px] text-faint">No other conversations found for this customer.</span>
+                  ) : (
+                    recentConvs
+                      .filter(rc => rc.id !== activeConversationId)
+                      .map(rc => {
+                        const isMergeTarget = mergeConfirm === rc.id;
+                        const statusColors: Record<string, string> = {
+                          open: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
+                          waiting: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+                          resolved: 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
+                          closed: 'bg-subtle text-muted',
+                          merged: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
+                        };
+                        const statusClass = statusColors[rc.status] || statusColors.closed;
+                        return (
+                          <div
+                            key={rc.id}
+                            className="ic-card flex flex-col gap-1 px-3.5 py-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[14px] font-medium text-ink truncate">{rc.ticketNumber}</span>
+                              <span className={`text-[12px] font-medium capitalize px-2 h-5 inline-flex items-center rounded-full ${statusClass}`}>{rc.status}</span>
+                            </div>
+                            <p className="text-[13px] text-muted truncate leading-snug">
+                              {rc.lastMessageSnippet || 'No messages'}
+                            </p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-[12px] text-faint capitalize">{rc.category}</span>
+                              {!isMergeTarget ? (
+                                <div className="flex gap-3 items-center">
+                                  <button
+                                    onClick={() => useStore.getState().setViewingMergedConversationId(rc.id)}
+                                    className="text-[13px] font-medium text-muted hover:text-ink transition-colors"
+                                  >
+                                    View
+                                  </button>
+                                  {rc.status === 'open' && (
+                                    <button
+                                      onClick={() => setMergeConfirm(rc.id)}
+                                      className="flex items-center gap-1 text-[13px] font-medium text-accent hover:text-accent/80 transition-colors"
+                                    >
+                                      <GitMerge className="w-3.5 h-3.5" /> Merge
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[13px] text-muted">Confirm?</span>
+                                  <button
+                                    disabled={mergeLoading}
+                                    onClick={async () => {
+                                      if (!activeConversationId) return;
+                                      setMergeLoading(true);
+                                      try {
+                                        const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}/merge`, {
+                                          method: 'POST',
+                                          headers: {
+                                            'Content-Type': 'application/json',
+                                            'Authorization': `Bearer ${token}`
+                                          },
+                                          body: JSON.stringify({ sourceId: rc.id })
+                                        });
+                                        if (res.ok) {
+                                          await fetchRecentConvs();
+                                        } else {
+                                          const err = await res.json();
+                                          alert('Merge failed: ' + err.error);
+                                        }
+                                      } catch (e) {
+                                        console.error(e);
+                                      } finally {
+                                        setMergeLoading(false);
+                                        setMergeConfirm(null);
+                                      }
+                                    }}
+                                    className="ic-btn-primary ic-btn-sm disabled:opacity-50"
+                                  >
+                                    {mergeLoading ? '…' : 'Yes'}
+                                  </button>
+                                  <button
+                                    onClick={() => setMergeConfirm(null)}
+                                    className="ic-btn-ghost ic-btn-sm text-muted"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          /* AI COPILOT VIEW */
+          <div className="p-5 flex flex-col gap-3 animate-fade-in">
+            <div className="ic-card p-4 flex flex-col gap-2 bg-subtle border-transparent">
+              <div className="flex items-center gap-2 text-ink">
+                <Sparkles className="w-[18px] h-[18px] text-accent" />
+                <span className="text-[15px] font-semibold">Live AI Copilot</span>
+              </div>
+              <p className="text-[14px] text-muted leading-relaxed">
+                AI is monitoring this conversation. I can recommend replies and summarize key ticket properties dynamically.
+              </p>
+            </div>
+
+            {/* AI Summarization card */}
+            <div className="ic-card flex flex-col gap-2 p-4">
+              <span className="text-[15px] font-semibold text-ink flex items-center gap-2">
+                <FileText className="w-[18px] h-[18px] text-muted" /> Auto-summary
+              </span>
+              <p className="text-[14px] text-ink/80 leading-relaxed">
+                Customer is asking about the ticket category <span className="text-ink font-semibold">"{conv.category}"</span>. The ticket priority is flagged as <span className="font-semibold text-red-600 dark:text-red-400 uppercase">{conv.priority}</span>.
+              </p>
+            </div>
+
+            {/* Smart Actions checklist */}
+            <div className="ic-card flex flex-col gap-2.5 p-4">
+              <span className="text-[15px] font-semibold text-ink flex items-center gap-2">
+                <Clock className="w-[18px] h-[18px] text-muted" /> Recommended actions
+              </span>
+              <ul className="text-[14px] text-ink/80 flex flex-col gap-2">
+                <li className="flex items-center gap-2.5">
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
+                  <span>Verify customer contact info.</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
+                  <span>Assign an agent to lock this ticket.</span>
+                </li>
+                <li className="flex items-center gap-2.5">
+                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
+                  <span>Respond using a relevant saved reply.</span>
+                </li>
+              </ul>
             </div>
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5">
-          {customer.tags && customer.tags.length > 0 ? (
-            customer.tags.map((t, i) => (
-              <span
-                key={i}
-                style={{ backgroundColor: getTagColor(t) + '15', color: getTagColor(t), borderColor: getTagColor(t) + '40' }}
-                className="inline-flex items-center gap-1 px-2 py-0.5 border text-xs font-semibold rounded-full"
-              >
-                {t}
-                <button onClick={() => handleRemoveTag(t)} className="opacity-60 hover:opacity-100">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))
-          ) : (
-            <span className="text-xs text-slate-400 italic">No tags associated.</span>
-          )}
-        </div>
-      </div>
-
-      {/* Internal customer Profile Notes */}
-      <div className="p-6 flex flex-col gap-3">
-        <h4 className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1.5">
-          <FileText className="w-3.5 h-3.5" /> Customer Notes
-        </h4>
-
-        {/* Create inline note */}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={newNote}
-            onChange={(e) => setNewNote(e.target.value)}
-            placeholder="Add a customer note..."
-            className="flex-1 text-xs border rounded-lg px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 focus:outline-none dark:border-slate-800"
-          />
-          <Button size="sm" onClick={handleAddNote} className="!p-2.5">
-            <Plus className="w-4 h-4" />
-          </Button>
-        </div>
-
-        {/* Note history */}
-        <div className="flex flex-col gap-2 mt-2">
-          {customer.notes && customer.notes.length > 0 ? (
-            customer.notes.map((note, index) => (
-              <div key={index} className="p-3 bg-amber-50/20 dark:bg-amber-950/5 border border-amber-200/50 dark:border-amber-900/30 rounded-xl relative group">
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed pr-6">{note}</p>
-                <button
-                  onClick={() => handleRemoveNote(index)}
-                  className="absolute top-2.5 right-2.5 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                  title="Delete Note"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))
-          ) : (
-            <span className="text-xs text-slate-400 italic">No customer profile notes.</span>
-          )}
-        </div>
       </div>
     </div>
   );

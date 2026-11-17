@@ -148,124 +148,126 @@ export const TestingPanel: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 h-full bg-slate-50 dark:bg-slate-950 p-6 overflow-y-auto flex flex-col gap-6 select-none">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 dark:text-slate-50 flex items-center gap-2">
-          <Sparkles className="w-5 h-5 text-brand-500" /> Local Seeder & Testing Panel
-        </h1>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Simulate real-world customer traffic, seed support tickers, or clear database state locally.
-        </p>
+    <div className="ic-panel flex-1 min-w-0 h-full flex flex-col">
+      <div className="ic-panel-header">
+        <Sparkles className="w-5 h-5 text-muted shrink-0" />
+        <h1 className="ic-title">Local seeder &amp; testing panel</h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Core Controls */}
-        <div className="lg:col-span-2 flex flex-col gap-4">
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <Database className="w-4 h-4 text-brand-500" /> Database Administration
-            </h3>
-            
-            <div className="flex flex-wrap gap-3">
-              <Button
-                variant="primary"
-                loading={loading}
-                onClick={handleSeed}
-                className="gap-2 shadow-brand-500/20"
-              >
-                <Sparkles className="w-4.5 h-4.5" /> Seed 100 Conversations
-              </Button>
+      <div className="flex-1 overflow-y-auto p-8 flex flex-col gap-6">
+        <p className="text-[14px] text-muted -mt-1">
+          Simulate real-world customer traffic, seed support tickers, or clear database state locally.
+        </p>
 
-              <Button
-                variant="danger"
-                loading={loading}
-                onClick={handleReset}
-                className="gap-2"
-              >
-                <RotateCcw className="w-4.5 h-4.5" /> Reset Database
-              </Button>
-            </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Core Controls */}
+          <div className="lg:col-span-2 flex flex-col gap-6">
+            <div className="ic-card p-6 flex flex-col gap-4">
+              <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2">
+                <Database className="w-[18px] h-[18px] text-muted" /> Database administration
+              </h3>
 
-            <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-900/30 rounded-xl flex gap-3 text-xs text-amber-800 dark:text-amber-300">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <div>
-                <span className="font-bold">Important Notice:</span> Seeding drops existing local records and generates 100 fully populated customer conversations with logs, tags, and response coordinates. Default login is: <span className="font-bold font-mono bg-white dark:bg-slate-900 px-1 py-0.5 rounded border border-amber-200">admin@localhost</span> / <span className="font-bold font-mono bg-white dark:bg-slate-900 px-1 py-0.5 rounded border border-amber-200">admin123</span>.
-              </div>
-            </div>
-          </div>
-
-          {/* Interactive Chat simulation */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <MessageSquareCode className="w-4 h-4 text-brand-500" /> Interactive Traffic Simulator
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Simulate customer text */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-xl border flex flex-col gap-3">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Simulate Customer Action</span>
-                <p className="text-[11px] text-slate-400">Triggers a follow-up inquiry from the active selected conversation client.</p>
+              <div className="flex flex-wrap gap-3">
                 <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleTriggerCustomerMessage}
-                  className="w-full text-xs font-semibold py-2"
+                  variant="primary"
+                  loading={loading}
+                  onClick={handleSeed}
+                  className="gap-2"
                 >
-                  <Play className="w-3.5 h-3.5 mr-1.5" /> Customer Send Message
+                  <Sparkles className="w-4 h-4" /> Seed 100 conversations
+                </Button>
+
+                <Button
+                  variant="danger"
+                  loading={loading}
+                  onClick={handleReset}
+                  className="gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" /> Reset database
                 </Button>
               </div>
 
-              {/* Simulate agent reply */}
-              <div className="p-4 bg-slate-50 dark:bg-slate-950/40 rounded-xl border flex flex-col gap-3">
-                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Simulate Agent Reply</span>
-                <p className="text-[11px] text-slate-400">Simulates active typing, and responds automatically via the assigned support agent.</p>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleTriggerAgentReply}
-                  className="w-full text-xs font-semibold py-2"
-                >
-                  <Play className="w-3.5 h-3.5 mr-1.5" /> Agent Typing & Send
-                </Button>
+              <div className="p-3.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200/70 dark:border-amber-500/20 rounded-xl flex gap-3 text-[13px] leading-relaxed text-amber-800 dark:text-amber-300">
+                <AlertTriangle className="w-[18px] h-[18px] shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Important notice:</span> Seeding drops existing local records and generates 100 fully populated customer conversations with logs, tags, and response coordinates. Default login is: <span className="font-mono text-[12px] px-1.5 py-0.5 rounded-md bg-surface border border-amber-200/70 dark:border-amber-500/20">admin@localhost</span> / <span className="font-mono text-[12px] px-1.5 py-0.5 rounded-md bg-surface border border-amber-200/70 dark:border-amber-500/20">admin123</span>.
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Chat simulation */}
+            <div className="ic-card p-6 flex flex-col gap-4">
+              <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2">
+                <MessageSquareCode className="w-[18px] h-[18px] text-muted" /> Interactive traffic simulator
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Simulate customer text */}
+                <div className="p-4 bg-sidebar rounded-xl border border-line flex flex-col gap-2">
+                  <span className="text-[14px] font-medium text-ink">Simulate customer action</span>
+                  <p className="text-[13px] text-muted leading-relaxed flex-1">Triggers a follow-up inquiry from the active selected conversation client.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleTriggerCustomerMessage}
+                    className="w-full mt-1 bg-surface border border-line hover:bg-subtle"
+                  >
+                    <Play className="w-3.5 h-3.5" /> Customer send message
+                  </Button>
+                </div>
+
+                {/* Simulate agent reply */}
+                <div className="p-4 bg-sidebar rounded-xl border border-line flex flex-col gap-2">
+                  <span className="text-[14px] font-medium text-ink">Simulate agent reply</span>
+                  <p className="text-[13px] text-muted leading-relaxed flex-1">Simulates active typing, and responds automatically via the assigned support agent.</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleTriggerAgentReply}
+                    className="w-full mt-1 bg-surface border border-line hover:bg-subtle"
+                  >
+                    <Play className="w-3.5 h-3.5" /> Agent typing &amp; send
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Stats & Terminal */}
-        <div className="flex flex-col gap-4">
-          {/* Online stats */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col gap-3">
-            <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200 flex items-center gap-2">
-              <Users className="w-4 h-4 text-brand-500" /> Online Customer Simulator
-            </h3>
-            
-            <div className="flex justify-between items-center bg-slate-50 dark:bg-slate-950/30 p-3 rounded-xl border">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Mock Online Clients:</span>
-              <span className="text-sm font-bold text-emerald-500 flex items-center gap-1.5 font-mono">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" /> {activeUsersCount} Users
-              </span>
+          {/* Stats & Terminal */}
+          <div className="flex flex-col gap-6">
+            {/* Online stats */}
+            <div className="ic-card p-6 flex flex-col gap-4">
+              <h3 className="text-[15px] font-semibold text-ink flex items-center gap-2">
+                <Users className="w-[18px] h-[18px] text-muted" /> Online customer simulator
+              </h3>
+
+              <div className="flex justify-between items-center bg-sidebar px-4 py-3 rounded-xl border border-line">
+                <span className="text-[13px] text-muted">Mock online clients</span>
+                <span className="text-[15px] font-semibold text-ink flex items-center gap-2 tabular-nums">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500" /> {activeUsersCount} Users
+                </span>
+              </div>
+
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={generateFakeUsers}
+                className="w-full"
+              >
+                Add +5 simulated online users
+              </Button>
             </div>
 
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={generateFakeUsers}
-              className="w-full text-xs"
-            >
-              Add +5 Simulated Online Users
-            </Button>
-          </div>
-
-          {/* Seeder log shell output */}
-          <div className="flex-1 bg-slate-900 rounded-2xl p-4 border border-slate-800 shadow-lg flex flex-col gap-2 min-h-60 overflow-hidden font-mono text-[11px] text-slate-300">
-            <h4 className="font-bold text-xs text-brand-400 flex items-center gap-2 border-b border-slate-800 pb-2">
-              <Terminal className="w-4 h-4 text-brand-500" /> Simulator Console Output
-            </h4>
-            <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin scrollbar-thumb-slate-800 pr-1">
-              {logs.map((log, idx) => (
-                <div key={idx} className="leading-relaxed whitespace-pre-wrap">{log}</div>
-              ))}
+            {/* Seeder log shell output */}
+            <div className="ic-card flex-1 flex flex-col min-h-60 overflow-hidden">
+              <h4 className="text-[14px] font-semibold text-ink flex items-center gap-2 px-4 h-11 shrink-0 border-b border-line">
+                <Terminal className="w-4 h-4 text-muted" /> Simulator console output
+              </h4>
+              <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 p-4 bg-sidebar font-mono text-[12px] text-ink/80">
+                {logs.map((log, idx) => (
+                  <div key={idx} className="leading-relaxed whitespace-pre-wrap break-words">{log}</div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

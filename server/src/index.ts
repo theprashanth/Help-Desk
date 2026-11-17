@@ -59,6 +59,87 @@ async function startServer() {
     }
   }
 
+  // Ensure default workspace exists
+  try {
+    const workspaceRepo = RepositoryFactory.getWorkspaceRepository();
+    if (!RepositoryFactory.isJson()) {
+      const { WorkspaceModel } = require('./models/schemas');
+      const exists = await WorkspaceModel.findOne({ _id: 'default_workspace' });
+      if (!exists) {
+        const doc = new WorkspaceModel({
+          _id: 'default_workspace',
+          name: 'Default Workspace',
+          subdomain: 'default',
+          apiKey: 'default_api_key_12345'
+        });
+        // Override _id since mongoose cast could occur
+        doc._id = 'default_workspace';
+        await doc.save();
+        console.log('[Seeder] Seeded default MongoDB Workspace');
+      }
+    } else {
+      const fs = require('fs/promises');
+      const path = require('path');
+      const filePath = path.resolve(process.cwd(), '.data/workspaces.json');
+      try {
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        let list = [];
+        try {
+          list = JSON.parse(await fs.readFile(filePath, 'utf-8'));
+        } catch (e) {}
+        if (!list.some((w: any) => w.id === 'default_workspace')) {
+          list.push({
+            id: 'default_workspace',
+            name: 'Default Workspace',
+            subdomain: 'default',
+            apiKey: 'default_api_key_12345',
+            createdAt: new Date().toISOString()
+          });
+          await fs.writeFile(filePath, JSON.stringify(list, null, 2), 'utf-8');
+          console.log('[Seeder] Seeded default JSON Workspace');
+        }
+      } catch (e) {}
+    }
+  } catch (err: any) {
+    console.error('[Seeder Error] Failed to ensure default workspace:', err.message);
+  }
+
+  // Run JSON files schema migration to ensure all old single-tenant records
+  // have a default workspaceId assigned.
+  if (RepositoryFactory.isJson()) {
+    try {
+      const fs = require('fs/promises');
+      const path = require('path');
+      const dataFiles = ['users.json', 'customers.json', 'conversations.json', 'messages.json', 'tags.json', 'settings.json'];
+      for (const file of dataFiles) {
+        const filePath = path.resolve(process.cwd(), '.data', file);
+        try {
+          const content = await fs.readFile(filePath, 'utf-8');
+          if (content.trim()) {
+            const list = JSON.parse(content);
+            if (Array.isArray(list)) {
+              let updated = false;
+              for (const item of list) {
+                if (!item.workspaceId) {
+                  item.workspaceId = 'default_workspace';
+                  updated = true;
+                }
+              }
+              if (updated) {
+                await fs.writeFile(filePath, JSON.stringify(list, null, 2), 'utf-8');
+                console.log(`[Migration] Scoped legacy records in ${file} to 'default_workspace'`);
+              }
+            }
+          }
+        } catch (e) {
+          // File might not exist yet
+        }
+      }
+    } catch (err: any) {
+      console.error('[Migration Error] Failed to migrate JSON records:', err.message);
+    }
+  }
+
   // Set up auto-seed if database is empty
   try {
     const userRepo = RepositoryFactory.getUserRepository();
@@ -83,8 +164,7 @@ async function startServer() {
   // Real-time WebSockets
   SocketService.init(io);
 
-  // Keep track of active connections
-  const onlineAgents = new Map<string, { socketId: string; name: string }>();
+
 
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] New connection: ${socket.id}`);
@@ -103,7 +183,7 @@ async function startServer() {
 
     // Broadcast Agent Login
     socket.on('agent:login', (payload: { agentId: string; name: string }) => {
-      onlineAgents.set(payload.agentId, { socketId: socket.id, name: payload.name });
+      SocketService.onlineAgents.set(payload.agentId, { socketId: socket.id, name: payload.name });
       SocketService.broadcastAgentOnline(payload.agentId, payload.name);
       console.log(`[Socket.IO] Agent ${payload.name} (${payload.agentId}) went online`);
     });
@@ -130,9 +210,9 @@ async function startServer() {
       console.log(`[Socket.IO] Disconnected: ${socket.id}`);
       
       // Check if disconnected socket belongs to an agent
-      for (const [agentId, value] of onlineAgents.entries()) {
+      for (const [agentId, value] of SocketService.onlineAgents.entries()) {
         if (value.socketId === socket.id) {
-          onlineAgents.delete(agentId);
+          SocketService.onlineAgents.delete(agentId);
           SocketService.broadcastAgentOffline(agentId);
           console.log(`[Socket.IO] Agent ${value.name} went offline`);
           
@@ -146,13 +226,132 @@ async function startServer() {
     });
   });
 
+  // Root endpoint for status / navigation
+  app.get('/', (req, res) => {
+    if (req.accepts('html')) {
+      res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Help Desk Backend API</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+                background-color: #0f172a;
+                color: #f8fafc;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-height: 100vh;
+                margin: 0;
+                padding: 1rem;
+              }
+              .card {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 12px;
+                padding: 2rem;
+                max-width: 480px;
+                width: 100%;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+              }
+              .badge {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                background: #064e3b;
+                color: #34d399;
+                padding: 4px 10px;
+                border-radius: 9999px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                margin-bottom: 1rem;
+              }
+              .badge-dot {
+                width: 8px;
+                height: 8px;
+                background-color: #10b981;
+                border-radius: 50%;
+              }
+              h1 {
+                font-size: 1.5rem;
+                margin: 0 0 0.5rem 0;
+                color: #f8fafc;
+              }
+              p {
+                color: #94a3b8;
+                font-size: 0.95rem;
+                line-height: 1.5;
+                margin: 0 0 1.5rem 0;
+              }
+              .actions {
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+              }
+              a {
+                display: block;
+                text-align: center;
+                text-decoration: none;
+                padding: 10px 16px;
+                border-radius: 8px;
+                font-size: 0.95rem;
+                font-weight: 500;
+                transition: all 0.15s ease-in-out;
+              }
+              .btn-primary {
+                background-color: #2563eb;
+                color: #ffffff;
+              }
+              .btn-primary:hover {
+                background-color: #1d4ed8;
+              }
+              .btn-secondary {
+                background-color: #334155;
+                color: #e2e8f0;
+              }
+              .btn-secondary:hover {
+                background-color: #475569;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="card">
+              <div class="badge">
+                <span class="badge-dot"></span>
+                API Server Online
+              </div>
+              <h1>Help Desk Backend</h1>
+              <p>The Express &amp; Socket.IO backend service is running successfully on port ${PORT}. If you want to use the customer support web application or agent dashboard, open the frontend:</p>
+              <div class="actions">
+                <a href="http://localhost:5173/agent" class="btn-primary">Go to Agent Dashboard (localhost:5173/agent)</a>
+                <a href="http://localhost:5173" class="btn-secondary">View Customer Demo Site (localhost:5173)</a>
+                <a href="/health" class="btn-secondary">Check System Health Status (/health)</a>
+              </div>
+            </div>
+          </body>
+        </html>
+      `);
+    } else {
+      res.json({
+        status: 'healthy',
+        message: 'Help Desk Backend API is running',
+        port: PORT,
+        dashboardUrl: 'http://localhost:5173',
+        healthCheck: '/health'
+      });
+    }
+  });
+
   // Health check endpoint
   app.get('/health', (req, res) => {
     res.json({
       status: 'healthy',
       database: RepositoryFactory.isJson() ? 'JSON Files' : 'MongoDB Mongoose',
       mongoConnected: isMongoConnected,
-      onlineAgentsCount: onlineAgents.size
+      onlineAgentsCount: SocketService.onlineAgents.size
     });
   });
 
