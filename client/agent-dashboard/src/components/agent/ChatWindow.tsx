@@ -8,8 +8,10 @@ import {
   Clock, GitMerge, Ban, UserPlus, FileText, FileDown,
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Inbox as InboxIcon, Archive, ArrowLeft, Search, CircleDot,
-  Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus
+  Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare
 } from 'lucide-react';
+import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
 import { SNOOZE_OPTIONS, computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 
@@ -24,6 +26,18 @@ const TICKET_STATES: {
   { status: 'closed', label: 'Close', kbd: ['⌘', '⇧', 'Y'], icon: InboxIcon, color: 'text-ink' },
   { status: 'archived', label: 'Archive', hint: 'Hide from every queue', icon: Archive, color: 'text-muted' },
 ];
+// Conversation event categories shown in "Show conversation events"
+const EVENT_CATEGORIES: { key: ConversationEventCategory; label: string; prefix: string; icon: React.ElementType }[] = [
+  { key: 'status', label: 'Status changes', prefix: 'State', icon: CircleDot },
+  { key: 'assignment', label: 'Assignment', prefix: 'Assignment', icon: UserCheck },
+  { key: 'priority', label: 'Priority', prefix: 'Priority', icon: ArrowUpDown },
+  { key: 'tags', label: 'Tags', prefix: 'Tags', icon: TagIcon },
+  { key: 'attributes', label: 'Attributes & title', prefix: 'Attribute', icon: SlidersHorizontal },
+  { key: 'tickets', label: 'Tickets', prefix: 'Ticket', icon: Ticket },
+  { key: 'other', label: 'Other', prefix: '', icon: MoreVertical },
+];
+const EVENT_FILTER_KEY = 'hd_conversation_event_filter';
+
 const STATE_LABELS: Record<string, string> = {
   open: 'In progress', waiting: 'Waiting on customer', resolved: 'Resolved',
   closed: 'Closed', archived: 'Archived', merged: 'Merged'
@@ -93,6 +107,47 @@ export const ChatWindow: React.FC = () => {
   const [macroError, setMacroError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [highlightMsgId, setHighlightMsgId] = useState<string | null>(null);
+  const setComposer = useStore((state) => state.setComposer);
+
+  // Which conversation event categories to show inline (remembered per browser; none by default)
+  const [eventFilter, setEventFilter] = useState<ConversationEventCategory[]>(() => {
+    try { return JSON.parse(localStorage.getItem(EVENT_FILTER_KEY) || '[]'); } catch { return []; }
+  });
+  const [showEventsSubmenu, setShowEventsSubmenu] = useState(false);
+  const [eventsFlyoutPos, setEventsFlyoutPos] = useState<{ top: number; left: number } | null>(null);
+  const openEventsSubmenu = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const width = 250;
+    // open to the left of the menu (it sits at the right edge of the panel); fall back to the right
+    const left = r.left - width - 8 >= 8 ? r.left - width - 8 : r.right + 8;
+    const top = Math.min(Math.max(8, r.top - 6), window.innerHeight - 420);
+    setEventsFlyoutPos({ top, left });
+    setShowEventsSubmenu(true);
+  };
+  const updateEventFilter = (next: ConversationEventCategory[]) => {
+    setEventFilter(next);
+    localStorage.setItem(EVENT_FILTER_KEY, JSON.stringify(next));
+  };
+  const allEventsOn = eventFilter.length === EVENT_CATEGORIES.length;
+  const toggleAllEvents = () => updateEventFilter(allEventsOn ? [] : EVENT_CATEGORIES.map(c => c.key));
+  const toggleEventCategory = (key: ConversationEventCategory) =>
+    updateEventFilter(eventFilter.includes(key) ? eventFilter.filter(k => k !== key) : [...eventFilter, key]);
+
+  // ⌘E toggles all conversation events
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === 'e') {
+        e.preventDefault();
+        setEventFilter(prev => {
+          const next = prev.length === EVENT_CATEGORIES.length ? [] : EVENT_CATEGORIES.map(c => c.key);
+          localStorage.setItem(EVENT_FILTER_KEY, JSON.stringify(next));
+          return next;
+        });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   
   // Typing state
   const [isTyping, setIsTyping] = useState(false);
@@ -652,6 +707,24 @@ export const ChatWindow: React.FC = () => {
     );
   }
   const ticketSnoozedUntil = isSnoozed(ticket) ? ticket.snoozedUntil || null : null;
+  const isEvent = (m: Message) => m.metadata?.type === 'event';
+  const visibleMessages = messages.filter(m => !isEvent(m) || eventFilter.includes(m.metadata?.category || 'other'));
+  const ticketTitle = (ticket.kind === 'ticket' || ticket.kind === 'issue') && ticket.title ? ticket.title : ticket.customer.name;
+
+  // Event text with "You" for your own actions, e.g. "You assigned yourself"
+  const renderEventText = (m: Message) => {
+    let text = m.content;
+    const meta = m.metadata || {};
+    if (agent && meta.actorId === agent.id && meta.actorName && text.startsWith(meta.actorName)) {
+      text = 'You' + text.slice(meta.actorName.length);
+      text = text.replace(/assigned themselves$/, 'assigned yourself');
+    }
+    if (agent && meta.targetId === agent.id && meta.targetName && meta.actorId !== agent.id) {
+      text = text.replace(new RegExp(`${meta.targetName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), 'you');
+    }
+    const cat = EVENT_CATEGORIES.find(c => c.key === meta.category);
+    return cat?.prefix ? `${cat.prefix}: ${text}` : text;
+  };
 
   return (
     <div className="ic-panel flex-1 min-w-0 h-full flex flex-col relative">
@@ -660,7 +733,7 @@ export const ChatWindow: React.FC = () => {
         
         {/* Row 1: Title & Main Actions */}
         <div className="ic-panel-header justify-between gap-3">
-          <h2 className="ic-title flex-1 min-w-0" title={ticket.customer.name}>{ticket.customer.name}</h2>
+          <h2 className="ic-title flex-1 min-w-0" title={ticketTitle}>{ticketTitle}</h2>
 
           {/* Right Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -732,7 +805,11 @@ export const ChatWindow: React.FC = () => {
                     { icon: UserPlus, label: 'Manage participants', divider: false },
                     { icon: GitMerge, label: 'Merge into…', kbd: '⌘ ⇧ M', divider: false,
                       action: () => { setShowMergePanel(true); setShowMoreMenu(false); } },
-                    { icon: Globe, label: 'New conversation', divider: true },
+                    { icon: Globe, label: 'New conversation', divider: true,
+                      action: () => {
+                        setShowMoreMenu(false);
+                        setComposer({ kind: 'conversation', customer: { id: ticket.customer.id, name: ticket.customer.name, email: ticket.customer.email } });
+                      } },
                     { icon: FileText, label: 'Export conversation as text', divider: false,
                       action: () => {
                         const text = `Ticket: ${ticket.ticketNumber}\nCustomer: ${ticket.customer.name}\n\n[Export feature coming soon]`;
@@ -744,16 +821,49 @@ export const ChatWindow: React.FC = () => {
                       }
                     },
                     { icon: FileDown, label: 'Export conversation as PDF', divider: false },
-                    { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true },
+                    { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true, submenu: true },
                     { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
                     { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',
                       danger: true, divider: false,
                       action: () => { setIsBlocked(v => !v); setShowMoreMenu(false); }
                     },
-                  ].map((item, i) => (
+                  ].map((item: any, i) => (
                     <React.Fragment key={i}>
                       {item.divider && <div className="my-1.5 border-t border-line" />}
+                      {item.submenu ? (
+                        <div className="relative" onMouseEnter={(e) => openEventsSubmenu(e.currentTarget)}>
+                          <button
+                            onClick={(e) => (showEventsSubmenu ? setShowEventsSubmenu(false) : openEventsSubmenu(e.currentTarget))}
+                            className={`ic-menu-item ${showEventsSubmenu ? 'bg-subtle' : ''}`}
+                          >
+                            <item.icon className="w-4 h-4 shrink-0 opacity-80" />
+                            <span className="flex-1 truncate">{item.label}</span>
+                            <span className="flex items-center gap-1 shrink-0">
+                              {item.kbd.split(' ').map((k: string, ki: number) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
+                            </span>
+                            <ChevronRight className="w-4 h-4 text-muted" />
+                          </button>
+                          {showEventsSubmenu && eventsFlyoutPos && (
+                            <div className="fixed z-50" style={{ top: eventsFlyoutPos.top, left: eventsFlyoutPos.left }}>
+                              <div className="ic-menu w-[250px]">
+                                <button onClick={toggleAllEvents} className="ic-menu-item">
+                                  {allEventsOn ? <CheckSquare className="w-4 h-4 text-accent" /> : <Square className="w-4 h-4 text-muted" />}
+                                  All
+                                </button>
+                                <div className="my-1.5 border-t border-line" />
+                                {EVENT_CATEGORIES.map(cat => (
+                                  <button key={cat.key} onClick={() => toggleEventCategory(cat.key)} className="ic-menu-item">
+                                    {eventFilter.includes(cat.key) ? <CheckSquare className="w-4 h-4 text-accent" /> : <Square className="w-4 h-4 text-muted" />}
+                                    {cat.label}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
                       <button
+                        onMouseEnter={() => setShowEventsSubmenu(false)}
                         onClick={item.action || (() => setShowMoreMenu(false))}
                         className={`ic-menu-item ${item.danger ? 'text-red-600 dark:text-red-400' : ''}`}
                       >
@@ -761,10 +871,11 @@ export const ChatWindow: React.FC = () => {
                         <span className="flex-1 truncate">{item.label}</span>
                         {item.kbd && (
                           <span className="flex items-center gap-1 shrink-0">
-                            {item.kbd.split(' ').map((k, ki) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
+                            {item.kbd.split(' ').map((k: string, ki: number) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
                           </span>
                         )}
                       </button>
+                      )}
                     </React.Fragment>
                   ))}
                 </div>
@@ -836,7 +947,7 @@ export const ChatWindow: React.FC = () => {
         {(showMoreMenu || showSnoozeMenu) && (
           <div
             className="fixed inset-0 z-40"
-            onClick={() => { setShowMoreMenu(false); setShowSnoozeMenu(false); }}
+            onClick={() => { setShowMoreMenu(false); setShowSnoozeMenu(false); setShowEventsSubmenu(false); }}
           />
         )}
       </div>
@@ -1063,7 +1174,21 @@ export const ChatWindow: React.FC = () => {
 
       {/* Message feed */}
       <div className="flex-1 overflow-y-auto px-8 py-8 flex flex-col gap-4">
-        {messages.map((m, idx) => {
+        {visibleMessages.map((m, idx) => {
+          // Conversation event row (status, assignment, priority, ...)
+          if (isEvent(m)) {
+            const cat = EVENT_CATEGORIES.find(c => c.key === m.metadata?.category) || EVENT_CATEGORIES[EVENT_CATEGORIES.length - 1];
+            return (
+              <div key={m.id} id={`msg-${m.id}`} className="flex items-start gap-3 text-[13px] text-muted py-0.5 -mx-1">
+                <span className="w-9 shrink-0 text-right tabular-nums text-faint" title={new Date(m.createdAt).toLocaleString()}>
+                  {formatRelativeTime(m.createdAt)}
+                </span>
+                <cat.icon className="w-4 h-4 shrink-0 mt-px" />
+                <span className="min-w-0 break-words">{renderEventText(m)}</span>
+              </div>
+            );
+          }
+
           // Check if this message is a merge event
           if (m.metadata?.type === 'merge') {
             const { mergeDetails } = m.metadata;
@@ -1125,13 +1250,13 @@ export const ChatWindow: React.FC = () => {
           
           if (isCustomer) {
             const device = getDeviceInfo(m.metadata, ticket.customer.session);
-            const next = messages[idx + 1];
+            const next = visibleMessages[idx + 1];
             const deviceChangesNext = !!next && next.sender.type === 'customer' &&
               getDeviceInfo(next.metadata, ticket.customer.session).label !== device.label;
-            const isLastInBlock = deviceChangesNext || idx === messages.length - 1 || 
-              messages[idx + 1].sender.type !== 'customer' ||
-              messages[idx + 1].isInternalNote ||
-              messages[idx + 1].metadata?.type === 'merge';
+            const isLastInBlock = deviceChangesNext || idx === visibleMessages.length - 1 || 
+              visibleMessages[idx + 1].sender.type !== 'customer' ||
+              visibleMessages[idx + 1].isInternalNote ||
+              visibleMessages[idx + 1].metadata?.type === 'merge';
 
             return (
               <div
@@ -1234,11 +1359,11 @@ export const ChatWindow: React.FC = () => {
             );
           }
 
-          const isLastAgentInBlock = idx === messages.length - 1 ||
-            messages[idx + 1].sender.type !== 'agent' ||
-            messages[idx + 1].sender.id !== m.sender.id ||
-            !!messages[idx + 1].isInternalNote !== !!m.isInternalNote ||
-            messages[idx + 1].metadata?.type === 'merge';
+          const isLastAgentInBlock = idx === visibleMessages.length - 1 ||
+            visibleMessages[idx + 1].sender.type !== 'agent' ||
+            visibleMessages[idx + 1].sender.id !== m.sender.id ||
+            !!visibleMessages[idx + 1].isInternalNote !== !!m.isInternalNote ||
+            visibleMessages[idx + 1].metadata?.type === 'merge';
           const menuOpenHere = msgMenu?.id === m.id;
           const q = msgMenuQuery.trim().toLowerCase();
           const messageActions = [
@@ -1382,7 +1507,7 @@ export const ChatWindow: React.FC = () => {
 
                 {/* Action menu / tag picker / reactions popover */}
                 {menuOpenHere && (
-                  <div className={`ic-menu absolute right-0 w-72 py-0 overflow-hidden animate-fade-in ${idx >= messages.length - 2 ? 'bottom-full mb-2' : 'top-full mt-5'}`}>
+                  <div className={`ic-menu absolute right-0 w-72 py-0 overflow-hidden animate-fade-in ${idx >= visibleMessages.length - 2 ? 'bottom-full mb-2' : 'top-full mt-5'}`}>
                     {msgMenu!.kind === 'react' ? (
                       <div className="flex items-center gap-1 p-2">
                         {['👍', '❤️', '😊', '💡', '🎉', '🙏'].map(emoji => (

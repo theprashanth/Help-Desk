@@ -90,7 +90,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (token && agent) {
         newSocket.emit('agent:login', {
           agentId: agent.id,
-          name: agent.name
+          name: agent.name,
+          token // verified server-side before this socket may receive internal notes and events
         });
       }
     });
@@ -104,7 +105,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // that was NOT sent by this same browser's guest session (widget in same tab)
       const localGuestId = localStorage.getItem('customer_guest_id');
       const isFromLocalGuest = msg.sender.id === localGuestId;
-      const isAgentMessage = msg.sender.type === 'agent';
+      const isAgentMessage = msg.sender.type === 'agent' || msg.sender.type === 'system';
 
       if (agent && !isAgentMessage && !msg.isInternalNote && !isFromLocalGuest) {
         playNotificationSound();

@@ -250,6 +250,12 @@ export class MongooseConversationRepository implements IConversationRepository {
       unreadCountCustomer: doc.unreadCountCustomer,
       starred: doc.starred || false,
       snoozedUntil: doc.snoozedUntil ? new Date(doc.snoozedUntil).toISOString() : null,
+      kind: (doc.kind as any) || 'conversation',
+      title: doc.title,
+      description: doc.description,
+      createdByAgentId: doc.createdByAgentId,
+      attributes: doc.attributes || {},
+      sharing: (doc.sharing as any) || 'shared',
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -282,6 +288,12 @@ export class MongooseConversationRepository implements IConversationRepository {
       unreadCountCustomer: conv.unreadCountCustomer || 0,
       starred: conv.starred || false,
       snoozedUntil: conv.snoozedUntil || null,
+      kind: conv.kind || 'conversation',
+      title: conv.title,
+      description: conv.description,
+      createdByAgentId: conv.createdByAgentId,
+      attributes: conv.attributes || {},
+      sharing: conv.sharing || 'shared',
     });
     await doc.save();
     return this.buildConversationObject(doc);
@@ -314,8 +326,20 @@ export class MongooseConversationRepository implements IConversationRepository {
     search?: string;
     unread?: boolean;
     tag?: string;
+    kind?: string[];
+    createdByAgentId?: string;
   }): Promise<Conversation[]> {
     const query: any = {};
+
+    if (filters.kind && filters.kind.length > 0) {
+      // legacy documents have no kind => treat as 'conversation'
+      query.kind = filters.kind.includes('conversation')
+        ? { $in: [...filters.kind, null] }
+        : { $in: filters.kind };
+    }
+    if (filters.createdByAgentId) {
+      query.createdByAgentId = filters.createdByAgentId;
+    }
     
     if (filters.status && filters.status.length > 0) {
       query.status = { $in: filters.status };
@@ -362,6 +386,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       // We search conversations matching ticketNumber, matching customer IDs, or matching message snippet
       query.$or = [
         { ticketNumber: searchRegex },
+        { title: searchRegex },
         { lastMessageSnippet: searchRegex },
         { customerId: { $in: customerIds } }
       ];
@@ -410,6 +435,8 @@ export class MongooseMessageRepository implements IMessageRepository {
       seen: msg.seen,
       delivered: msg.delivered,
       reactions: msg.reactions,
+      tags: msg.tags || [],
+      metadata: msg.metadata,
     });
     await doc.save();
     
@@ -421,9 +448,12 @@ export class MongooseMessageRepository implements IMessageRepository {
     if (msg.isInternalNote) {
       snippet = `[Note] ${snippet}`;
     }
-    await ConversationModel.findByIdAndUpdate(msg.conversationId, {
-      $set: { lastMessageSnippet: snippet }
-    });
+    // Conversation events (system) don't change the preview
+    if (msg.sender.type !== 'system') {
+      await ConversationModel.findByIdAndUpdate(msg.conversationId, {
+        $set: { lastMessageSnippet: snippet }
+      });
+    }
 
     return mapMessage(doc);
   }

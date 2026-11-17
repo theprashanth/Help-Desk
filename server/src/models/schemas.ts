@@ -104,6 +104,12 @@ export interface IConversationDoc extends Document {
   unreadCountCustomer: number;
   starred?: boolean;
   snoozedUntil?: Date | null;
+  kind?: string;
+  title?: string;
+  description?: string;
+  createdByAgentId?: string;
+  attributes?: { platforms?: string[]; rootCause?: string };
+  sharing?: string;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -118,7 +124,13 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   unreadCountAgent: { type: Number, default: 0 },
   unreadCountCustomer: { type: Number, default: 0 },
   starred: { type: Boolean, default: false },
-  snoozedUntil: { type: Date, default: null }
+  snoozedUntil: { type: Date, default: null },
+  kind: { type: String, enum: ['conversation', 'ticket', 'issue'], default: 'conversation', index: true },
+  title: { type: String },
+  description: { type: String },
+  createdByAgentId: { type: String, index: true },
+  attributes: { type: Schema.Types.Mixed, default: {} },
+  sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);
@@ -157,7 +169,7 @@ export const MessageSchema = new Schema<IMessageDoc>({
   workspaceId: { type: String, required: true, index: true },
   conversationId: { type: String, required: true, index: true },
   sender: {
-    type: { type: String, required: true, enum: ['customer', 'agent'] },
+    type: { type: String, required: true, enum: ['customer', 'agent', 'system'] },
     id: { type: String, required: true },
     name: { type: String, required: true },
     avatar: { type: String }

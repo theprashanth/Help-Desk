@@ -282,7 +282,7 @@ export const MessengerWidget: React.FC = () => {
         const res = await fetch(`${BACKEND_URL}/api/messages/${activeConv.id}`);
         if (res.ok) {
           const data: Message[] = await res.json();
-          setChatMessages(data);
+          setChatMessages(data.filter(m => !m.isInternalNote && m.sender?.type !== 'system'));
         }
       } catch (err) {
         console.error('Failed to fetch messages:', err);
@@ -292,6 +292,8 @@ export const MessengerWidget: React.FC = () => {
     fetchMessages();
 
     const handleNewMessage = (msg: Message) => {
+      // Never show teammates' internal notes or conversation events to the customer
+      if (msg.isInternalNote || msg.sender?.type === 'system') return;
       if (msg.conversationId === activeConv.id) {
         setChatMessages(prev => {
           if (prev.some(m => m.id === msg.id)) return prev;

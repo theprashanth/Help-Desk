@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 import { Agent, Conversation, Message, Tag, SavedReply } from '../../../../shared/src/types';
 import { Socket } from 'socket.io-client';
+import { matchesView, statusesFor, StateFilter } from '../lib/inboxViews';
+
+/** What the create screen is making; customer is prefilled from "New conversation". */
+export type ComposerState = {
+  kind: 'conversation' | 'ticket' | 'issue';
+  customer?: { id: string; name: string; email?: string };
+} | null;
 
 interface AppState {
   // Auth
@@ -25,6 +32,18 @@ interface AppState {
   setActiveConversationId: (id: string | null) => void;
   setViewingMergedConversationId: (id: string | null) => void;
   setCurrentQueue: (queue: string) => void;
+
+  // State filter for the list ("N Open" chip): open | waiting | snoozed | resolved | closed | archived | all
+  stateFilter: StateFilter;
+  setStateFilter: (state: StateFilter) => void;
+
+  // Manual create screen (conversation / ticket / issue)
+  composer: ComposerState;
+  setComposer: (composer: ComposerState) => void;
+
+  // Ask the conversation list to open + focus its search box (incremented by the "Search" nav item)
+  searchRequest: number;
+  requestSearch: () => void;
 
   // Layout: whether the Inbox navigation panel is expanded
   inboxNavOpen: boolean;
@@ -92,7 +111,10 @@ export const useStore = create<AppState>((set) => ({
   conversations: [],
   activeConversationId: null,
   viewingMergedConversationId: null,
-  currentQueue: 'open',
+  currentQueue: 'yours',
+  stateFilter: 'open',
+  composer: null,
+  searchRequest: 0,
   inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
   focusMessageId: null,
   setConversations: (conversations) => set({ conversations }),
@@ -100,25 +122,16 @@ export const useStore = create<AppState>((set) => ({
     set((state) => {
       const exists = state.conversations.some((c) => c.id === conversation.id);
       if (exists) return state;
+      if (!matchesView(conversation, state.currentQueue, state.agent?.id) ||
+          !statusesFor(state.stateFilter).includes(conversation.status)) return state;
       return { conversations: [conversation, ...state.conversations] };
     }),
   updateConversation: (conversation) =>
     set((state) => {
-      const queueStatuses: Record<string, string[]> = {
-        open: ['open'],
-        assigned: ['open', 'waiting'],
-        waiting: ['waiting'],
-        resolved: ['resolved'],
-        closed: ['closed'],
-        archived: ['archived']
-      };
-
-      const allowedStatuses = queueStatuses[state.currentQueue] || ['open'];
-      let matchesQueue = allowedStatuses.includes(conversation.status);
-      
-      if (state.currentQueue === 'assigned' && conversation.assignedAgentId !== state.agent?.id) {
-        matchesQueue = false;
-      }
+      // Keep conversations that belong to the current view and state (snooze is filtered in the list)
+      const matchesQueue =
+        matchesView(conversation, state.currentQueue, state.agent?.id) &&
+        statusesFor(state.stateFilter).includes(conversation.status);
 
       const index = state.conversations.findIndex((c) => c.id === conversation.id);
 
@@ -148,6 +161,9 @@ export const useStore = create<AppState>((set) => ({
   setActiveConversationId: (id) => set({ activeConversationId: id, viewingMergedConversationId: null }), // Clear merged view when changing active chat
   setViewingMergedConversationId: (id) => set({ viewingMergedConversationId: id }),
   setCurrentQueue: (queue) => set({ currentQueue: queue }),
+  setStateFilter: (stateFilter) => set({ stateFilter }),
+  setComposer: (composer) => set({ composer }),
+  requestSearch: () => set((st) => ({ searchRequest: st.searchRequest + 1 })),
   setInboxNavOpen: (open) => set({ inboxNavOpen: open }),
   setFocusMessageId: (id) => set({ focusMessageId: id }),
 

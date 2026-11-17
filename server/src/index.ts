@@ -7,7 +7,8 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
-import { SocketService } from './services/socket';
+import { SocketService, AGENTS_ROOM } from './services/socket';
+import { verifyAgentToken } from './middleware/auth';
 import { uploadDir } from './middleware/upload';
 
 dotenv.config();
@@ -171,6 +172,7 @@ async function startServer() {
 
     // Join conversation room
     socket.on('join', (room: string) => {
+      if (room === AGENTS_ROOM) return; // only joinable via a verified agent:login
       socket.join(room);
       console.log(`[Socket.IO] Socket ${socket.id} joined room ${room}`);
     });
@@ -182,7 +184,12 @@ async function startServer() {
     });
 
     // Broadcast Agent Login
-    socket.on('agent:login', (payload: { agentId: string; name: string }) => {
+    socket.on('agent:login', (payload: { agentId: string; name: string; token?: string }) => {
+      // Only sockets with a valid agent token may receive internal notes and events
+      const verified = verifyAgentToken(payload.token);
+      if (verified && verified.id === payload.agentId) {
+        socket.join(AGENTS_ROOM);
+      }
       SocketService.onlineAgents.set(payload.agentId, { socketId: socket.id, name: payload.name });
       SocketService.broadcastAgentOnline(payload.agentId, payload.name);
       console.log(`[Socket.IO] Agent ${payload.name} (${payload.agentId}) went online`);

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateJWT } from '../middleware/auth';
+import { authenticateJWT, optionalJWT } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile
@@ -7,7 +7,8 @@ import {
 import { 
   getTickets, getTicket, createTicket, updateTicket, assignTicket, 
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
-  deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets
+  deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets,
+  createManualTicket, getInboxCounts, searchCustomers
 } from '../controllers/tickets';
 import { 
   getMessages, createMessage, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
@@ -39,6 +40,9 @@ router.get('/auth/agents', authenticateJWT, getAgents);
 router.get('/tickets', authenticateJWT, getTickets);
 router.get('/tickets/:id', getTicket); // Let guest fetch single ticket details if needed
 router.post('/tickets', createTicket); // Guest can create conversations
+router.post('/tickets/manual', authenticateJWT, createManualTicket); // Teammate creates a conversation/ticket/issue
+router.get('/inbox/counts', authenticateJWT, getInboxCounts);
+router.get('/customers', authenticateJWT, searchCustomers);
 router.put('/tickets/:id', authenticateJWT, updateTicket);
 router.put('/tickets/:id/assign', authenticateJWT, assignTicket);
 router.put('/customers/:customerId', authenticateJWT, updateCustomerProfile);
@@ -57,7 +61,7 @@ router.post('/tags', authenticateJWT, createTag);
 router.delete('/tags/:id', authenticateJWT, deleteTag);
 
 // --- Message Routes ---
-router.get('/messages/:conversationId', getMessages); // Open for guest testing
+router.get('/messages/:conversationId', optionalJWT, getMessages); // Open for guest testing
 router.post('/messages', createMessage); // Guest & Agent can post messages
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
 router.put('/messages/:messageId/tags', authenticateJWT, updateMessageTags);

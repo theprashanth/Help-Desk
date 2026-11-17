@@ -8,13 +8,20 @@ import { MergedConversationPanel } from '../../components/agent/MergedConversati
 import Analytics from './Analytics';
 import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
+import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
+import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
+import { isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
+import { isSnoozed } from '../../lib/snooze';
+import { Agent } from '../../../../../shared/src/types';
 import { 
-  Inbox as InboxIcon, User, Clock, CheckSquare, Archive, 
+  Inbox as InboxIcon,
   BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe
 } from 'lucide-react';
 
+const BACKEND_URL = 'http://localhost:3000';
+
 export const Inbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('open'); // open, assigned, waiting, resolved, closed, archived, analytics, settings, testing
+  const [activeTab, setActiveTab] = useState<string>('yours'); // inbox view id (yours, created, all, unassigned, agent:<id>, kind:<kind>) or analytics | settings | testing
   const [darkMode, setDarkMode] = useState(false);
   
   const token = useStore((state) => state.token);
@@ -25,6 +32,44 @@ export const Inbox: React.FC = () => {
   const inboxNavOpen = useStore((state) => state.inboxNavOpen);
   const setActiveConversationId = useStore((state) => state.setActiveConversationId);
   const setFocusMessageId = useStore((state) => state.setFocusMessageId);
+  const setStateFilter = useStore((state) => state.setStateFilter);
+  const composer = useStore((state) => state.composer);
+  const setComposer = useStore((state) => state.setComposer);
+  const requestSearch = useStore((state) => state.requestSearch);
+  const socket = useStore((state) => state.socket);
+
+  // Teammates (for the Teammates section and assignee pickers)
+  const [agents, setAgents] = useState<Agent[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/auth/agents`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then(setAgents)
+      .catch(() => setAgents([]));
+  }, [token]);
+
+  // Live counts for the inbox panel: refetch on any conversation change (debounced) and every minute
+  const [counts, setCounts] = useState<InboxCounts | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = () => {
+      fetch(`${BACKEND_URL}/api/inbox/counts`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => (r.ok ? r.json() : null))
+        .then(c => c && setCounts(c))
+        .catch(() => {});
+    };
+    const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(load, 400); };
+    load();
+    const interval = setInterval(load, 60_000);
+    const events = ['conversation:new', 'conversation:update', 'conversation:deleted', 'conversation:assigned'];
+    events.forEach(ev => socket?.on(ev, schedule));
+    return () => {
+      clearInterval(interval);
+      if (timer) clearTimeout(timer);
+      events.forEach(ev => socket?.off(ev, schedule));
+    };
+  }, [token, socket]);
 
   // Deep links from "Copy link": /agent/inbox?conversation=<id>&message=<id>
   useEffect(() => {
@@ -32,12 +77,14 @@ export const Inbox: React.FC = () => {
     const convId = params.get('conversation');
     if (!convId || !token) return;
     const messageId = params.get('message');
-    const queueForStatus: Record<string, string> = { open: 'open', waiting: 'waiting', resolved: 'resolved', closed: 'closed', archived: 'archived' };
     fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
       .then(conv => {
         if (!conv) return;
-        setActiveTab(queueForStatus[conv.status] || 'open');
+        const state: StateFilter = isSnoozed(conv) ? 'snoozed'
+          : (['waiting', 'resolved', 'closed', 'archived'].includes(conv.status) ? conv.status : 'open') as StateFilter;
+        setStateFilter(state);
+        setActiveTab('all');
         setActiveConversationId(conv.id);
         if (messageId) setFocusMessageId(messageId);
       })
@@ -97,29 +144,35 @@ export const Inbox: React.FC = () => {
     navigate('/agent/login');
   };
 
-  // Sidebar item helper
-  const sidebarItems = [
-    { id: 'open', label: 'Open Inbox', icon: <InboxIcon className="w-[18px] h-[18px]" /> },
-    { id: 'assigned', label: 'My Assigned', icon: <User className="w-[18px] h-[18px]" /> },
-    { id: 'waiting', label: 'Waiting', icon: <Clock className="w-[18px] h-[18px]" /> },
-    { id: 'resolved', label: 'Resolved Today', icon: <CheckSquare className="w-[18px] h-[18px]" /> },
-    { id: 'closed', label: 'Closed Tickets', icon: <Archive className="w-[18px] h-[18px]" /> },
-  ];
-
   const mainTabs = [
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
     { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
   ];
 
-  const isChatTab = ['open', 'assigned', 'waiting', 'resolved', 'closed', 'archived'].includes(activeTab);
+  const isChatTab = isInboxView(activeTab);
 
   // Remember the last inbox queue so the rail's Inbox icon returns to it
-  const [lastQueue, setLastQueue] = useState<string>('open');
+  const [lastQueue, setLastQueue] = useState<string>('yours');
   useEffect(() => {
     if (isChatTab) setLastQueue(activeTab);
   }, [activeTab, isChatTab]);
 
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  const viewTitle = (() => {
+    if (activeTab === 'yours') return 'Your inbox';
+    if (activeTab === 'created') return 'Created by you';
+    if (activeTab === 'all') return 'All';
+    if (activeTab === 'unassigned') return 'Unassigned';
+    if (activeTab.startsWith('agent:')) return agents.find(a => a.id === activeTab.slice(6))?.name || 'Teammate';
+    if (activeTab.startsWith('kind:')) return KIND_LABELS[activeTab.slice(5)] || 'Inbox';
+    return 'Inbox';
+  })();
+
+  const selectView = (view: string) => {
+    setComposer(null);
+    setActiveTab(view);
+  };
 
   if (!agent) return null;
 
@@ -135,9 +188,16 @@ export const Inbox: React.FC = () => {
         <button
           onClick={() => setActiveTab(lastQueue)}
           className={`ic-rail-btn ${isChatTab ? 'ic-rail-btn-active' : ''}`}
-          title="Inbox"
+          title={counts?.yoursUnread ? `Inbox (${counts.yoursUnread} unread in your inbox)` : 'Inbox'}
         >
-          <InboxIcon className="w-[19px] h-[19px]" />
+          <span className="relative">
+            <InboxIcon className="w-[19px] h-[19px]" />
+            {!!counts?.yoursUnread && (
+              <span className="absolute -top-2 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center tabular-nums ring-2 ring-canvas">
+                {counts.yoursUnread > 99 ? '99+' : counts.yoursUnread}
+              </span>
+            )}
+          </span>
         </button>
         {mainTabs.map(item => (
           <button
@@ -224,38 +284,45 @@ export const Inbox: React.FC = () => {
           <>
             {/* Inbox navigation panel (collapsible from the list header) */}
             {inboxNavOpen && (
-            <aside className="ic-panel-side w-[220px] h-full shrink-0 flex flex-col animate-fade-in">
-              <div className="h-16 shrink-0 flex items-center px-5">
-                <h1 className="ic-title">Inbox</h1>
-              </div>
-              <div className="flex-1 overflow-y-auto px-3 pb-3 flex flex-col gap-0.5">
-                {sidebarItems.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id)}
-                    className={`ic-nav-item ${activeTab === item.id ? 'ic-nav-item-active' : ''}`}
-                  >
-                    <span className="text-ink/80">{item.icon}</span>
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            </aside>
+              <InboxNavPanel
+                activeView={activeTab}
+                onSelect={selectView}
+                counts={counts}
+                agents={agents}
+                me={agent}
+                onSearch={() => { setComposer(null); requestSearch(); }}
+                onOpenDashboard={() => setActiveTab('analytics')}
+                onCreate={(kind) => setComposer({ kind })}
+              />
             )}
 
             {/* List column */}
-            <InboxList currentQueue={activeTab} />
+            <InboxList currentQueue={activeTab} viewTitle={viewTitle} />
 
-            {/* Chat column */}
-            <ChatWindow />
+            {composer ? (
+              /* Manual create screen replaces the conversation + details panels */
+              <CreateTicketPanel
+                agents={agents}
+                onCreated={(conv) => {
+                  setStateFilter('open');
+                  setActiveTab('created');
+                  setActiveConversationId(conv.id);
+                }}
+              />
+            ) : (
+              <>
+                {/* Chat column */}
+                <ChatWindow />
 
-            {/* Customer metadata Inspector panel or Merged Conversation preview */}
-            {activeConversationId && (
-              viewingMergedConversationId ? (
-                <MergedConversationPanel />
-              ) : (
-                <CustomerProfilePanel />
-              )
+                {/* Customer metadata Inspector panel or Merged Conversation preview */}
+                {activeConversationId && (
+                  viewingMergedConversationId ? (
+                    <MergedConversationPanel />
+                  ) : (
+                    <CustomerProfilePanel />
+                  )
+                )}
+              </>
             )}
           </>
         ) : activeTab === 'analytics' ? (

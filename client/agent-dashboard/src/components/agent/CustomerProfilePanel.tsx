@@ -454,7 +454,11 @@ export const CustomerProfilePanel: React.FC = () => {
                 <div className="mt-2 flex flex-col">
                   <div className="ic-detail-row">
                     <span className="ic-detail-label">Title</span>
-                    <span className="ic-detail-value capitalize">{conv.category} Assistance</span>
+                    {conv.title ? (
+                      <span className="ic-detail-value" title={conv.title}>{conv.title}</span>
+                    ) : (
+                      <span className="ic-detail-value capitalize">{conv.category.replace('_', ' ')} Assistance</span>
+                    )}
                   </div>
                   <div className="ic-detail-row">
                     <span className="ic-detail-label">ID</span>

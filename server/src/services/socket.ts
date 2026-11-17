@@ -1,6 +1,12 @@
 import { Server } from 'socket.io';
 import { Conversation, Message } from '../../../shared/src/types';
 
+/** Room joined only by sockets that presented a valid agent token. */
+export const AGENTS_ROOM = 'agents';
+
+/** Internal notes and conversation events must never reach customer sockets. */
+const isAgentOnly = (m: Message) => !!m.isInternalNote || m.sender?.type === 'system';
+
 export class SocketService {
   private static io: Server | null = null;
   public static onlineAgents = new Map<string, { socketId: string; name: string }>();
@@ -30,12 +36,20 @@ export class SocketService {
   }
 
   static broadcastMessageNew(message: Message) {
+    if (isAgentOnly(message)) {
+      this.emitToRoom(AGENTS_ROOM, 'message:new', message);
+      return;
+    }
     // Message room can be the conversationId
     this.emitToRoom(message.conversationId, 'message:new', message);
     this.emitGlobal('message:new', message);
   }
 
   static broadcastMessageUpdate(message: Message) {
+    if (isAgentOnly(message)) {
+      this.emitToRoom(AGENTS_ROOM, 'message:update', message);
+      return;
+    }
     this.emitToRoom(message.conversationId, 'message:update', message);
     this.emitGlobal('message:update', message);
   }

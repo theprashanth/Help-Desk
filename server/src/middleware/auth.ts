@@ -50,3 +50,28 @@ export function requireRole(roles: Array<'admin' | 'support_agent'>) {
     next();
   };
 }
+
+/** Verify a JWT and return its payload, or null if it's missing/invalid. */
+export function verifyAgentToken(token?: string | null): { id: string; email: string; role: string; workspaceId: string } | null {
+  if (!token) return null;
+  try {
+    return jwt.verify(token, JWT_SECRET) as any;
+  } catch {
+    return null;
+  }
+}
+
+/** Like authenticateJWT, but lets unauthenticated requests (e.g. the customer widget) through without req.user. */
+export function optionalJWT(req: AuthenticatedRequest, _res: Response, next: NextFunction) {
+  const token = req.headers.authorization?.split(' ')[1];
+  const payload = verifyAgentToken(token);
+  if (payload) {
+    req.user = {
+      id: payload.id,
+      email: payload.email,
+      role: payload.role as any,
+      workspaceId: payload.workspaceId
+    };
+  }
+  next();
+}

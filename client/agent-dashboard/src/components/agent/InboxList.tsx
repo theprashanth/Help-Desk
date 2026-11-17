@@ -2,13 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
-  AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide
+  AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench
 } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
 import { SNOOZE_OPTIONS, computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
+import { STATE_FILTERS, StateFilter, statusesFor, viewParams, matchesState } from '../../lib/inboxViews';
 
 type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until';
-type StateView = 'active' | 'snoozed' | 'all';
 
 const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] = [
   { key: 'last_activity', label: 'Last activity', icon: Bell },
@@ -22,10 +22,11 @@ const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2,
 const BACKEND_URL = 'http://localhost:3000';
 
 interface InboxListProps {
-  currentQueue: string; // 'open' | 'assigned' | 'waiting' | 'resolved' | 'closed' | 'archived'
+  currentQueue: string; // inbox view id: yours | created | all | unassigned | agent:<id> | kind:<kind>
+  viewTitle: string;    // shown as the panel title
 }
 
-export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
+export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle }) => {
   const conversations = useStore((state) => state.conversations);
   const setConversations = useStore((state) => state.setConversations);
   const activeConversationId = useStore((state) => state.activeConversationId);
@@ -52,7 +53,17 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
   const [showSearch, setShowSearch] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('last_activity');
   const [sortDesc, setSortDesc] = useState(true);
-  const [stateView, setStateView] = useState<StateView>('active');
+  const stateView = useStore((state) => state.stateFilter);
+  const setStateView = useStore((state) => state.setStateFilter);
+  const searchRequest = useStore((state) => state.searchRequest);
+
+  // "Search" in the inbox nav opens and focuses the search box
+  useEffect(() => {
+    if (searchRequest > 0) {
+      setShowSearch(true);
+      setTimeout(() => searchInputRef.current?.focus(), 0);
+    }
+  }, [searchRequest]);
   const [openPopover, setOpenPopover] = useState<null | 'sort' | 'view'>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const inboxNavOpen = useStore((state) => state.inboxNavOpen);
@@ -76,20 +87,10 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
       try {
         let url = `${BACKEND_URL}/api/tickets?`;
         
-        // Map queue names to statuses
-        if (currentQueue === 'open') {
-          url += 'status=open';
-        } else if (currentQueue === 'assigned') {
-          url += `status=open,waiting&assignedAgentId=${agent?.id}`;
-        } else if (currentQueue === 'waiting') {
-          url += 'status=waiting';
-        } else if (currentQueue === 'resolved') {
-          url += 'status=resolved';
-        } else if (currentQueue === 'closed') {
-          url += 'status=closed';
-        } else if (currentQueue === 'archived') {
-          url += 'status=archived';
-        }
+        // View (who) + state (which statuses); snooze is applied client-side
+        url += `status=${statusesFor(stateView).join(',')}`;
+        const vp = viewParams(currentQueue, agent?.id);
+        if (vp) url += `&${vp}`;
 
         // Apply filters
         if (filterPriority !== 'all') url += `&priority=${filterPriority}`;
@@ -112,15 +113,12 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
     };
 
     fetchConvs();
-  }, [currentQueue, filterPriority, filterCategory, filterTag, searchTerm, token, agent, setConversations]);
+  }, [currentQueue, stateView, filterPriority, filterCategory, filterTag, searchTerm, token, agent, setConversations]);
 
   // Apply the Open/Snoozed/All view and the chosen sort order
   const visibleConversations = useMemo(() => {
     const byView = conversations.filter((c: Conversation) => {
-      const snoozed = isSnoozed(c, now);
-      if (stateView === 'snoozed') return snoozed;
-      if (stateView === 'active') return !snoozed;
-      return true;
+      return matchesState(c, stateView, now);
     });
     const time = (iso?: string | null) => (iso ? new Date(iso).getTime() : 0);
     const keyOf = (c: Conversation): number => {
@@ -235,24 +233,19 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
     }
   };
 
-  const queueTitles: Record<string, string> = {
-    open: 'Open',
-    assigned: 'Assigned to me',
-    waiting: 'Waiting',
-    resolved: 'Resolved',
-    closed: 'Closed',
-    archived: 'Archived',
-  };
-  const queueTitle = queueTitles[currentQueue] || currentQueue;
-  const activeFilterCount =
-    [filterPriority, filterCategory, filterTag].filter((v) => v !== 'all').length + (stateView !== 'active' ? 1 : 0);
-  const snoozedCount = conversations.filter((c: Conversation) => isSnoozed(c, now)).length;
-  const viewLabel = stateView === 'snoozed' ? 'Snoozed' : stateView === 'all' ? 'All' : queueTitle;
-  const viewOptions: { key: StateView; label: string; count: number }[] = [
-    { key: 'active', label: queueTitle, count: conversations.length - snoozedCount },
-    { key: 'snoozed', label: 'Snoozed', count: snoozedCount },
-    { key: 'all', label: 'All', count: conversations.length },
-  ];
+  const queueTitle = viewTitle;
+  const activeFilterCount = [filterPriority, filterCategory, filterTag].filter((v) => v !== 'all').length;
+  // open and snoozed are fetched together, so both counts are known while viewing either
+  const sameFetch = stateView === 'open' || stateView === 'snoozed';
+  const snoozedCount = sameFetch ? conversations.filter((c: Conversation) => isSnoozed(c, now)).length : null;
+  const viewLabel = STATE_FILTERS.find(o => o.key === stateView)?.label || 'Open';
+  const viewOptions: { key: StateFilter; label: string; count: number | null }[] = STATE_FILTERS.map(o => ({
+    ...o,
+    count: o.key === stateView ? null
+      : sameFetch && o.key === 'open' ? conversations.length - (snoozedCount || 0)
+      : sameFetch && o.key === 'snoozed' ? snoozedCount
+      : null,
+  }));
   const currentSort = SORT_OPTIONS.find(o => o.key === sortBy) || SORT_OPTIONS[0];
   const searchVisible = showSearch || searchTerm.trim() !== '';
 
@@ -315,7 +308,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
             <button
               onClick={() => setOpenPopover(openPopover === 'view' ? null : 'view')}
               className={`ic-chip px-2.5 ${openPopover === 'view' ? 'bg-subtle' : ''}`}
-              title="Show open, snoozed or all conversations"
+              title="Filter by state (open, waiting, snoozed, resolved, closed...)"
             >
               {stateView === 'snoozed' && <AlarmClock className="w-3.5 h-3.5 text-muted shrink-0" />}
               <span className="tabular-nums shrink-0">{visibleConversations.length}</span>
@@ -331,7 +324,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
                   >
                     {o.key === 'snoozed' ? <AlarmClock className="w-4 h-4 text-muted" /> : <span className="w-4" />}
                     <span className="flex-1 truncate">{o.label}</span>
-                    <span className="text-[13px] text-faint tabular-nums">{o.count}</span>
+                    <span className="text-[13px] text-faint tabular-nums">{o.key === stateView ? visibleConversations.length : o.count ?? ''}</span>
                     <span className="w-4 flex justify-end">{stateView === o.key && <Check className="w-4 h-4 text-accent" />}</span>
                   </button>
                 ))}
@@ -401,7 +394,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
                   setFilterPriority('all');
                   setFilterCategory('all');
                   setFilterTag('all');
-                  setStateView('active');
+                  setStateView('open');
                 }}
                 className="ic-link text-[13px] font-medium"
               >
@@ -409,25 +402,18 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
               </button>
             </div>
 
-            {/* State view filter (Open / Snoozed / All) */}
+            {/* State filter (same as the "N Open" chip) */}
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[13px] text-muted">Show</span>
-              <div className="flex items-center p-0.5 rounded-full bg-subtle w-40">
-                {viewOptions.map(o => (
-                  <button
-                    key={o.key}
-                    onClick={() => setStateView(o.key)}
-                    className={`flex-1 h-7 rounded-full text-[12px] font-medium truncate px-1.5 transition-colors ${
-                      stateView === o.key ? 'bg-surface shadow-pill text-ink' : 'text-muted hover:text-ink'
-                    }`}
-                    title={`${o.label} (${o.count})`}
-                  >
-                    {o.key === 'active' ? 'Active' : o.label}
-                  </button>
-                ))}
-              </div>
+              <span className="text-[13px] text-muted">State</span>
+              <select
+                value={stateView}
+                onChange={(e) => setStateView(e.target.value as StateFilter)}
+                className="ic-select h-8 w-40 text-[13px]"
+              >
+                {STATE_FILTERS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+              </select>
             </div>
-            
+
             {/* Priority filter */}
             <div className="flex items-center justify-between gap-3">
               <span className="text-[13px] text-muted">Priority</span>
@@ -488,7 +474,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
               ? <AlarmClock className="w-10 h-10 text-muted" strokeWidth={1.5} />
               : <AlertCircle className="w-10 h-10 text-muted" strokeWidth={1.5} />}
             <span className="text-[15px] font-semibold text-ink/80">
-              {stateView === 'snoozed' ? 'No snoozed conversations' : 'No tickets found'}
+              {stateView === 'snoozed' ? 'No snoozed conversations' : `No ${viewLabel.toLowerCase()} conversations`}
             </span>
             <span className="text-[13px]">
               {stateView === 'snoozed'
@@ -525,9 +511,15 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
                   }`}
                 >
                   {/* Avatar Circle */}
-                  <div className={`ic-avatar w-8 h-8 text-[13px] uppercase ${getAvatarColors(c.category)}`}>
-                    {c.customer.name.charAt(0) || 'G'}
-                  </div>
+                  {c.kind === 'ticket' || c.kind === 'issue' ? (
+                    <div className="ic-avatar w-8 h-8 bg-subtle text-ink/80" title={c.kind === 'issue' ? 'Tracker issue' : 'Customer ticket'}>
+                      {c.kind === 'issue' ? <Wrench className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
+                    </div>
+                  ) : (
+                    <div className={`ic-avatar w-8 h-8 text-[13px] uppercase ${getAvatarColors(c.category)}`}>
+                      {c.customer.name.charAt(0) || 'G'}
+                    </div>
+                  )}
 
                   {/* Body info */}
                   <div className="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -535,7 +527,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
                       <span className={`text-[15px] truncate ${
                         hasUnread ? 'font-semibold text-ink' : 'font-normal text-ink/70'
                       }`}>
-                        {c.customer.name}
+                        {c.kind === 'issue' ? (c.title || c.ticketNumber) : c.customer.name}
                       </span>
                       {/* Icons Action container */}
                       <div className="flex items-center gap-1 shrink-0 z-30">
@@ -567,7 +559,11 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue }) => {
                           ? 'text-ink font-medium' 
                           : 'text-muted'
                       }`}>
-                        {c.lastMessageSnippet || 'No messages in conversation'}
+                        {c.kind === 'ticket' && c.title
+                          ? <><span className="text-faint">{c.ticketNumber} · </span>{c.title}</>
+                          : c.kind === 'issue'
+                            ? <><span className="text-faint">{c.ticketNumber} · </span>{c.description || 'Tracker issue'}</>
+                            : (c.lastMessageSnippet || 'No messages in conversation')}
                       </p>
                       {hasUnread && (
                         <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums shrink-0">

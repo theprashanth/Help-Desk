@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { Conversation, Customer, Tag, SavedReply } from '../../../shared/src/types';
+import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -13,6 +14,9 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
     const search = req.query.search as string;
     const unread = req.query.unread === 'true';
     const tag = req.query.tag as string;
+    const kind = req.query.kind ? (req.query.kind as string).split(',') : undefined;
+    const createdBy = req.query.createdBy as string | undefined;
+    const createdByAgentId = createdBy === 'me' ? req.user?.id : createdBy;
 
     const convRepo = RepositoryFactory.getConversationRepository();
     const list = await convRepo.findFiltered({
@@ -22,7 +26,9 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       category,
       search,
       unread,
-      tag
+      tag,
+      kind,
+      createdByAgentId
     });
     
     return res.json(list);
@@ -139,6 +145,11 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       });
       // Retrieve updated conversation with correct last message snippet
       const updatedConv = await convRepo.findById(newConv.id);
+      if (assignedAgentId) {
+        const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
+        await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}`, undefined,
+          { targetId: assignedAgentId, targetName: assignee?.name, auto: true });
+      }
       if (updatedConv) {
         SocketService.broadcastConversationNew(updatedConv);
         return res.status(210).json(updatedConv);
@@ -156,11 +167,13 @@ export async function updateTicket(req: AuthenticatedRequest, res: Response) {
   const { id } = req.params;
   try {
     const convRepo = RepositoryFactory.getConversationRepository();
+    const before = await convRepo.findById(id);
     const updated = await convRepo.update(id, req.body);
     if (!updated) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     SocketService.broadcastConversationUpdate(updated);
+    if (before) await recordUpdateEvents(before, updated, await getActor(req));
     return res.json(updated);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -194,6 +207,15 @@ export async function assignTicket(req: AuthenticatedRequest, res: Response) {
 
     SocketService.broadcastConversationUpdate(updated);
     SocketService.emitGlobal('conversation:assigned', { conversationId: id, agentId, agentName });
+
+    const actor = await getActor(req);
+    const who = actor?.name || 'System';
+    const text = !agentId
+      ? `${who} unassigned this conversation`
+      : actor && actor.id === agentId
+        ? `${who} assigned themselves`
+        : `${who} assigned ${agentName}`;
+    await recordEvent(id, 'assignment', text, actor, { targetId: agentId || null, targetName: agentName });
     
     return res.json(updated);
   } catch (err: any) {
@@ -485,3 +507,164 @@ export async function mergeTickets(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+
+/**
+ * Manually create a conversation, customer ticket or tracker issue from the dashboard.
+ * Body: { kind, customer?: { id } | { externalId, name?, email? }, title?, description?, category?,
+ *         priority?, assignedAgentId?, attributes?, sharing?, message?: { content, isInternalNote } }
+ */
+export async function createManualTicket(req: AuthenticatedRequest, res: Response) {
+  const {
+    kind = 'conversation', customer: customerRef, title, description, category, priority,
+    assignedAgentId, attributes, sharing, message
+  } = req.body;
+
+  if (!['conversation', 'ticket', 'issue'].includes(kind)) {
+    return res.status(400).json({ error: 'kind must be conversation, ticket or issue' });
+  }
+  if (kind !== 'issue' && !customerRef) {
+    return res.status(400).json({ error: 'A customer is required' });
+  }
+  if (kind !== 'conversation' && !String(title || '').trim()) {
+    return res.status(400).json({ error: 'A title is required' });
+  }
+  if (kind === 'conversation' && !String(message?.content || '').trim()) {
+    return res.status(400).json({ error: 'A first message is required' });
+  }
+
+  try {
+    const custRepo = RepositoryFactory.getCustomerRepository();
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const msgRepo = RepositoryFactory.getMessageRepository();
+    const actor = await getActor(req);
+    const now = new Date().toISOString();
+
+    // Resolve the customer: an existing record, a user ID from your own database, or (issues) none
+    let customer: Customer | null = null;
+    if (customerRef?.id) {
+      customer = await custRepo.findById(customerRef.id);
+      if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    } else if (customerRef?.externalId) {
+      const externalId = String(customerRef.externalId).trim();
+      customer = await custRepo.findOrCreate(externalId, {
+        name: customerRef.name || `User ${externalId}`,
+        email: customerRef.email || '',
+        phone: '',
+        session: { firstSeen: now, lastSeen: now, totalConversations: 0 },
+        tags: [],
+        notes: []
+      });
+    } else {
+      // Tracker issues don't need a customer; attach them to an internal placeholder record
+      customer = await custRepo.findOrCreate(INTERNAL_CUSTOMER_ID, {
+        name: 'Internal',
+        email: '',
+        phone: '',
+        session: { firstSeen: now, lastSeen: now, totalConversations: 0 },
+        tags: [],
+        notes: []
+      });
+    }
+
+    const created = await convRepo.create({
+      customer: customer!,
+      status: 'open',
+      priority: priority || 'medium',
+      category: category || 'general',
+      unreadCountAgent: 0,
+      unreadCountCustomer: 0,
+      assignedAgentId: assignedAgentId || undefined,
+      kind,
+      title: title ? String(title).trim() : undefined,
+      description: description || undefined,
+      createdByAgentId: actor?.id,
+      attributes: attributes || {},
+      sharing: kind === 'issue' ? 'internal' : (sharing || 'shared'),
+      lastMessageSnippet: title ? String(title).trim() : ''
+    } as any);
+
+    const label = kind === 'ticket' ? 'ticket' : kind === 'issue' ? 'issue' : 'conversation';
+    await recordEvent(created.id, 'tickets', `${actor?.name || 'A teammate'} created this ${label}`, actor, { field: 'created', kind });
+    if (assignedAgentId) {
+      const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
+      await recordEvent(created.id, 'assignment',
+        actor && actor.id === assignedAgentId ? `${actor.name} assigned themselves` : `${actor?.name || 'A teammate'} assigned ${assignee?.name || 'a teammate'}`,
+        actor, { targetId: assignedAgentId, targetName: assignee?.name });
+    }
+
+    // Optional first message: a reply to the customer, or an internal note
+    if (message && String(message.content || '').trim()) {
+      const isNote = !!message.isInternalNote || kind === 'issue';
+      const msg = await msgRepo.create({
+        conversationId: created.id,
+        sender: { type: 'agent', id: actor?.id || 'agent', name: actor?.name || 'Agent' },
+        content: String(message.content),
+        attachments: [],
+        isInternalNote: isNote,
+        seen: false,
+        delivered: true,
+        reactions: []
+      });
+      if (!isNote) await convRepo.update(created.id, { unreadCountCustomer: 1 });
+      SocketService.broadcastMessageNew(msg);
+    }
+
+    const fresh = (await convRepo.findById(created.id)) || created;
+    SocketService.broadcastConversationNew(fresh);
+    return res.status(201).json(fresh);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** Placeholder customer record that tracker issues without a customer are attached to. */
+export const INTERNAL_CUSTOMER_ID = 'internal';
+
+/** Counts of open (not snoozed) conversations for each inbox view. */
+export async function getInboxCounts(req: AuthenticatedRequest, res: Response) {
+  try {
+    const me = req.user?.id;
+    const now = Date.now();
+    const all = await RepositoryFactory.getConversationRepository().findAll();
+    const open = all.filter(c =>
+      (c.status === 'open' || c.status === 'waiting') &&
+      !(c.snoozedUntil && new Date(c.snoozedUntil).getTime() > now)
+    );
+    const byAgent: Record<string, number> = {};
+    const byKind: Record<string, number> = { conversation: 0, ticket: 0, issue: 0 };
+    for (const c of open) {
+      if (c.assignedAgentId) byAgent[c.assignedAgentId] = (byAgent[c.assignedAgentId] || 0) + 1;
+      byKind[c.kind || 'conversation'] = (byKind[c.kind || 'conversation'] || 0) + 1;
+    }
+    return res.json({
+      yours: open.filter(c => me && c.assignedAgentId === me).length,
+      yoursUnread: open.filter(c => me && c.assignedAgentId === me && c.unreadCountAgent > 0).length,
+      createdByYou: open.filter(c => me && c.createdByAgentId === me).length,
+      all: open.length,
+      unassigned: open.filter(c => !c.assignedAgentId).length,
+      byAgent,
+      byKind
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** Search customers (by name, email or user ID) for the "Add customer" picker. */
+export async function searchCustomers(req: AuthenticatedRequest, res: Response) {
+  try {
+    const q = String(req.query.search || '').trim().toLowerCase();
+    const limit = Math.min(parseInt(String(req.query.limit || '20'), 10) || 20, 50);
+    const list = (await RepositoryFactory.getCustomerRepository().findAll())
+      .filter(c => c.id !== INTERNAL_CUSTOMER_ID)
+      .filter(c => !q ||
+        c.name?.toLowerCase().includes(q) ||
+        c.email?.toLowerCase().includes(q) ||
+        c.id.toLowerCase().includes(q))
+      .slice(0, limit)
+      .map(c => ({ id: c.id, name: c.name, email: c.email, phone: c.phone }));
+    return res.json(list);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}

@@ -37,6 +37,8 @@ export interface IConversationRepository {
     search?: string;
     unread?: boolean;
     tag?: string;
+    kind?: string[];
+    createdByAgentId?: string;
   }): Promise<Conversation[]>;
   delete(id: string): Promise<boolean>;
 }

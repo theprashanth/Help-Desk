@@ -2,6 +2,11 @@ export type TicketStatus = 'open' | 'waiting' | 'resolved' | 'closed' | 'archive
 export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TicketCategory = 'general' | 'bug' | 'payment' | 'subscription' | 'refund' | 'feature_request' | 'other';
 export type UserRole = 'admin' | 'support_agent';
+/** conversation = customer chat, ticket = customer ticket, issue = internal tracker ticket */
+export type ConversationKind = 'conversation' | 'ticket' | 'issue';
+
+/** Categories of conversation events (status changes, assignment, ...) shown inline in the thread */
+export type ConversationEventCategory = 'status' | 'assignment' | 'priority' | 'tags' | 'attributes' | 'tickets' | 'other';
 
 export interface Workspace {
   id: string;
@@ -64,7 +69,7 @@ export interface Message {
   workspaceId?: string;
   conversationId: string;
   sender: {
-    type: 'customer' | 'agent';
+    type: 'customer' | 'agent' | 'system'; // system = conversation event
     id: string;
     name: string;
     avatar?: string;
@@ -95,6 +100,12 @@ export interface Conversation {
   unreadCountCustomer: number;
   starred?: boolean;
   snoozedUntil?: string | null; // ISO time; conversation is snoozed while this is in the future
+  kind?: ConversationKind;        // defaults to 'conversation'
+  title?: string;                 // tickets/issues
+  description?: string;           // tickets/issues
+  createdByAgentId?: string;      // set when a teammate creates it manually
+  attributes?: { platforms?: string[]; rootCause?: string };
+  sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   createdAt: string;
   updatedAt: string;
 }

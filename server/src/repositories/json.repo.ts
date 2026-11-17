@@ -266,6 +266,12 @@ export class JsonConversationRepository implements IConversationRepository {
       unreadCountCustomer: conv.unreadCountCustomer || 0,
       starred: conv.starred || false,
       snoozedUntil: conv.snoozedUntil || null,
+      kind: conv.kind || 'conversation',
+      title: conv.title,
+      description: conv.description,
+      createdByAgentId: conv.createdByAgentId,
+      attributes: conv.attributes || {},
+      sharing: conv.sharing || 'shared',
       createdAt: now,
       updatedAt: now
     };
@@ -336,6 +342,12 @@ export class JsonConversationRepository implements IConversationRepository {
         unreadCountCustomer: raw.unreadCountCustomer,
         starred: raw.starred || false,
         snoozedUntil: raw.snoozedUntil || null,
+        kind: raw.kind || 'conversation',
+        title: raw.title,
+        description: raw.description,
+        createdByAgentId: raw.createdByAgentId,
+        attributes: raw.attributes || {},
+        sharing: raw.sharing || 'shared',
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -362,8 +374,17 @@ export class JsonConversationRepository implements IConversationRepository {
     search?: string;
     unread?: boolean;
     tag?: string;
+    kind?: string[];
+    createdByAgentId?: string;
   }): Promise<Conversation[]> {
     let list = await this.findAll();
+
+    if (filters.kind && filters.kind.length > 0) {
+      list = list.filter(c => filters.kind!.includes(c.kind || 'conversation'));
+    }
+    if (filters.createdByAgentId) {
+      list = list.filter(c => c.createdByAgentId === filters.createdByAgentId);
+    }
 
     if (filters.status && filters.status.length > 0) {
       list = list.filter(c => filters.status!.includes(c.status));
@@ -391,6 +412,7 @@ export class JsonConversationRepository implements IConversationRepository {
       const s = filters.search.toLowerCase();
       list = list.filter(c => 
         c.ticketNumber.toLowerCase().includes(s) ||
+        (c.title && c.title.toLowerCase().includes(s)) ||
         (c.lastMessageSnippet && c.lastMessageSnippet.toLowerCase().includes(s)) ||
         c.customer.name.toLowerCase().includes(s) ||
         (c.customer.email && c.customer.email.toLowerCase().includes(s)) ||
@@ -444,7 +466,8 @@ export class JsonMessageRepository implements IMessageRepository {
 
     const conversations = await readJson<any[]>('conversations.json', []);
     const idx = conversations.findIndex(c => c.id === msg.conversationId && c.workspaceId === workspaceId);
-    if (idx !== -1) {
+    // Conversation events (system) don't change the preview or last-activity time
+    if (idx !== -1 && msg.sender.type !== 'system') {
       conversations[idx].lastMessageSnippet = snippet;
       conversations[idx].updatedAt = new Date().toISOString();
       await writeJson('conversations.json', conversations);

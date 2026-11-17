@@ -4,6 +4,7 @@ import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { Message, Attachment } from '../../../shared/src/types';
 import path from 'path';
+import { recordEvent, getActor } from '../services/events';
 
 export async function getMessages(req: AuthenticatedRequest, res: Response) {
   const { conversationId } = req.params;
@@ -13,7 +14,9 @@ export async function getMessages(req: AuthenticatedRequest, res: Response) {
   try {
     const msgRepo = RepositoryFactory.getMessageRepository();
     const list = await msgRepo.findByConversationId(conversationId, limit, skip);
-    return res.json(list);
+    // Customers (no agent token) never see internal notes or conversation events
+    const visible = req.user ? list : list.filter(m => !m.isInternalNote && m.sender?.type !== 'system');
+    return res.json(visible);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -69,6 +72,17 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     updateData.lastMessageSnippet = snippet;
 
     const updatedConv = await convRepo.update(conversationId, updateData);
+
+    // Customer reply woke the conversation up: record why it moved
+    if (sender.type === 'customer') {
+      if (conv.snoozedUntil && new Date(conv.snoozedUntil).getTime() > Date.now()) {
+        await recordEvent(conversationId, 'status', 'Unsnoozed because the customer replied', undefined, { field: 'snoozedUntil', to: null });
+      }
+      if (conv.status === 'waiting') {
+        await recordEvent(conversationId, 'status', 'State changed to In progress because the customer replied', undefined,
+          { field: 'status', from: 'waiting', to: 'open' });
+      }
+    }
 
     // Emit live updates
     SocketService.broadcastMessageNew(createdMsg);
@@ -142,11 +156,19 @@ export async function updateMessageTags(req: AuthenticatedRequest, res: Response
   try {
     const msgRepo = RepositoryFactory.getMessageRepository();
     const uniqueTags = Array.from(new Set(tags.map(t => t.trim()).filter(Boolean)));
+    const before = await msgRepo.findById(messageId);
     const updated = await msgRepo.update(messageId, { tags: uniqueTags });
     if (!updated) {
       return res.status(404).json({ error: 'Message not found' });
     }
     SocketService.broadcastMessageUpdate(updated);
+
+    const prev = before?.tags || [];
+    const added = uniqueTags.filter(t => !prev.includes(t));
+    const removed = prev.filter(t => !uniqueTags.includes(t));
+    const actor = await getActor(req);
+    for (const t of added) await recordEvent(updated.conversationId, 'tags', `${actor?.name || 'A teammate'} tagged a message with ${t}`, actor, { tag: t, action: 'added' });
+    for (const t of removed) await recordEvent(updated.conversationId, 'tags', `${actor?.name || 'A teammate'} removed tag ${t} from a message`, actor, { tag: t, action: 'removed' });
     return res.json(updated);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
