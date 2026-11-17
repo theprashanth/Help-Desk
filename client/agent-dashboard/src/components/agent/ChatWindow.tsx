@@ -87,6 +87,9 @@ export const ChatWindow: React.FC = () => {
   
   const [isInternal, setIsInternal] = useState(false); // Toggle internal note vs public message
   const [uploading, setUploading] = useState(false);
+  // Files attached to the draft; sent together with the text when you press Send
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  useEffect(() => { setPendingAttachments([]); }, [activeConversationId]);
   const [showEmoji, setShowEmoji] = useState(false);
   
   // Saved Replies
@@ -405,8 +408,10 @@ export const ChatWindow: React.FC = () => {
     composerRef.current?.focus();
   };
 
-  const handleSendMessage = async (textToSend?: string, files?: Attachment[]) => {
+  const handleSendMessage = async (textToSend?: string, filesArg?: Attachment[]) => {
     const text = textToSend !== undefined ? textToSend : inputText;
+    // Sending from the composer includes any staged attachments
+    const files = filesArg ?? (textToSend === undefined ? pendingAttachments : undefined);
     if (!text.trim() && (!files || files.length === 0)) return;
     if (!activeConversationId || !agent) return;
 
@@ -432,7 +437,10 @@ export const ChatWindow: React.FC = () => {
       });
 
       if (res.ok) {
-        if (textToSend === undefined) setInputText('');
+        if (textToSend === undefined) {
+          setInputText('');
+          setPendingAttachments([]);
+        }
       }
     } catch (err) {
       console.error('Failed to post message:', err);
@@ -440,29 +448,45 @@ export const ChatWindow: React.FC = () => {
   };
 
   // Upload file attachment handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeConversationId) return;
-
-    setUploading(true);
+  const uploadAttachment = async (file: File) => {
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', file, file.name || `screenshot-${Date.now()}.png`);
+    const res = await fetch(`${BACKEND_URL}/api/messages/upload`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData
+    });
+    if (!res.ok) throw new Error('Upload failed');
+    const attachment: Attachment = await res.json();
+    setPendingAttachments(prev => [...prev, attachment]);
+  };
 
+  const stageFiles = async (files: File[]) => {
+    if (files.length === 0 || !activeConversationId) return;
+    setUploading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/messages/upload`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData
-      });
-
-      if (res.ok) {
-        const attachment: Attachment = await res.json();
-        await handleSendMessage('', [attachment]);
-      }
+      for (const f of files) await uploadAttachment(f);
     } catch (err) {
       console.error('Upload failed:', err);
     } finally {
       setUploading(false);
+      composerRef.current?.focus();
+    }
+  };
+
+  // Attach files to the draft (they're sent with the message, not on their own)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // allow choosing the same file again
+    await stageFiles(files);
+  };
+
+  // Paste a screenshot straight into the composer
+  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'));
+    if (files.length > 0) {
+      e.preventDefault();
+      stageFiles(files);
     }
   };
 
@@ -1709,9 +1733,40 @@ export const ChatWindow: React.FC = () => {
             rows={2}
             value={inputText}
             onChange={handleInputChange}
+            onPaste={handleComposerPaste}
             placeholder={isInternal ? 'Add an internal note — only teammates can see this' : 'Write a reply…'}
             className="block w-full bg-transparent px-4 pt-2 pb-1 text-[15px] leading-relaxed text-ink placeholder:text-faint focus:outline-none resize-none"
           />
+
+          {/* Staged attachments (sent together with the text) */}
+          {(pendingAttachments.length > 0 || uploading) && (
+            <div className="flex flex-wrap gap-2 px-4 pb-2">
+              {pendingAttachments.map((a, i) => (
+                <div key={`${a.url}-${i}`} className="relative group/att">
+                  {a.type === 'image' ? (
+                    <img src={a.url} alt={a.name} className="w-16 h-16 rounded-lg object-cover border border-line" />
+                  ) : (
+                    <div className="h-16 max-w-[180px] px-3 rounded-lg border border-line bg-subtle flex items-center gap-2 text-[13px] text-ink">
+                      <Paperclip className="w-4 h-4 text-muted shrink-0" />
+                      <span className="truncate">{a.name}</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setPendingAttachments(prev => prev.filter((_, j) => j !== i))}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-ink text-on-ink flex items-center justify-center shadow-pop"
+                    title={`Remove ${a.name}`}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {uploading && (
+                <div className="w-16 h-16 rounded-lg border border-dashed border-line flex items-center justify-center text-[12px] text-muted">
+                  Uploading…
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Bottom bar */}
           <div className="flex items-center justify-between px-2.5 pb-2.5">
@@ -1721,6 +1776,7 @@ export const ChatWindow: React.FC = () => {
                 ref={fileInputRef}
                 onChange={handleFileUpload}
                 className="hidden"
+                multiple
                 accept="image/*,application/pdf"
               />
               <button
@@ -1743,7 +1799,7 @@ export const ChatWindow: React.FC = () => {
 
             <button
               onClick={() => handleSendMessage()}
-              disabled={!inputText.trim()}
+              disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[14px] font-semibold text-ink hover:bg-ink/[0.06] disabled:text-faint disabled:pointer-events-none transition-colors"
             >
               {isInternal ? 'Add note' : 'Send'}

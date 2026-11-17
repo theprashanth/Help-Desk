@@ -95,7 +95,8 @@ export interface Conversation {
   status: TicketStatus;
   priority: TicketPriority;
   category: TicketCategory;
-  lastMessageSnippet?: string;
+  lastMessageSnippet?: string;   // teammates' preview (includes [Note] ...)
+  customerSnippet?: string;      // customer-facing preview: last public message only
   unreadCountAgent: number;
   unreadCountCustomer: number;
   starred?: boolean;

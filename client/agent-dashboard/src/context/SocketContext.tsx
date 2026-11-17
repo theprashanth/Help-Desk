@@ -56,12 +56,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Clear unread notifications from tab title when window is focused or active conversation changes
   useEffect(() => {
     const handleFocus = () => {
-      document.title = 'Pebble Help';
+      document.title = 'Chai Samosa';
     };
     window.addEventListener('focus', handleFocus);
     const handleVisibility = () => {
       if (!document.hidden) {
-        document.title = 'Pebble Help';
+        document.title = 'Chai Samosa';
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -116,7 +116,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const convs = useStore.getState().conversations;
           const conv = convs.find(c => c.id === msg.conversationId);
           const label = conv?.ticketNumber || 'New Message';
-          document.title = `(${label}) New Message | Pebble Help`;
+          document.title = `(${label}) New Message | Chai Samosa`;
         }
       }
     });
@@ -142,7 +142,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
         // Show new ticket ID/number in tab title
         if (document.hidden || useStore.getState().activeConversationId !== conv.id) {
-          document.title = `(${conv.ticketNumber}) New Ticket | Pebble Help`;
+          document.title = `(${conv.ticketNumber}) New Ticket | Chai Samosa`;
         }
       }
     });

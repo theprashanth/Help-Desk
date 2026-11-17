@@ -79,9 +79,16 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
   // Track which conversation card has its action menu open
   const [openMenuConvId, setOpenMenuConvId] = useState<string | null>(null);
 
+  // Which view/state/filters the current list was loaded for. Auto-selecting the first
+  // conversation waits until the list matches what's on screen, so a deep link (or a just-created
+  // conversation) isn't replaced by a row from the previous view.
+  const listKey = [currentQueue, stateView, filterPriority, filterCategory, filterTag, searchTerm].join('|');
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+
   // Fetch conversations based on queue and filters
   useEffect(() => {
     if (!token) return;
+    const requestKey = listKey;
 
     const fetchConvs = async () => {
       try {
@@ -106,6 +113,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
         if (res.ok) {
           const data = await res.json();
           setConversations(data);
+          setLoadedKey(requestKey);
         }
       } catch (err) {
         console.error('Failed to load tickets:', err);
@@ -138,13 +146,14 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
 
   // Auto-select the first conversation if none is selected, or if the selected one is not in the visible list
   useEffect(() => {
+    if (loadedKey !== listKey) return; // list still shows the previous view
     if (visibleConversations.length > 0) {
       const currentActiveExists = visibleConversations.some(c => c.id === activeConversationId);
       if (!activeConversationId || !currentActiveExists) {
         setActiveConversationId(visibleConversations[0].id);
       }
     }
-  }, [visibleConversations, activeConversationId, setActiveConversationId]);
+  }, [visibleConversations, activeConversationId, setActiveConversationId, loadedKey, listKey]);
 
 
   // Soft pastel avatar fills (Intercom-style), keyed by category as before

@@ -104,6 +104,7 @@ export interface IConversationDoc extends Document {
   unreadCountCustomer: number;
   starred?: boolean;
   snoozedUntil?: Date | null;
+  customerSnippet?: string;
   kind?: string;
   title?: string;
   description?: string;
@@ -125,6 +126,7 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   unreadCountCustomer: { type: Number, default: 0 },
   starred: { type: Boolean, default: false },
   snoozedUntil: { type: Date, default: null },
+  customerSnippet: { type: String },
   kind: { type: String, enum: ['conversation', 'ticket', 'issue'], default: 'conversation', index: true },
   title: { type: String },
   description: { type: String },

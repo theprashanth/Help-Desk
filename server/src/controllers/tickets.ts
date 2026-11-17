@@ -4,6 +4,7 @@ import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { Conversation, Customer, Tag, SavedReply } from '../../../shared/src/types';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
+import { toCustomerView, isCustomerVisible, computeCustomerSnippet } from '../services/conversationView';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -45,7 +46,16 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
     if (!conv) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
-    return res.json(conv);
+    if (req.user) return res.json(conv);
+
+    // Customer (Messenger widget): hide internal-only tickets and internal-note previews
+    if (!isCustomerVisible(conv)) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    if (conv.customerSnippet === undefined) {
+      conv.customerSnippet = await computeCustomerSnippet(conv.id);
+    }
+    return res.json(toCustomerView(conv));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
@@ -580,7 +590,8 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
       createdByAgentId: actor?.id,
       attributes: attributes || {},
       sharing: kind === 'issue' ? 'internal' : (sharing || 'shared'),
-      lastMessageSnippet: title ? String(title).trim() : ''
+      lastMessageSnippet: title ? String(title).trim() : '',
+      customerSnippet: kind === 'ticket' && (sharing || 'shared') === 'shared' && title ? String(title).trim() : ''
     } as any);
 
     const label = kind === 'ticket' ? 'ticket' : kind === 'issue' ? 'issue' : 'conversation';
@@ -605,7 +616,7 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
         delivered: true,
         reactions: []
       });
-      if (!isNote) await convRepo.update(created.id, { unreadCountCustomer: 1 });
+      if (!isNote) await convRepo.update(created.id, { unreadCountCustomer: 1, customerSnippet: String(message.content) });
       SocketService.broadcastMessageNew(msg);
     }
 

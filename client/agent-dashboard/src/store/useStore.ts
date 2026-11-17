@@ -225,7 +225,7 @@ export const useStore = create<AppState>((set) => ({
     ? JSON.parse(localStorage.getItem('widget_settings')!)
     : {
         themeColor: '#8B5CF6',
-        brandName: 'Pebble SaaS',
+        brandName: 'Chai Samosa',
         greeting: 'We reply in a few minutes',
         welcome: 'Ask us anything, or share your feedback.',
         darkTheme: false

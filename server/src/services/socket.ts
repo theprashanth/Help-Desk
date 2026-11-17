@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import { Conversation, Message } from '../../../shared/src/types';
+import { toCustomerView, isCustomerVisible } from './conversationView';
 
 /** Room joined only by sockets that presented a valid agent token. */
 export const AGENTS_ROOM = 'agents';
@@ -59,14 +60,24 @@ export class SocketService {
     this.emitGlobal('message:deleted', { messageId, conversationId });
   }
 
+  /**
+   * Conversations go out in two versions: the full object to verified agent sockets, and a
+   * customer-safe view (no internal-note previews, no internal-only tickets) to everyone else.
+   */
+  private static broadcastConversation(event: string, conv: Conversation) {
+    if (!this.io) return;
+    this.io.to(AGENTS_ROOM).emit(event, conv);
+    if (isCustomerVisible(conv)) {
+      this.io.except(AGENTS_ROOM).emit(event, toCustomerView(conv));
+    }
+  }
+
   static broadcastConversationNew(conv: Conversation) {
-    this.emitToRoom(conv.id, 'conversation:new', conv);
-    this.emitGlobal('conversation:new', conv);
+    this.broadcastConversation('conversation:new', conv);
   }
 
   static broadcastConversationUpdate(conv: Conversation) {
-    this.emitToRoom(conv.id, 'conversation:update', conv);
-    this.emitGlobal('conversation:update', conv);
+    this.broadcastConversation('conversation:update', conv);
   }
 
   static broadcastConversationDeleted(conversationId: string) {

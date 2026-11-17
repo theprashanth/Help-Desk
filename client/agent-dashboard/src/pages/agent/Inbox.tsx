@@ -181,7 +181,7 @@ export const Inbox: React.FC = () => {
       {/* Far-left icon rail */}
       <nav className="w-14 h-full shrink-0 flex flex-col items-center py-1.5 gap-1">
         {/* Logo mark */}
-        <div className="w-9 h-9 mb-2 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Pebble Help">
+        <div className="w-9 h-9 mb-2 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Samosa">
           <Globe className="w-[18px] h-[18px]" />
         </div>
 

@@ -38,7 +38,7 @@ router.get('/auth/agents', authenticateJWT, getAgents);
 
 // --- Ticket / Conversation Routes ---
 router.get('/tickets', authenticateJWT, getTickets);
-router.get('/tickets/:id', getTicket); // Let guest fetch single ticket details if needed
+router.get('/tickets/:id', optionalJWT, getTicket); // Let guest fetch single ticket details if needed
 router.post('/tickets', createTicket); // Guest can create conversations
 router.post('/tickets/manual', authenticateJWT, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);

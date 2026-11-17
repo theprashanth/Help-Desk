@@ -14,7 +14,7 @@ function getStoredSettings() {
   } catch {}
   return {
     themeColor: '#8B5CF6',
-    brandName: 'Pebble SaaS',
+    brandName: 'Chai Samosa',
     greeting: 'We reply in a few minutes',
     welcome: 'Ask us anything, or share your feedback.',
     darkTheme: false,
@@ -90,6 +90,10 @@ export const MessengerWidget: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
+
+  /** Preview text a customer may see: the last public message, never an internal note */
+  const customerPreview = (c: Conversation) =>
+    c.customerSnippet ?? (c.lastMessageSnippet?.startsWith('[Note]') ? '' : c.lastMessageSnippet);
 
   /** Parse OS name from userAgent string */
   const parseOS = (): string => {
@@ -247,6 +251,8 @@ export const MessengerWidget: React.FC = () => {
 
     // Keep list fresh via real-time socket events
     const handleConvUpdate = (conv: Conversation) => {
+      // Internal-only tickets/issues are never shown to the customer
+      if (conv.kind === 'issue' || conv.sharing === 'internal') return;
       if (conv.customer.id === guestId) {
         setLocalConversations(prev => {
           const idx = prev.findIndex(c => c.id === conv.id);
@@ -562,7 +568,7 @@ export const MessengerWidget: React.FC = () => {
                           >
                             <div className="flex flex-col gap-1 pr-4 truncate">
                               <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{c.ticketNumber}</span>
-                              <span className="text-sm text-slate-800 dark:text-slate-200 truncate">{c.lastMessageSnippet || 'Open ticket'}</span>
+                              <span className="text-sm text-slate-800 dark:text-slate-200 truncate">{customerPreview(c) || 'Open ticket'}</span>
                             </div>
                             {c.unreadCountCustomer > 0 && (
                               <span

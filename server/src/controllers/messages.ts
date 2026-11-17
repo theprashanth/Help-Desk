@@ -5,6 +5,7 @@ import { SocketService } from '../services/socket';
 import { Message, Attachment } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
+import { refreshConversationSnippets } from '../services/conversationView';
 
 export async function getMessages(req: AuthenticatedRequest, res: Response) {
   const { conversationId } = req.params;
@@ -70,6 +71,10 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       snippet = `[Note] ${snippet}`;
     }
     updateData.lastMessageSnippet = snippet;
+    if (!isInternalNote) {
+      // Customers only ever see previews of public messages
+      updateData.customerSnippet = snippet;
+    }
 
     const updatedConv = await convRepo.update(conversationId, updateData);
 
@@ -191,6 +196,10 @@ export async function deleteMessage(req: AuthenticatedRequest, res: Response) {
     }
 
     SocketService.broadcastMessageDeleted(messageId, msg.conversationId);
+
+    // Don't let the deleted text live on in previews or unread counts
+    const refreshed = await refreshConversationSnippets(msg.conversationId);
+    if (refreshed) SocketService.broadcastConversationUpdate(refreshed);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
