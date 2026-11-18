@@ -26,6 +26,7 @@ const mapWorkspace = (doc: any): Workspace => ({
   customerFacingName: doc.customerFacingName,
   timezone: doc.timezone,
   showAttribution: doc.showAttribution,
+  attributionText: doc.attributionText,
   snoozeOptions: doc.snoozeOptions,
   replyTimeNotice: doc.replyTimeNotice,
   integrations: doc.integrations,
@@ -79,6 +80,7 @@ const mapAgent = (doc: any): Agent => ({
 
 const mapCustomer = (doc: any): Customer => ({
   id: doc.id,
+  externalId: doc.externalId || undefined,
   name: doc.name,
   email: doc.email,
   phone: doc.phone,
@@ -196,11 +198,17 @@ export class MongooseCustomerRepository implements ICustomerRepository {
     return doc ? mapCustomer(doc) : null;
   }
 
+  async findByExternalId(externalId: string): Promise<Customer | null> {
+    const doc = await CustomerModel.findOne({ externalId });
+    return doc ? mapCustomer(doc) : null;
+  }
+
   async findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer> {
     let doc = await CustomerModel.findOne({ id });
     if (!doc) {
       doc = new CustomerModel({
         id,
+        externalId: defaultData.externalId,
         name: defaultData.name,
         email: defaultData.email,
         phone: defaultData.phone,
@@ -507,6 +515,23 @@ export class MongooseMessageRepository implements IMessageRepository {
   async delete(id: string): Promise<boolean> {
     const res = await MessageModel.findByIdAndDelete(id);
     return res !== null;
+  }
+
+  async searchByTerms(terms: string[], limit = 5000): Promise<Message[]> {
+    const needles = terms.filter(Boolean);
+    if (needles.length === 0) return [];
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const or = needles.flatMap(t => {
+      const re = new RegExp(esc(t), 'i');
+      return [{ content: re }, { 'attachments.name': re }, { tags: re }];
+    });
+    const docs = await MessageModel.find({ 'sender.type': { $ne: 'system' }, $or: or }).limit(limit);
+    return docs.map(mapMessage);
+  }
+
+  async deleteByConversationId(conversationId: string): Promise<number> {
+    const res = await MessageModel.deleteMany({ conversationId });
+    return res.deletedCount || 0;
   }
 
   async markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void> {

@@ -10,6 +10,7 @@ import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
 import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
+import { SearchPanel } from '../../components/agent/SearchPanel';
 import { isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
 import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
@@ -44,18 +45,22 @@ export const Inbox: React.FC = () => {
   const setStateFilter = useStore((state) => state.setStateFilter);
   const composer = useStore((state) => state.composer);
   const setComposer = useStore((state) => state.setComposer);
-  const requestSearch = useStore((state) => state.requestSearch);
   const socket = useStore((state) => state.socket);
 
   // Workspace snooze presets (Settings > General)
   const setSnoozePresets = useStore((state) => state.setSnoozePresets);
+  const setWorkspaceName = useStore((state) => state.setWorkspaceName);
   useEffect(() => {
     if (!token) return;
     fetch(`${BACKEND_URL}/api/workspace`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(r => (r.ok ? r.json() : null))
-      .then(ws => { if (ws && Array.isArray(ws.snoozeOptions)) setSnoozePresets(ws.snoozeOptions); })
+      .then(ws => {
+        if (!ws) return;
+        if (Array.isArray(ws.snoozeOptions)) setSnoozePresets(ws.snoozeOptions);
+        if (ws.name) setWorkspaceName(ws.name); // browser tab title
+      })
       .catch(() => {});
-  }, [token, setSnoozePresets]);
+  }, [token, setSnoozePresets, setWorkspaceName]);
 
   // Teammates (for the Teammates section and assignee pickers)
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -168,7 +173,7 @@ export const Inbox: React.FC = () => {
     { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
   ];
 
-  const isChatTab = isInboxView(activeTab);
+  const isChatTab = isInboxView(activeTab) || activeTab === 'search';
 
   // Remember the last inbox queue so the rail's Inbox icon returns to it
   const [lastQueue, setLastQueue] = useState<string>('yours');
@@ -317,12 +322,17 @@ export const Inbox: React.FC = () => {
                 counts={counts}
                 agents={agents}
                 me={agent}
-                onSearch={() => { setComposer(null); requestSearch(); }}
+                onSearch={() => { setComposer(null); setActiveTab('search'); }}
                 onOpenDashboard={() => setActiveTab('analytics')}
                 onCreate={(kind) => setComposer({ kind })}
               />
             )}
 
+            {activeTab === 'search' && !composer ? (
+              /* Full search across conversations, notes, tickets, customers and tags */
+              <SearchPanel agents={agents} />
+            ) : (
+            <>
             {/* List column */}
             <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
 
@@ -350,6 +360,8 @@ export const Inbox: React.FC = () => {
                   )
                 )}
               </>
+            )}
+            </>
             )}
           </>
         ) : activeTab === 'analytics' ? (

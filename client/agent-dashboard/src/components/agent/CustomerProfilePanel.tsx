@@ -371,7 +371,7 @@ export const CustomerProfilePanel: React.FC = () => {
   // Find assigned agent object
   const assignedAgent = agents.find(a => a.id === conv.assignedAgentId);
   // Lead = anonymous visitor (guest id, no email); User = identified
-  const isLead = !customer.email && /^guest_/i.test(customer.id);
+  const isLead = !customer.email && !customer.externalId;
   // Customer's local time (timezone comes from the Messenger's geo lookup)
   const localTime = (() => {
     const tz = customer.session?.timezone;
@@ -606,6 +606,19 @@ export const CustomerProfilePanel: React.FC = () => {
                         <button onClick={() => setIsEditing(true)} className="shrink-0 flex items-center gap-1 text-[13px] text-muted hover:text-ink transition-colors">
                           <Edit2 className="w-3.5 h-3.5" /> Edit
                         </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* External id: the user's id in your own system (logged-in users) */}
+                  {customer.externalId && (
+                    <div className="ic-detail-row group relative">
+                      <span className="ic-detail-label">External id</span>
+                      <div className="flex items-center justify-between gap-2 min-w-0">
+                        <InstantTooltip text={customer.externalId}>
+                          <span className="ic-detail-value block">{customer.externalId}</span>
+                        </InstantTooltip>
+                        {renderCopyButton(customer.externalId, 'external_id')}
                       </div>
                     </div>
                   )}

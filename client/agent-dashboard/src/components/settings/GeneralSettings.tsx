@@ -10,6 +10,7 @@ type WorkspaceSettings = {
   customerFacingName: string;
   timezone: string | null;
   showAttribution: boolean;
+  attributionText: string;
   snoozeOptions: SnoozePreset[];
   replyTimeNotice: boolean;
   appId: string;
@@ -20,6 +21,7 @@ type Draft = {
   customerFacingName: string;
   timezone: string;
   showAttribution: boolean;
+  attributionText: string;
   snoozeOptions: SnoozePreset[];
 };
 
@@ -62,6 +64,7 @@ const toDraft = (ws: WorkspaceSettings): Draft => ({
   customerFacingName: ws.customerFacingName || '',
   timezone: ws.timezone || '',
   showAttribution: ws.showAttribution,
+  attributionText: ws.attributionText || '',
   snoozeOptions: ws.snoozeOptions.length ? clean(ws.snoozeOptions) : clean(DEFAULT_SNOOZE_OPTIONS),
 });
 
@@ -86,6 +89,7 @@ function ToggleRow({ checked, onChange, disabled, label }: { checked: boolean; o
 export default function GeneralSettings({ onBack }: { onBack: () => void }) {
   const token = useStore(s => s.token);
   const me = useStore(s => s.agent);
+  const setWorkspaceName = useStore(s => s.setWorkspaceName);
   const isAdmin = me?.role === 'admin';
   const ro = !isAdmin;
 
@@ -158,6 +162,7 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
       if (draft.customerFacingName.trim() !== prev.customerFacingName) body.customerFacingName = draft.customerFacingName.trim();
       if (draft.timezone && draft.timezone !== prev.timezone) body.timezone = draft.timezone;
       if (draft.showAttribution !== prev.showAttribution) body.showAttribution = draft.showAttribution;
+      if (draft.attributionText.trim() !== prev.attributionText) body.attributionText = draft.attributionText.trim();
       if (!sameList(draft.snoozeOptions, prev.snoozeOptions)) {
         body.snoozeOptions = sameList(draft.snoozeOptions, DEFAULT_SNOOZE_OPTIONS) ? [] : clean(draft.snoozeOptions);
       }
@@ -169,6 +174,7 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Could not save workspace settings');
       setWs(data);
+      setWorkspaceName(data.name); // browser tab title follows the organisation name
       const d = toDraft(data);
       setDraft(d);
       setOriginal(JSON.stringify(d));
@@ -257,7 +263,23 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
                 description="Let your customers know your Messenger is powered by Chai Samosa."
               >
                 <ToggleRow checked={draft.showAttribution} disabled={ro} onChange={v => set('showAttribution', v)}
-                  label="Show ‘Powered by Chai Samosa’ in the Messenger" />
+                  label="Show an attribution line at the bottom of the Messenger" />
+                {draft.showAttribution && (
+                  <div className="mt-4">
+                    <label className="ic-label">Attribution text</label>
+                    <input
+                      className="ic-input"
+                      value={draft.attributionText}
+                      maxLength={60}
+                      disabled={ro}
+                      onChange={e => set('attributionText', e.target.value)}
+                      placeholder="Powered by Chai Samosa"
+                    />
+                    <p className="ic-help mt-1.5">
+                      Shown to customers at the bottom of the Messenger. Leave blank for “Powered by Chai Samosa”. {60 - draft.attributionText.length} characters left.
+                    </p>
+                  </div>
+                )}
               </SettingsFormSection>
 
               <SettingsFormSection

@@ -13,6 +13,7 @@ export interface IWorkspaceDoc extends Document {
   customerFacingName?: string;
   timezone?: string;
   showAttribution?: boolean;
+  attributionText?: string;
   snoozeOptions?: any[];
   replyTimeNotice?: boolean;
   integrations?: any;
@@ -27,6 +28,7 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   customerFacingName: { type: String },
   timezone: { type: String },
   showAttribution: { type: Boolean, default: true },
+  attributionText: { type: String },
   snoozeOptions: { type: [Schema.Types.Mixed], default: undefined },
   replyTimeNotice: { type: Boolean, default: true },
   integrations: { type: Schema.Types.Mixed, default: {} }
@@ -76,7 +78,8 @@ export const UserModel = mongoose.model<IUserDoc>('User', UserSchema);
 // Customer Schema (Guest Users)
 export interface ICustomerDoc extends Document {
   workspaceId: string;
-  id: string; // Custom unique string identifier (e.g. guest_uuid)
+  id: string; // User id: UUID for every new customer (legacy: guest_..., cust_...)
+  externalId?: string; // your system's user id for logged-in users
   name: string;
   email?: string;
   phone?: string;
@@ -100,6 +103,7 @@ export interface ICustomerDoc extends Document {
 export const CustomerSchema = new Schema<ICustomerDoc>({
   workspaceId: { type: String, required: true, index: true },
   id: { type: String, required: true, unique: true, index: true },
+  externalId: { type: String, index: true, sparse: true },
   name: { type: String, required: true },
   email: { type: String },
   phone: { type: String },

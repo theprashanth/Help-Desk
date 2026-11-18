@@ -30,7 +30,7 @@ const REPLY_TIME_TEXT: Record<string, string> = {
 
 type Availability = {
   replyTime: string | null; isOpenNow: boolean; nextOpenAt?: string;
-  name?: string; showAttribution?: boolean;
+  name?: string; showAttribution?: boolean; attributionText?: string;
   onlineAgents?: { id: string; name: string; avatar?: string }[];
 };
 
@@ -87,6 +87,8 @@ export const MessengerWidget: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Files attached to the draft; sent together with the text when the customer presses Send
+  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [showEmoji, setShowEmoji] = useState(false);
   // True when the user clicked "Start New Chat" but hasn't sent a first message yet.
   // The actual ticket is created lazily on first send to avoid empty tickets.
@@ -184,18 +186,21 @@ export const MessengerWidget: React.FC = () => {
   useEffect(() => {
     const helpDeskConfig = (window as any).HelpDesk || {};
     
-    // Read or generate unique user ID (MongoDB ObjectId or UUID format)
+    // User id: a UUID v4 (e.g. 47f1664a-c15e-42fc-b74e-5046559f92db) for everyone, guest or logged in.
+    // A logged-in user's own id (window.HelpDesk.userId) is sent separately as externalUserId, and the
+    // server answers with the canonical User id for that person (same id on every device).
     let id = localStorage.getItem('customer_guest_id') || '';
     if (helpDeskConfig.userId) {
-      id = helpDeskConfig.userId;
-      localStorage.setItem('customer_guest_id', id);
-    } else if (!id) {
-      // Generate a standard UUID v4 format (e.g. 58fbd963-9b56-488c-8565-1ccb375f7b34)
-      id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-        const r = (Math.random() * 16) | 0;
-        const v = c === 'x' ? r : (r & 0x3) | 0x8;
-        return v.toString(16);
-      });
+      localStorage.setItem('customer_external_id', String(helpDeskConfig.userId));
+    }
+    if (!id) {
+      id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = (crypto.getRandomValues(new Uint8Array(1))[0] & 15);
+            const v = c === 'x' ? r : (r & 0x3) | 0x8;
+            return v.toString(16);
+          });
       localStorage.setItem('customer_guest_id', id);
     }
     setGuestId(id);
@@ -260,7 +265,7 @@ export const MessengerWidget: React.FC = () => {
         .then(data => {
           if (!cancelled && data) setAvailability({
             replyTime: data.replyTime, isOpenNow: data.isOpenNow !== false, nextOpenAt: data.nextOpenAt,
-            name: data.name, showAttribution: data.showAttribution !== false,
+            name: data.name, showAttribution: data.showAttribution !== false, attributionText: data.attributionText,
             onlineAgents: Array.isArray(data.onlineAgents) ? data.onlineAgents : [],
           });
         })
@@ -420,11 +425,15 @@ export const MessengerWidget: React.FC = () => {
     setActiveTab('chat');
   };
 
-  const handleSendMessage = async (text?: string, attachments?: Attachment[]) => {
+  const handleSendMessage = async (text?: string, attachmentsArg?: Attachment[]) => {
     const content = text ?? inputText;
-    if (!content.trim() && (!attachments || attachments.length === 0)) return;
+    // Sending from the composer includes any attached files
+    const attachments = attachmentsArg ?? (text === undefined ? pendingAttachments : []);
+    if (!content.trim() && attachments.length === 0) return;
+    if (uploading) return;
 
     setInputText('');
+    if (text === undefined) setPendingAttachments([]);
 
     try {
       // ── Lazy ticket creation: first message creates the conversation ──────
@@ -434,10 +443,12 @@ export const MessengerWidget: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerId: guestId,
+            externalUserId: localStorage.getItem('customer_external_id') || undefined,
             name: guestName,
             email: localStorage.getItem('customer_guest_email') || undefined,
             phone: localStorage.getItem('customer_guest_phone') || undefined,
             initialMessage: content,
+            initialAttachments: attachments,
             messageMetadata: getDeviceMetadata(),
             session: {
               browser: parseBrowser(),
@@ -456,8 +467,19 @@ export const MessengerWidget: React.FC = () => {
         if (res.ok || res.status === 210) {
           const conv: Conversation = await res.json();
 
+          // The server decides the canonical User id (UUID). Adopt it if it differs from ours,
+          // carrying over the list of this browser's conversations.
+          const userId = conv.customer?.id || guestId;
+          if (userId !== guestId) {
+            const previous: string[] = JSON.parse(localStorage.getItem(`guest_conv_ids_${guestId}`) || '[]');
+            const merged: string[] = JSON.parse(localStorage.getItem(`guest_conv_ids_${userId}`) || '[]');
+            localStorage.setItem(`guest_conv_ids_${userId}`, JSON.stringify([...new Set([...merged, ...previous])]));
+            localStorage.setItem('customer_guest_id', userId);
+            setGuestId(userId);
+          }
+
           // Persist conv ID so it survives page refresh (guest has no auth)
-          const storageKey = `guest_conv_ids_${guestId}`;
+          const storageKey = `guest_conv_ids_${userId}`;
           const existing: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]');
           if (!existing.includes(conv.id)) {
             localStorage.setItem(storageKey, JSON.stringify([conv.id, ...existing]));
@@ -516,30 +538,38 @@ export const MessengerWidget: React.FC = () => {
     typingTimeoutRef.current = setTimeout(() => setIsTyping(false), 2000);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !activeConv) return;
+  const stageFiles = async (files: File[]) => {
+    if (files.length === 0) return;
     setUploading(true);
-
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('conversationId', activeConv.id);
-
-      const res = await fetch(`${BACKEND_URL}/api/attachments/upload`, {
-        method: 'POST',
-        body: formData
-      });
-
-      if (res.ok) {
-        const attachment: Attachment = await res.json();
-        await handleSendMessage('', [attachment]);
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file, file.name || `screenshot-${Date.now()}.png`);
+        if (activeConv) formData.append('conversationId', activeConv.id);
+        const res = await fetch(`${BACKEND_URL}/api/attachments/upload`, { method: 'POST', body: formData });
+        if (res.ok) {
+          const attachment: Attachment = await res.json();
+          setPendingAttachments(prev => [...prev, attachment]);
+        }
       }
     } catch (err) {
       console.error('Failed uploading attachment:', err);
     } finally {
       setUploading(false);
     }
+  };
+
+  // Attach files to the draft — they're sent with the message, not on their own
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await stageFiles(files);
+  };
+
+  // Paste a screenshot into the message box
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const files = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'));
+    if (files.length) { e.preventDefault(); stageFiles(files); }
   };
 
   const handleEmojiSelect = (emoji: string) => {
@@ -787,12 +817,38 @@ export const MessengerWidget: React.FC = () => {
                       </div>
                     )}
 
+                    {/* Attached files, sent together with the message */}
+                    {(pendingAttachments.length > 0 || uploading) && (
+                      <div className="flex flex-wrap gap-2 pb-2">
+                        {pendingAttachments.map((a, i) => (
+                          <div key={`${a.url}-${i}`} className="relative">
+                            {a.type === 'image' ? (
+                              <img src={a.url} alt={a.name} className="w-14 h-14 rounded-lg object-cover border border-slate-200 dark:border-slate-700" />
+                            ) : (
+                              <div className="h-14 max-w-[150px] px-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center gap-1.5 text-xs text-slate-700 dark:text-slate-200">
+                                <Paperclip className="w-3.5 h-3.5 shrink-0" /><span className="truncate">{a.name}</span>
+                              </div>
+                            )}
+                            <button
+                              onClick={() => setPendingAttachments(prev => prev.filter((_, j) => j !== i))}
+                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-900 text-white flex items-center justify-center shadow"
+                              title={`Remove ${a.name}`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                        {uploading && <div className="w-14 h-14 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">Uploading…</div>}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-1.5">
                       <input
                         type="file"
                         ref={fileInputRef}
                         onChange={handleFileUpload}
                         className="hidden"
+                        multiple
                         accept="image/*,application/pdf"
                       />
                       <button
@@ -814,6 +870,7 @@ export const MessengerWidget: React.FC = () => {
                         type="text"
                         value={inputText}
                         onChange={handleTextChange}
+                        onPaste={handlePaste}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') handleSendMessage();
                         }}
@@ -826,7 +883,7 @@ export const MessengerWidget: React.FC = () => {
 
                       <button
                         onClick={() => handleSendMessage()}
-                        disabled={!inputText.trim()}
+                        disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading}
                         className="p-2 text-white rounded-xl active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md"
                         style={{ background: themeColor }}
                       >
@@ -841,7 +898,9 @@ export const MessengerWidget: React.FC = () => {
             {/* Attribution (Settings > General) */}
             {availability?.showAttribution !== false && (
               <div className="shrink-0 py-1.5 text-center text-[11px] text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                ⚡ Powered by Chai Samosa
+                {availability?.attributionText && availability.attributionText !== 'Powered by Chai Samosa'
+                  ? availability.attributionText
+                  : '⚡ Powered by Chai Samosa'}
               </div>
             )}
           </motion.div>

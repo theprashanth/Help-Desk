@@ -172,6 +172,12 @@ export class JsonCustomerRepository implements ICustomerRepository {
     return customers.find(c => c.id === id && c.workspaceId === workspaceId) || null;
   }
 
+  async findByExternalId(externalId: string): Promise<Customer | null> {
+    const customers = await readJson<Customer[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    return customers.find(c => c.externalId === externalId && c.workspaceId === workspaceId) || null;
+  }
+
   async findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer> {
     const customers = await readJson<Customer[]>(this.file, []);
     const workspaceId = getActiveWorkspaceId();
@@ -180,6 +186,7 @@ export class JsonCustomerRepository implements ICustomerRepository {
       customer = {
         id,
         workspaceId,
+        ...(defaultData.externalId ? { externalId: defaultData.externalId } : {}),
         name: defaultData.name,
         email: defaultData.email,
         phone: defaultData.phone,
@@ -508,6 +515,31 @@ export class JsonMessageRepository implements IMessageRepository {
     if (messages.length === filtered.length) return false;
     await writeJson(this.file, filtered);
     return true;
+  }
+
+  async searchByTerms(terms: string[], limit = 5000): Promise<Message[]> {
+    const messages = await readJson<Message[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    const needles = terms.map(t => t.toLowerCase()).filter(Boolean);
+    if (needles.length === 0) return [];
+    const out: Message[] = [];
+    for (const m of messages) {
+      if (m.workspaceId !== workspaceId || m.sender?.type === 'system') continue;
+      const hay = [m.content || '', ...(m.attachments || []).map(a => a.name), ...(m.tags || [])].join(' ').toLowerCase();
+      if (needles.some(n => hay.includes(n))) {
+        out.push(m);
+        if (out.length >= limit) break;
+      }
+    }
+    return out;
+  }
+
+  async deleteByConversationId(conversationId: string): Promise<number> {
+    const messages = await readJson<Message[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    const kept = messages.filter(m => !(m.conversationId === conversationId && m.workspaceId === workspaceId));
+    if (kept.length !== messages.length) await writeJson(this.file, kept);
+    return messages.length - kept.length;
   }
 
   async markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void> {

@@ -1,9 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import MessengerWidget from '../../components/customer/MessengerWidget';
 import { Globe, ArrowRight, ShieldCheck, Zap, Heart, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const DemoLandingPage: React.FC = () => {
+  // Browser tab shows the organisation's customer-facing name (Settings > General)
+  useEffect(() => {
+    fetch('http://localhost:3000/api/workspace/public')
+      .then(r => (r.ok ? r.json() : null))
+      .then(ws => { if (ws?.name) document.title = ws.name; })
+      .catch(() => {});
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col justify-between overflow-x-hidden relative text-slate-800 dark:text-slate-100 font-sans select-none">
       

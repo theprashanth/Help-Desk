@@ -19,6 +19,7 @@ export interface IUserRepository {
 
 export interface ICustomerRepository {
   findById(id: string): Promise<Customer | null>;
+  findByExternalId(externalId: string): Promise<Customer | null>;
   findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer>;
   create(customer: Customer): Promise<Customer>;
   update(id: string, updateData: Partial<Customer>): Promise<Customer | null>;
@@ -51,6 +52,9 @@ export interface IMessageRepository {
   create(message: Omit<Message, 'id' | 'createdAt'>): Promise<Message>;
   update(id: string, updateData: Partial<Message>): Promise<Message | null>;
   delete(id: string): Promise<boolean>;
+  deleteByConversationId(conversationId: string): Promise<number>;
+  /** Messages (not events) whose text, attachment names or tags contain ANY of the terms (case-insensitive). */
+  searchByTerms(terms: string[], limit?: number): Promise<Message[]>;
   markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void>;
   countMessages(conversationId: string): Promise<number>;
 }

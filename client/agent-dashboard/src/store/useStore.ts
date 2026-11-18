@@ -49,6 +49,10 @@ interface AppState {
   inboxNavOpen: boolean;
   setInboxNavOpen: (open: boolean) => void;
 
+  // Organisation name (Settings > General) — used for the browser tab title
+  workspaceName: string;
+  setWorkspaceName: (name: string) => void;
+
   // Workspace snooze presets (Settings > General); empty = default list
   snoozePresets: SnoozePreset[];
   setSnoozePresets: (p: SnoozePreset[]) => void;
@@ -122,17 +126,27 @@ export const useStore = create<AppState>((set) => ({
   inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
   focusMessageId: null,
   snoozePresets: [],
+  workspaceName: 'Chai Samosa',
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
       const exists = state.conversations.some((c) => c.id === conversation.id);
-      if (exists) return state;
+      if (exists || state.currentQueue === 'search') return state;
       if (!matchesView(conversation, state.currentQueue, state.agent?.id) ||
           !statusesFor(state.stateFilter).includes(conversation.status)) return state;
       return { conversations: [conversation, ...state.conversations] };
     }),
   updateConversation: (conversation) =>
     set((state) => {
+      // On the Search page the list is the search results: refresh in place, never add/drop by view
+      if (state.currentQueue === 'search') {
+        const i = state.conversations.findIndex((c) => c.id === conversation.id);
+        if (i === -1) return state;
+        const next = [...state.conversations];
+        next[i] = { ...next[i], ...conversation };
+        return { conversations: next };
+      }
+
       // Keep conversations that belong to the current view and state (snooze is filtered in the list)
       const matchesQueue =
         matchesView(conversation, state.currentQueue, state.agent?.id) &&
@@ -172,6 +186,10 @@ export const useStore = create<AppState>((set) => ({
   setInboxNavOpen: (open) => set({ inboxNavOpen: open }),
   setFocusMessageId: (id) => set({ focusMessageId: id }),
   setSnoozePresets: (snoozePresets) => set({ snoozePresets }),
+  setWorkspaceName: (workspaceName) => {
+    set({ workspaceName });
+    if (typeof document !== 'undefined' && !document.title.startsWith('(')) document.title = workspaceName;
+  },
 
   // Messages
   messages: {},

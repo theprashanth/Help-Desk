@@ -138,7 +138,7 @@ export const InboxNavPanel: React.FC<Props> = ({
       <div className="mx-5 border-t border-dashed border-line" />
 
       <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
-        <button onClick={onSearch} className="ic-nav-item">
+        <button onClick={onSearch} className={`ic-nav-item ${activeView === 'search' ? 'ic-nav-item-active' : ''}`}>
           <span className="w-[18px] flex justify-center text-ink/80"><Search className="w-[17px] h-[17px]" /></span>
           Search
         </button>

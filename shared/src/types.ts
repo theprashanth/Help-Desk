@@ -30,6 +30,7 @@ export interface Workspace {
   customerFacingName?: string;     // shown to customers in the Messenger; defaults to name
   timezone?: string;               // IANA; office hours use this zone
   showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
+  attributionText?: string;        // custom attribution text (default "Powered by Chai Samosa")
   snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
   // Settings > Office hours
   replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
@@ -104,7 +105,8 @@ export interface CustomerSession {
 }
 
 export interface Customer {
-  id: string;
+  id: string;            // User id: a UUID (e.g. 47f1664a-c15e-42fc-b74e-5046559f92db) for every new customer
+  externalId?: string;   // your own system's user id for logged-in users (window.HelpDesk.userId)
   workspaceId?: string;
   name: string;
   email?: string;

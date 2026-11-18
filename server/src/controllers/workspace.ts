@@ -26,6 +26,8 @@ function officeHoursResponse(ws: Workspace | null) {
   };
 }
 
+const DEFAULT_ATTRIBUTION = 'Powered by Chai Samosa';
+
 /** Teammate-facing workspace settings (never includes integrations / secrets). */
 function workspaceSettingsResponse(ws: Workspace) {
   return {
@@ -34,6 +36,7 @@ function workspaceSettingsResponse(ws: Workspace) {
     customerFacingName: ws.customerFacingName || '',
     timezone: ws.timezone || ws.officeHours?.timezone || null,
     showAttribution: ws.showAttribution !== false,
+    attributionText: ws.attributionText || '',
     snoozeOptions: Array.isArray(ws.snoozeOptions) ? ws.snoozeOptions : [],
     replyTimeNotice: ws.replyTimeNotice !== false,
     appId: ws.id,
@@ -99,6 +102,7 @@ export async function getPublicWorkspace(req: AuthenticatedRequest, res: Respons
       id: ws.id,
       name: (ws.customerFacingName || '').trim() || ws.name,
       showAttribution: ws.showAttribution !== false,
+      attributionText: (ws.attributionText || '').trim() || DEFAULT_ATTRIBUTION,
       replyTime: ws.replyTime || null,
       replyTimeNotice: ws.replyTimeNotice !== false,
       officeHours: ws.officeHours || null,
@@ -178,6 +182,12 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
   if (body.showAttribution !== undefined) {
     if (typeof body.showAttribution !== 'boolean') return res.status(400).json({ error: 'showAttribution must be true or false' });
     updates.showAttribution = body.showAttribution;
+  }
+  if (body.attributionText !== undefined) {
+    if (typeof body.attributionText !== 'string' || body.attributionText.length > 60) {
+      return res.status(400).json({ error: 'attributionText must be text of at most 60 characters' });
+    }
+    updates.attributionText = body.attributionText.trim(); // empty = default text
   }
   if (body.snoozeOptions !== undefined) {
     const checked = validateSnoozeOptions(body.snoozeOptions);

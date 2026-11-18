@@ -22,6 +22,8 @@ import {
 import { resetDatabase, seedData, simulateActivity } from '../controllers/simulation';
 
 import { resolveTenant } from '../middleware/tenant.middleware';
+import { getStateCounts, bulkUpdate } from '../controllers/bulk';
+import { searchConversations } from '../controllers/search';
 
 const router = Router();
 
@@ -63,6 +65,9 @@ router.delete('/integrations/webhook', authenticateJWT, disconnectWebhook);
 router.post('/integrations/webhook/test', authenticateJWT, testWebhook);
 
 // --- Ticket / Conversation Routes ---
+router.get('/search', authenticateJWT, searchConversations); // full search: messages, notes, tickets, customers, tags
+router.get('/tickets/state-counts', authenticateJWT, getStateCounts); // counts per state for the list's state menu
+router.post('/tickets/bulk', authenticateJWT, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete
 router.get('/tickets', authenticateJWT, getTickets);
 router.get('/tickets/:id', optionalJWT, getTicket); // Let guest fetch single ticket details if needed
 router.post('/tickets', createTicket); // Guest can create conversations

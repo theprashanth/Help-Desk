@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
+import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 
@@ -842,16 +843,9 @@ export const ChatWindow: React.FC = () => {
                         setComposer({ kind: 'conversation', customer: { id: ticket.customer.id, name: ticket.customer.name, email: ticket.customer.email } });
                       } },
                     { icon: FileText, label: 'Export conversation as text', divider: false,
-                      action: () => {
-                        const text = `Ticket: ${ticket.ticketNumber}\nCustomer: ${ticket.customer.name}\n\n[Export feature coming soon]`;
-                        const blob = new Blob([text], { type: 'text/plain' });
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url; a.download = `${ticket.ticketNumber}.txt`; a.click();
-                        setShowMoreMenu(false);
-                      }
-                    },
-                    { icon: FileDown, label: 'Export conversation as PDF', divider: false },
+                      action: () => { setShowMoreMenu(false); if (token) exportAsText([ticket], token); } },
+                    { icon: FileDown, label: 'Export conversation as PDF', divider: false,
+                      action: () => { setShowMoreMenu(false); if (token) exportAsPdf([ticket], token); } },
                     { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true, submenu: true },
                     { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
                     { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',

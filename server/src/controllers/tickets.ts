@@ -7,6 +7,7 @@ import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
 import { toCustomerView, isCustomerVisible, computeCustomerSnippet } from '../services/conversationView';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
+import { resolveCustomerId } from '../services/customerIdentity';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -64,18 +65,26 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
 }
 
 export async function createTicket(req: AuthenticatedRequest, res: Response) {
-  const { customerId, name, email, phone, priority, category, initialMessage, session, messageMetadata } = req.body;
-  
-  if (!customerId) {
-    return res.status(400).json({ error: 'customerId is required' });
-  }
+  const { customerId: requestedId, externalUserId, name, email, phone, priority, category, initialMessage, initialAttachments, session, messageMetadata } = req.body;
+  // Files the customer attached to their first message (uploaded first via /api/attachments/upload)
+  const firstAttachments = Array.isArray(initialAttachments)
+    ? initialAttachments
+        .filter((a: any) => a && typeof a.url === 'string' && /^https?:\/\//.test(a.url) && typeof a.name === 'string')
+        .slice(0, 10)
+        .map((a: any) => ({ name: String(a.name).slice(0, 200), url: a.url, type: ['image', 'pdf', 'file'].includes(a.type) ? a.type : 'file', size: Number(a.size) || 0 }))
+    : [];
 
   try {
     const custRepo = RepositoryFactory.getCustomerRepository();
     const convRepo = RepositoryFactory.getConversationRepository();
     const msgRepo = RepositoryFactory.getMessageRepository();
 
+    // Every new customer gets a UUID User id (logged-in users keep their own id as externalId).
+    // The response's conversation.customer.id tells the Messenger which id to use from now on.
+    const { id: customerId, externalId } = await resolveCustomerId(requestedId, externalUserId);
+
     const customer = await custRepo.findOrCreate(customerId, {
+      externalId,
       name: name || `Guest #${customerId.slice(-4)}`,
       email: email || '',
       phone: phone || '',
@@ -134,8 +143,8 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       assignedAgentId
     });
 
-    // Save initial message if provided
-    if (initialMessage) {
+    // Save initial message if provided (text and/or attachments)
+    if (initialMessage || firstAttachments.length) {
       const firstMessage = await msgRepo.create({
         conversationId: newConv.id,
         sender: {
@@ -143,7 +152,8 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
           id: customer.id,
           name: customer.name
         },
-        content: initialMessage,
+        content: initialMessage || '',
+        attachments: firstAttachments,
         isInternalNote: false,
         seen: false,
         delivered: true,
@@ -589,7 +599,9 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
       if (!customer) return res.status(404).json({ error: 'Customer not found' });
     } else if (customerRef?.externalId) {
       const externalId = String(customerRef.externalId).trim();
-      customer = await custRepo.findOrCreate(externalId, {
+      const resolved = await resolveCustomerId(undefined, externalId);
+      customer = await custRepo.findOrCreate(resolved.id, {
+        externalId,
         name: customerRef.name || `User ${externalId}`,
         email: customerRef.email || '',
         phone: '',
@@ -704,9 +716,10 @@ export async function searchCustomers(req: AuthenticatedRequest, res: Response) 
       .filter(c => !q ||
         c.name?.toLowerCase().includes(q) ||
         c.email?.toLowerCase().includes(q) ||
-        c.id.toLowerCase().includes(q))
+        c.id.toLowerCase().includes(q) ||
+        (c.externalId || '').toLowerCase().includes(q))
       .slice(0, limit)
-      .map(c => ({ id: c.id, name: c.name, email: c.email, phone: c.phone }));
+      .map(c => ({ id: c.id, externalId: c.externalId, name: c.name, email: c.email, phone: c.phone }));
     return res.json(list);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

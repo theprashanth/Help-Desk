@@ -3,8 +3,11 @@ import { useStore } from '../../store/useStore';
 import {
   Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
   AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
-  ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User
+  ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User,
+  Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
+  Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
 } from 'lucide-react';
+import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { Conversation } from '../../../../../shared/src/types';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
@@ -189,6 +192,111 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   }, [visibleConversations, activeConversationId, setActiveConversationId, loadedKey, listKey]);
 
 
+  // ── Counts for every state in the "N Open" menu (same view + filters, all states) ──
+  const socket = useStore((state) => state.socket);
+  const [stateCounts, setStateCounts] = useState<Record<string, number> | null>(null);
+  const filterQuery = useMemo(() => {
+    const parts: string[] = [];
+    const vp = viewParams(currentQueue, agent?.id);
+    if (vp) parts.push(vp);
+    if (filterPriority !== 'all') parts.push(`priority=${filterPriority}`);
+    if (filterCategory !== 'all') parts.push(`category=${filterCategory}`);
+    if (filterTag !== 'all') parts.push(`tag=${encodeURIComponent(filterTag)}`);
+    if (searchTerm.trim()) parts.push(`search=${encodeURIComponent(searchTerm)}`);
+    return parts.join('&');
+  }, [currentQueue, agent?.id, filterPriority, filterCategory, filterTag, searchTerm]);
+  useEffect(() => {
+    if (!token) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const load = () => {
+      fetch(`${BACKEND_URL}/api/tickets/state-counts?${filterQuery}`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => (r.ok ? r.json() : null))
+        .then(c => c && setStateCounts(c))
+        .catch(() => {});
+    };
+    const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(load, 400); };
+    load();
+    const events = ['conversation:new', 'conversation:update', 'conversation:deleted'];
+    events.forEach(ev => socket?.on(ev, schedule));
+    return () => { if (timer) clearTimeout(timer); events.forEach(ev => socket?.off(ev, schedule)); };
+  }, [filterQuery, token, socket]);
+
+  // ── Bulk selection ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const lastSelectedIndex = useRef<number | null>(null);
+  const [bulkView, setBulkView] = useState<null | 'root' | 'state' | 'snooze' | 'assign' | 'priority' | 'edit' | 'category' | 'tag' | 'delete'>(null);
+  const [bulkQuery, setBulkQuery] = useState('');
+  const [bulkIndex, setBulkIndex] = useState(0);
+  const [bulkNotice, setBulkNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const allTags = useStore((state) => state.tags);
+
+  useEffect(() => { setSelectedIds(new Set()); lastSelectedIndex.current = null; }, [listKey]);
+  useEffect(() => {
+    // drop selections that left the list (closed, deleted, filtered out)
+    setSelectedIds(prev => {
+      const visible = new Set(visibleConversations.map(c => c.id));
+      const next = new Set([...prev].filter(id => visible.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleConversations]);
+
+  const selectionMode = selectedIds.size > 0;
+  const selectedConvs = visibleConversations.filter(c => selectedIds.has(c.id));
+  const allSelected = selectionMode && selectedIds.size === visibleConversations.length;
+
+  const toggleSelect = (id: string, index: number, shiftKey: boolean) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (shiftKey && lastSelectedIndex.current !== null) {
+        // Shift-click selects the whole range
+        const [a, b] = [lastSelectedIndex.current, index].sort((x, y) => x - y);
+        visibleConversations.slice(a, b + 1).forEach(c => next.add(c.id));
+      } else if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    lastSelectedIndex.current = index;
+  };
+  const selectAll = () => setSelectedIds(new Set(visibleConversations.map(c => c.id)));
+  const clearSelection = () => { setSelectedIds(new Set()); lastSelectedIndex.current = null; };
+
+  const flashNotice = (text: string, error = false) => {
+    setBulkNotice({ text, error });
+    setTimeout(() => setBulkNotice(n => (n && n.text === text ? null : n)), 3000);
+  };
+
+  const runBulk = async (action: string, value: any, doneText: (n: number) => string) => {
+    if (!token || selectedIds.size === 0) return;
+    setBulkBusy(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ ids: [...selectedIds], action, value })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Bulk action failed');
+      flashNotice(doneText(data.updated) + (data.failed?.length ? ` (${data.failed.length} failed)` : ''), !!data.failed?.length);
+      setBulkView(null);
+      clearSelection();
+    } catch (e: any) {
+      flashNotice(e.message, true);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const openBulk = (view: NonNullable<typeof bulkView>) => { setBulkQuery(''); setBulkIndex(0); setBulkView(view); };
+
+  // Esc clears the selection when no palette is open
+  useEffect(() => {
+    if (!selectionMode || bulkView) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') clearSelection(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectionMode, bulkView]);
+
   // Soft pastel avatar fills (Intercom-style), keyed by category as before
   const getAvatarColors = (category: string) => {
     switch (category) {
@@ -289,6 +397,69 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       : null,
   }));
   const currentSort = SORT_OPTIONS.find(o => o.key === sortBy) || SORT_OPTIONS[0];
+
+  // Bulk palette entries for the current view (plain data; rendered below)
+  type BulkItem = { key: string; label: string; icon?: React.ReactNode; run: () => void; sub?: boolean; danger?: boolean; hint?: string };
+  const n = selectedIds.size;
+  const plural = (k: number) => `${k} conversation${k === 1 ? '' : 's'}`;
+  const bulkItems: BulkItem[] = (() => {
+    switch (bulkView) {
+      case 'root': return [
+        { key: 'close', label: `Close ${plural(n)}`, icon: <InboxIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
+        { key: 'state', label: 'Change state', icon: <CircleDot className="w-4 h-4" />, run: () => openBulk('state'), sub: true },
+        { key: 'snooze', label: 'Snooze', icon: <AlarmClock className="w-4 h-4" />, run: () => openBulk('snooze'), sub: true },
+        { key: 'assign', label: 'Assign to', icon: <UserCheck className="w-4 h-4" />, run: () => openBulk('assign'), sub: true },
+        { key: 'priority', label: 'Priority', icon: <PriorityIcon priority="medium" />, run: () => openBulk('priority'), sub: true },
+        { key: 'edit', label: `Edit ${n} item${n === 1 ? '' : 's'}`, icon: <PenLine className="w-4 h-4" />, run: () => openBulk('edit'), sub: true },
+        allSelected
+          ? { key: 'clear', label: 'Clear selection', icon: <X className="w-4 h-4" />, run: () => { clearSelection(); setBulkView(null); } }
+          : { key: 'all', label: `Select all ${visibleConversations.length} items`, icon: <CheckSquare className="w-4 h-4" />, run: () => { selectAll(); setBulkView(null); } },
+        { key: 'txt', label: 'Export as text', icon: <FileText className="w-4 h-4" />, run: () => { setBulkView(null); if (token) exportAsText(selectedConvs, token); } },
+        { key: 'pdf', label: 'Export as PDF', icon: <FileDown className="w-4 h-4" />, run: () => { setBulkView(null); if (token) exportAsPdf(selectedConvs, token); } },
+        ...(agent?.role === 'admin' ? [{ key: 'delete', label: `Delete ${plural(n)}`, icon: <Trash2 className="w-4 h-4" />, run: () => openBulk('delete'), sub: true, danger: true }] : []),
+      ];
+      case 'state': return [
+        { key: 'open', label: 'In progress', icon: <CircleDot className="w-4 h-4 text-accent" />, run: () => runBulk('status', 'open', k => `Moved ${plural(k)} to In progress`) },
+        { key: 'waiting', label: 'Waiting on customer', icon: <Hourglass className="w-4 h-4 text-red-500" />, run: () => runBulk('status', 'waiting', k => `${plural(k)} waiting on customer`) },
+        { key: 'resolved', label: 'Resolved', icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />, run: () => runBulk('status', 'resolved', k => `Resolved ${plural(k)}`) },
+        { key: 'closed', label: 'Close', icon: <InboxIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
+        { key: 'archived', label: 'Archive', icon: <Archive className="w-4 h-4 text-muted" />, run: () => runBulk('status', 'archived', k => `Archived ${plural(k)}`) },
+      ];
+      case 'snooze': return [
+        ...snoozeOptions.map(o => ({ key: o.value, label: o.label, hint: o.sub, icon: <AlarmClock className="w-4 h-4" />, run: () => runBulk('snooze', computeSnoozeUntil(o.value), k => `Snoozed ${plural(k)}`) })),
+        { key: 'unsnooze', label: 'Unsnooze', icon: <X className="w-4 h-4" />, run: () => runBulk('snooze', null, k => `Unsnoozed ${plural(k)}`) },
+      ];
+      case 'assign': return [
+        { key: 'none', label: 'Unassigned', icon: <User className="w-4 h-4" />, run: () => runBulk('assign', null, k => `Unassigned ${plural(k)}`) },
+        ...agents.map(a => ({
+          key: a.id, label: a.id === agent?.id ? `${a.name} (you)` : a.name,
+          icon: a.avatar ? <img src={a.avatar} alt="" className="w-4 h-4 rounded-full object-cover" /> : <span className="w-4 h-4 rounded-full bg-subtle text-[9px] font-semibold flex items-center justify-center">{a.name.charAt(0)}</span>,
+          run: () => runBulk('assign', a.id, k => `Assigned ${plural(k)} to ${a.name}`),
+        })),
+      ];
+      case 'priority': return PRIORITY_OPTIONS.map(o => ({ key: o.value, label: o.label, icon: <PriorityIcon priority={o.value} />, run: () => runBulk('priority', o.value, k => `Set ${plural(k)} to ${o.label}`) }));
+      case 'edit': return [
+        { key: 'category', label: 'Category', icon: <Layers className="w-4 h-4" />, run: () => openBulk('category'), sub: true },
+        { key: 'tag', label: 'Add tag', icon: <TagIcon className="w-4 h-4" />, run: () => openBulk('tag'), sub: true },
+        { key: 'priority', label: 'Priority', icon: <PriorityIcon priority="medium" />, run: () => openBulk('priority'), sub: true },
+      ];
+      case 'category': return [
+        ['general', 'General'], ['bug', 'Bug'], ['payment', 'Payment'], ['subscription', 'Subscription'],
+        ['refund', 'Refund'], ['feature_request', 'Feature request'], ['other', 'Other'],
+      ].map(([v, l]) => ({ key: v, label: l, run: () => runBulk('category', v, k => `Set category of ${plural(k)} to ${l}`) }));
+      case 'tag': return allTags.map(t => ({
+        key: t.id, label: t.name, icon: <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: t.color }} />,
+        run: () => runBulk('addTag', t.name, k => `Tagged ${plural(k)} ${t.name}`),
+      }));
+      default: return [];
+    }
+  })();
+  const bulkFiltered = bulkItems.filter(i => i.label.toLowerCase().includes(bulkQuery.trim().toLowerCase()));
+  const bulkTitles: Record<string, string> = {
+    root: 'Bulk actions', state: 'Change state', snooze: 'Snooze', assign: 'Assign to', priority: 'Priority',
+    edit: `Edit ${n} item${n === 1 ? '' : 's'}`, category: 'Category', tag: 'Add tag', delete: `Delete ${plural(n)}`,
+  };
+  const bulkParent: Record<string, NonNullable<typeof bulkView>> = { category: 'edit', tag: 'edit' };
   const searchVisible = showSearch || searchTerm.trim() !== '';
 
   return (
@@ -343,8 +514,43 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
           </div>
         )}
 
+        {/* Bulk selection bar (replaces the chip row while conversations are selected) */}
+        {selectionMode && (
+          <div className="flex items-center gap-0.5 min-w-0 h-8">
+            <button
+              onClick={() => (allSelected ? clearSelection() : selectAll())}
+              className="w-[18px] h-[18px] rounded-[5px] bg-ink text-on-ink flex items-center justify-center shrink-0 mr-1"
+              title={allSelected ? 'Clear selection (Esc)' : 'Select all'}
+            >
+              {allSelected ? <Check className="w-3 h-3" strokeWidth={3} /> : <Minus className="w-3 h-3" strokeWidth={3} />}
+            </button>
+            <span className="flex min-w-0 text-[14px] font-medium text-ink whitespace-nowrap" title={`${n} of ${visibleConversations.length} selected`}>
+              <span className="tabular-nums shrink-0">{n}/{visibleConversations.length}</span>
+              <span className="truncate">&nbsp;selected</span>
+            </span>
+            <div className="flex-1 min-w-1" />
+            <button onClick={() => openBulk('root')} className="ic-icon-btn-ghost w-7 h-7" title="More bulk actions"><MoreHorizontal className="w-4 h-4" /></button>
+            <button onClick={() => openBulk('assign')} className="ic-icon-btn-ghost w-7 h-7" title="Assign"><UserCheck className="w-4 h-4" /></button>
+            <button onClick={() => openBulk('edit')} className="ic-icon-btn-ghost w-7 h-7" title={`Edit ${n} item${n === 1 ? '' : 's'}`}><PenLine className="w-4 h-4" /></button>
+            <button onClick={() => openBulk('snooze')} className="ic-icon-btn-ghost w-7 h-7" title="Snooze"><AlarmClock className="w-4 h-4" /></button>
+            <button
+              onClick={() => runBulk('status', 'closed', k => `Closed ${plural(k)}`)}
+              disabled={bulkBusy}
+              className="w-7 h-7 ml-0.5 shrink-0 inline-flex items-center justify-center rounded-full bg-ink text-on-ink hover:bg-ink/85 disabled:opacity-50"
+              title={`Close ${plural(n)}`}
+            >
+              <InboxIcon className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        {bulkNotice && (
+          <div className={`text-[13px] px-3 py-1.5 rounded-lg animate-fade-in ${bulkNotice.error ? 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300' : 'bg-subtle text-ink'}`}>
+            {bulkNotice.text}
+          </div>
+        )}
+
         {/* Chip row: state view + sort + filters */}
-        <div className="flex items-center gap-1.5 min-w-0">
+        <div className={`flex items-center gap-1.5 min-w-0 ${selectionMode ? 'hidden' : ''}`}>
           {/* "N Open" state view chip */}
           <div className="relative shrink-0">
             <button
@@ -366,7 +572,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                   >
                     {o.key === 'snoozed' ? <AlarmClock className="w-4 h-4 text-muted" /> : <span className="w-4" />}
                     <span className="flex-1 truncate">{o.label}</span>
-                    <span className="text-[13px] text-faint tabular-nums">{o.key === stateView ? visibleConversations.length : o.count ?? ''}</span>
+                    <span className="text-[13px] text-faint tabular-nums">{stateCounts ? stateCounts[o.key] ?? '' : (o.key === stateView ? visibleConversations.length : o.count ?? '')}</span>
                     <span className="w-4 flex justify-end">{stateView === o.key && <Check className="w-4 h-4 text-accent" />}</span>
                   </button>
                 ))}
@@ -526,8 +732,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
             </span>
           </div>
         ) : (
-          visibleConversations.map((c) => {
+          visibleConversations.map((c, rowIndex) => {
             const isActive = c.id === activeConversationId;
+            const isSelected = selectedIds.has(c.id);
             const snoozed = isSnoozed(c, now);
             const hasUnread = c.unreadCountAgent > 0;
             const categoryBadge = getCategoryBadgeStyles(c.category);
@@ -550,10 +757,12 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                   className={`w-full px-3 py-3 rounded-xl text-left flex items-start gap-3 relative cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-link/40 ${
                     isActive 
                       ? 'bg-surface shadow-card' 
-                      : 'hover:bg-ink/[0.03]'
+                      : isSelected ? 'bg-link/[0.06]' : 'hover:bg-ink/[0.03]'
                   }`}
                 >
-                  {/* Avatar Circle */}
+                  {/* Avatar, swapped for a checkbox on hover or while selecting */}
+                  <div className="relative w-8 h-8 shrink-0">
+                  <div className={selectionMode || isSelected ? 'invisible' : 'group-hover/card:invisible'}>
                   {c.kind === 'ticket' || c.kind === 'issue' ? (
                     <div className="ic-avatar w-8 h-8 bg-subtle text-ink/80" title={c.kind === 'issue' ? 'Tracker issue' : 'Customer ticket'}>
                       {c.kind === 'issue' ? <Wrench className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
@@ -563,6 +772,18 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       {c.customer.name.charAt(0) || 'G'}
                     </div>
                   )}
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(c.id, rowIndex, e.shiftKey); }}
+                    className={`absolute inset-0 flex items-center justify-center ${selectionMode || isSelected ? '' : 'opacity-0 group-hover/card:opacity-100 focus:opacity-100'}`}
+                    title={isSelected ? 'Deselect' : 'Select (Shift-click to select a range)'}
+                    aria-pressed={isSelected}
+                  >
+                    <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-ink border-ink text-on-ink' : 'border-ink/30 bg-surface hover:border-ink/60'}`}>
+                      {isSelected && <Check className="w-3 h-3" strokeWidth={3} />}
+                    </span>
+                  </button>
+                  </div>
 
                   {/* Body info */}
                   <div className="flex-1 min-w-0 flex flex-col gap-0.5">
@@ -740,6 +961,82 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
           })
         )}
       </div>
+
+      {/* Bulk actions command palette */}
+      {bulkView && (
+        <div className="fixed inset-0 z-[60] bg-black/30 flex items-start justify-center px-4 pt-[14vh] animate-fade-in" onClick={() => setBulkView(null)}>
+          <div className="w-full max-w-[560px] bg-surface rounded-2xl shadow-pop overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Bulk actions">
+            <div className="flex items-center gap-2 px-3 h-12 border-b border-line">
+              {bulkView !== 'root' && (
+                <button onClick={() => openBulk(bulkParent[bulkView] || 'root')} className="ic-icon-btn-ghost" title="Back"><ArrowLeft className="w-4 h-4" /></button>
+              )}
+              <span className="text-[15px] font-semibold text-ink pl-1">{bulkTitles[bulkView]}</span>
+              <span className="ml-auto text-[13px] text-muted">{n} selected</span>
+            </div>
+
+            {bulkView === 'delete' ? (
+              <div className="p-5 flex flex-col gap-4">
+                <p className="text-[14px] text-ink leading-relaxed">
+                  Permanently delete <b>{plural(n)}</b> and all of their messages, notes and events? This can't be undone.
+                  Closing or archiving keeps the history instead.
+                </p>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => openBulk('root')} className="ic-btn-ghost">Cancel</button>
+                  <button
+                    onClick={() => runBulk('delete', null, k => `Deleted ${plural(k)}`)}
+                    disabled={bulkBusy}
+                    className="ic-btn-danger"
+                  >
+                    {bulkBusy ? 'Deleting…' : `Delete ${plural(n)}`}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2.5 px-4 h-12 border-b border-line">
+                  <Search className="w-4 h-4 text-faint shrink-0" />
+                  <input
+                    autoFocus
+                    value={bulkQuery}
+                    onChange={(e) => { setBulkQuery(e.target.value); setBulkIndex(0); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setBulkIndex(i => Math.min(i + 1, Math.max(bulkFiltered.length - 1, 0))); }
+                      else if (e.key === 'ArrowUp') { e.preventDefault(); setBulkIndex(i => Math.max(i - 1, 0)); }
+                      else if (e.key === 'Enter') { e.preventDefault(); bulkFiltered[bulkIndex]?.run(); }
+                      else if (e.key === 'Escape') { e.preventDefault(); bulkView === 'root' ? setBulkView(null) : openBulk(bulkParent[bulkView] || 'root'); }
+                    }}
+                    placeholder="Type a command or search..."
+                    className="flex-1 min-w-0 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none"
+                  />
+                </div>
+                <div className="p-2 flex flex-col gap-0.5 max-h-[50vh] overflow-y-auto">
+                  {bulkView === 'root' && <div className="px-3 pt-1 pb-1.5 text-[12px] font-medium text-faint">Bulk actions</div>}
+                  {bulkFiltered.length === 0 && (
+                    <div className="px-3 py-6 text-center text-[14px] text-muted">{bulkView === 'tag' && allTags.length === 0 ? 'No tags yet — create tags in a conversation first' : 'No matching actions'}</div>
+                  )}
+                  {bulkFiltered.map((item, i) => (
+                    <button
+                      key={item.key}
+                      onMouseEnter={() => setBulkIndex(i)}
+                      onClick={item.run}
+                      disabled={bulkBusy}
+                      className={`w-full flex items-center gap-3 px-3 h-11 rounded-xl text-left transition-colors disabled:opacity-50 ${i === bulkIndex ? 'bg-subtle' : ''} ${item.danger ? 'text-red-600 dark:text-red-400' : 'text-ink'}`}
+                    >
+                      <span className="w-4 flex justify-center shrink-0">{item.icon}</span>
+                      <span className="text-[15px] truncate flex-1">{item.label}</span>
+                      {item.hint && <span className="text-[13px] text-faint">{item.hint}</span>}
+                      {item.sub && <ChevronRight className="w-4 h-4 text-muted" />}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="px-4 h-10 flex items-center border-t border-line text-[12px] text-muted">
+              ↑↓ navigate · ↵ select · esc {bulkView === 'root' ? 'close' : 'back'}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
