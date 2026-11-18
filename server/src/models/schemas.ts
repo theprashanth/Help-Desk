@@ -17,6 +17,11 @@ export interface IWorkspaceDoc extends Document {
   snoozeOptions?: any[];
   replyTimeNotice?: boolean;
   integrations?: any;
+  messenger?: any;
+  identitySecret?: string;
+  identityEnforced?: boolean;
+  allowedDomains?: string[];
+  installations?: any[];
 }
 
 export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
@@ -31,7 +36,12 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   attributionText: { type: String },
   snoozeOptions: { type: [Schema.Types.Mixed], default: undefined },
   replyTimeNotice: { type: Boolean, default: true },
-  integrations: { type: Schema.Types.Mixed, default: {} }
+  integrations: { type: Schema.Types.Mixed, default: {} },
+  messenger: { type: Schema.Types.Mixed, default: {} },
+  identitySecret: { type: String },
+  identityEnforced: { type: Boolean, default: false },
+  allowedDomains: { type: [String], default: [] },
+  installations: { type: [Schema.Types.Mixed], default: [] }
 }, { timestamps: true });
 
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);

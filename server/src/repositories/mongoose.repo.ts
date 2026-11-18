@@ -30,6 +30,11 @@ const mapWorkspace = (doc: any): Workspace => ({
   snoozeOptions: doc.snoozeOptions,
   replyTimeNotice: doc.replyTimeNotice,
   integrations: doc.integrations,
+  messenger: doc.messenger,
+  identitySecret: doc.identitySecret,
+  identityEnforced: doc.identityEnforced,
+  allowedDomains: doc.allowedDomains,
+  installations: doc.installations,
 });
 
 export class MongooseWorkspaceRepository implements IWorkspaceRepository {

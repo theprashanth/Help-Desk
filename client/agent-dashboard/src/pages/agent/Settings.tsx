@@ -4,9 +4,9 @@ import { AgentSettings, SavedReply } from '../../../../../shared/src/types';
 import Button from '../../components/ui/Button';
 import {
   Bell, Calendar, User, ShieldAlert, Check,
-  MessageSquare, Puzzle, Globe, Smartphone, ChevronRight, Copy,
-  Moon, Sun, Palette, Home, Shield, Languages, CreditCard, Activity,
-  Mail, Phone, CheckCircle2, AlertCircle, ArrowLeft,
+  MessageSquare, Puzzle, Globe, ChevronRight,
+  Home, Shield, Languages, CreditCard, Activity,
+  Mail, Phone, ArrowLeft,
   Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
@@ -14,31 +14,14 @@ import ProfileSettings from '../../components/settings/ProfileSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import GeneralSettings from '../../components/settings/GeneralSettings';
 import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
+import MessengerSettings, { MessengerTab } from '../../components/settings/MessengerSettings';
 
 const BACKEND_URL = 'http://localhost:3000';
 
 type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'integrations' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations'];
-type MessengerTab = 'widget' | 'appearance' | 'install' | 'security';
-
-const PRESET_COLORS = [
-  '#8B5CF6', '#6366F1', '#3B82F6', '#0EA5E9', '#10B981',
-  '#F59E0B', '#EF4444', '#EC4899', '#1d4ed8', '#111827'
-];
-
-const INSTALL_PLATFORMS = [
-  { id: 'code', label: 'Code snippet', icon: '⌨️' },
-  { id: 'react', label: 'React', icon: '⚛️' },
-  { id: 'vue', label: 'Vue', icon: '💚' },
-  { id: 'angular', label: 'Angular', icon: '🅰️' },
-  { id: 'wordpress', label: 'WordPress', icon: '🗨️' },
-  { id: 'shopify', label: 'Shopify', icon: '🛍️' },
-  { id: 'nextjs', label: 'Next.js', icon: '▲' },
-  { id: 'gtm', label: 'Google Tag Manager', icon: '🏷️' },
-];
-
+const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -85,23 +68,6 @@ function SettingsNavGroup({ label, open, onToggle, children }: {
   );
 }
 
-function SectionCard({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`ic-card overflow-hidden ${className}`}>
-      {children}
-    </div>
-  );
-}
-
-function SectionHeader({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="px-6 py-4 border-b border-line flex items-center justify-between gap-3">
-      {children}
-    </div>
-  );
-}
-
-// Intercom-style settings block: description on the left, fields on the right
 function FormSection({ title, description, icon: Icon, children, cols = 'lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]' }: {
   title: string; description?: React.ReactNode; icon?: any; children: React.ReactNode; cols?: string;
 }) {
@@ -119,65 +85,6 @@ function FormSection({ title, description, icon: Icon, children, cols = 'lg:grid
   );
 }
 
-// ─── Live Widget Preview ────────────────────────────────────────────────────
-function WidgetPreview({ themeColor, brandName, greeting, welcome, darkTheme }: {
-  themeColor: string; brandName: string; greeting: string; welcome: string; darkTheme: boolean;
-}) {
-  const bg = darkTheme ? '#0f172a' : '#f8fafc';
-  const cardBg = darkTheme ? '#1e293b' : '#ffffff';
-  const textPrimary = darkTheme ? '#f1f5f9' : '#0f172a';
-  const textSecondary = darkTheme ? '#94a3b8' : '#64748b';
-
-  return (
-    <div className="w-72 rounded-3xl overflow-hidden shadow-card border border-line" style={{ background: bg }}>
-      {/* Widget Header */}
-      <div className="p-5 text-white relative" style={{ background: `linear-gradient(135deg, ${themeColor}ee, ${themeColor})` }}>
-        <div className="flex items-center gap-2.5">
-          <span className="w-7 h-7 rounded-full border-2 border-white/40 bg-white/20 flex items-center justify-center text-[12px] font-semibold uppercase">
-            {(brandName || '?').trim().charAt(0)}
-          </span>
-          <div>
-            <p className="font-bold text-sm">{brandName}</p>
-            <p className="text-[11px] text-white/70 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full" />{greeting}
-            </p>
-          </div>
-        </div>
-        <p className="text-xs text-white/80 mt-3 leading-relaxed">{welcome}</p>
-      </div>
-
-      {/* Body */}
-      <div className="p-4 flex flex-col gap-2.5" style={{ background: bg }}>
-        <button className="w-full py-2.5 text-xs font-semibold text-white rounded-xl" style={{ background: themeColor }}>
-          Start a new chat
-        </button>
-        <div className="text-[11px] font-semibold mt-1" style={{ color: textSecondary }}>Recent conversations</div>
-        {[
-          { ticket: 'TICKET-1042', snippet: 'Thanks for your help!', unread: 1 },
-          { ticket: 'TICKET-1023', snippet: 'I need help with billing.', unread: 0 },
-        ].map(c => (
-          <div key={c.ticket} className="flex items-center justify-between p-2.5 rounded-xl border" style={{ background: cardBg, borderColor: darkTheme ? '#334155' : '#e2e8f0' }}>
-            <div>
-              <p className="text-[11px] font-semibold" style={{ color: textSecondary }}>{c.ticket}</p>
-              <p className="text-xs" style={{ color: textPrimary }}>{c.snippet}</p>
-            </div>
-            {c.unread > 0 && (
-              <span className="text-white text-[11px] font-semibold w-4 h-4 rounded-full flex items-center justify-center" style={{ background: themeColor }}>{c.unread}</span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* Launcher */}
-      <div className="px-4 pb-4 flex justify-end">
-        <div className="w-10 h-10 rounded-full flex items-center justify-center shadow-lg" style={{ background: themeColor }}>
-          <MessageSquare className="w-5 h-5 text-white" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── MAIN SETTINGS PAGE ─────────────────────────────────────────────────────
 export const Settings: React.FC = () => {
   // Macro editor dropdowns (kept here, not inside MacrosSection, so the section can be rendered
@@ -185,19 +92,12 @@ export const Settings: React.FC = () => {
   const [showForDropdown, setShowForDropdown] = useState(false);
   const [showWhenDropdown, setShowWhenDropdown] = useState(false);
   const token = useStore((state) => state.token);
-  const widgetSettings = useStore((state) => state.widgetSettings);
-  const setWidgetSettings = useStore((state) => state.setWidgetSettings);
-  const chatColorTheme = useStore((state) => (state as any).chatColorTheme);
-  const setChatColorTheme = useStore((state) => (state as any).setChatColorTheme);
 
   const [section, setSection] = useState<Section>('home');
-  const [messengerTab, setMessengerTab] = useState<MessengerTab>('widget');
+  const [messengerTab, setMessengerTab] = useState<MessengerTab>('overview');
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [copied, setCopied] = useState<string | null>(null);
-  const [installPlatform, setInstallPlatform] = useState('code');
-  const [previewMode, setPreviewMode] = useState<'light' | 'dark'>('light');
 
   // ── Macros (Saved Replies) state ─────────────────────────────────────────
   const [macros, setMacros] = useState<SavedReply[]>([]);
@@ -219,9 +119,6 @@ export const Settings: React.FC = () => {
   });
   const [macroEditing, setMacroEditing] = useState(false);
   const [macroSaving, setMacroSaving] = useState(false);
-
-  // Local copy for live editing (committed to store on change)
-  const [localWidget, setLocalWidget] = useState(widgetSettings);
 
   // Fetch agent settings
   useEffect(() => {
@@ -313,16 +210,6 @@ export const Settings: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    setLocalWidget(widgetSettings);
-  }, [widgetSettings]);
-
-  const updateWidget = (updates: Partial<typeof widgetSettings>) => {
-    const next = { ...localWidget, ...updates };
-    setLocalWidget(next);
-    setWidgetSettings(updates);
-  };
-
   const handleSaveAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!token || !agentSettings) return;
@@ -347,48 +234,6 @@ export const Settings: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 2000);
-    });
-  };
-
-  const getInstallSnippet = () => {
-    if (installPlatform === 'react') {
-      return `// Install the package
-npm install @helpdesk/react-widget
-
-// Add to your app
-import { MessengerWidget } from '@helpdesk/react-widget';
-
-function App() {
-  return (
-    <>
-      <YourApp />
-      <MessengerWidget
-        apiKey="YOUR_API_KEY"
-        brandName="${localWidget.brandName}"
-        themeColor="${localWidget.themeColor}"
-      />
-    </>
-  );
-}`;
-    }
-    return `<!-- Paste before </body> tag -->
-<script>
-  window.HelpDesk = window.HelpDesk || {};
-  window.HelpDesk.apiKey = "YOUR_API_KEY";
-  window.HelpDesk.brandName = "${localWidget.brandName}";
-  window.HelpDesk.themeColor = "${localWidget.themeColor}";
-  window.HelpDesk.greeting = "${localWidget.greeting}";
-</script>
-<script 
-  async 
-  src="http://localhost:3000/widget.js">
-</script>`;
   };
 
   // ── Home Hub ─────────────────────────────────────────────────────────────
@@ -457,7 +302,7 @@ function App() {
         <h2 className="ic-section-title mb-4">Channels</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[
-            { icon: MessageSquare, label: 'Messenger', desc: 'Install and customize your widget', onClick: () => setSection('messenger') },
+            { icon: MessageSquare, label: 'Messenger Live Chat', desc: 'Install and customize your Messenger', onClick: () => { setMessengerTab('overview'); setSection('messenger'); } },
             { icon: Mail, label: 'Email', desc: 'Forwarding, domains, and routing', onClick: () => setSection('profile') },
             { icon: Phone, label: 'Phone', desc: 'Set up phone and SMS support', onClick: () => setSection('profile') },
           ].map(item => (
@@ -477,336 +322,6 @@ function App() {
           ))}
         </div>
       </div>
-    </div>
-  );
-
-  // ── Messenger Section ─────────────────────────────────────────────────────
-  // (Page title, "Save and set live" button and the tab row live in the panel header.)
-  const MessengerSection = () => (
-    <div className="flex flex-col gap-6">
-      {/* Widget Tab */}
-      {messengerTab === 'widget' && (
-        <div className="flex gap-8">
-          <div className="flex-1 flex flex-col gap-4 max-w-2xl min-w-0">
-            <SectionCard>
-              <SectionHeader>
-                <span className="ic-section-title">Content</span>
-              </SectionHeader>
-              <div className="divide-y divide-line">
-                {[
-                  { label: 'Spaces', desc: 'Configure chat spaces and homepage content' },
-                  { label: 'Launch directly into Conversation', desc: 'Skip the home screen and start chat immediately' },
-                  { label: 'Show the Messenger Launcher', desc: 'Control visibility of the floating chat button' },
-                ].map(item => (
-                  <button
-                    key={item.label}
-                    onClick={() => setMessengerTab('appearance')}
-                    className="w-full flex items-center justify-between px-6 py-4 hover:bg-ink/[0.03] transition-colors text-left"
-                  >
-                    <div>
-                      <p className="text-[14px] font-medium text-ink">{item.label}</p>
-                      <p className="text-[13px] text-muted mt-0.5">{item.desc}</p>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-faint shrink-0" />
-                  </button>
-                ))}
-              </div>
-            </SectionCard>
-
-            {/* Install Status Cards */}
-            <div className="grid grid-cols-2 gap-4">
-              {[
-                { label: 'Install for web', sub: 'Not installed', icon: Globe, status: false },
-                { label: 'Install for mobile', sub: 'Not installed', icon: Smartphone, status: false },
-              ].map(card => (
-                <button
-                  key={card.label}
-                  onClick={() => setMessengerTab('install')}
-                  className="flex flex-col items-center gap-2 p-6 bg-surface border border-dashed border-line rounded-xl hover:border-ink/30 hover:bg-ink/[0.02] transition-colors"
-                >
-                  <card.icon className="w-7 h-7 text-muted" strokeWidth={1.75} />
-                  <div className="text-center">
-                    <p className="text-[14px] font-medium text-ink">{card.label}</p>
-                    <p className="text-[13px] text-faint">{card.sub}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Preview Panel */}
-          <div className="hidden xl:flex flex-col gap-4 items-center">
-            <div className="inline-flex p-1 bg-subtle rounded-full text-[13px]">
-              <button onClick={() => setPreviewMode('light')} className={`flex items-center gap-1.5 h-7 px-3 rounded-full font-medium transition-colors ${previewMode === 'light' ? 'bg-surface shadow-pill text-ink' : 'text-muted hover:text-ink'}`}>
-                <Sun className="w-3.5 h-3.5" /> Light
-              </button>
-              <button onClick={() => setPreviewMode('dark')} className={`flex items-center gap-1.5 h-7 px-3 rounded-full font-medium transition-colors ${previewMode === 'dark' ? 'bg-surface shadow-pill text-ink' : 'text-muted hover:text-ink'}`}>
-                <Moon className="w-3.5 h-3.5" /> Dark
-              </button>
-            </div>
-            <WidgetPreview
-              themeColor={localWidget.themeColor}
-              brandName={localWidget.brandName}
-              greeting={localWidget.greeting}
-              welcome={localWidget.welcome}
-              darkTheme={previewMode === 'dark'}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Appearance Tab */}
-      {messengerTab === 'appearance' && (
-        <div className="flex gap-8">
-          <div className="flex-1 flex flex-col gap-4 max-w-3xl min-w-0">
-
-            {/* Brand Info */}
-            <FormSection
-              title="Brand identity"
-              description="The name, greeting and welcome message customers see when they open the Messenger."
-              cols="2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
-            >
-              <div>
-                <label className="ic-label">Brand name</label>
-                <input
-                  value={localWidget.brandName}
-                  onChange={e => updateWidget({ brandName: e.target.value })}
-                  className="ic-input"
-                  placeholder="e.g. SplitAny Support"
-                />
-              </div>
-              <div>
-                <label className="ic-label">Availability greeting</label>
-                <input
-                  value={localWidget.greeting}
-                  onChange={e => updateWidget({ greeting: e.target.value })}
-                  className="ic-input"
-                  placeholder="e.g. We reply in a few minutes"
-                />
-              </div>
-              <div>
-                <label className="ic-label">Welcome message</label>
-                <textarea
-                  value={localWidget.welcome}
-                  onChange={e => updateWidget({ welcome: e.target.value })}
-                  rows={2}
-                  className="ic-textarea"
-                  placeholder="e.g. Ask us anything, or share your feedback."
-                />
-              </div>
-            </FormSection>
-
-            {/* Theme Color */}
-            <FormSection
-              title="Theme color"
-              icon={Palette}
-              description="Used for the Messenger header, buttons and launcher."
-              cols="2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
-            >
-              <div className="flex flex-wrap items-center gap-2.5">
-                {PRESET_COLORS.map(color => (
-                  <button
-                    key={color}
-                    onClick={() => updateWidget({ themeColor: color })}
-                    className={`w-8 h-8 rounded-full transition-shadow ring-offset-2 ring-offset-surface ${localWidget.themeColor === color ? 'ring-2 ring-ink' : 'hover:ring-2 hover:ring-line'}`}
-                    style={{ background: color }}
-                    title={color}
-                  />
-                ))}
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={localWidget.themeColor}
-                    onChange={e => updateWidget({ themeColor: e.target.value })}
-                    className="w-8 h-8 rounded-full border border-dashed border-line bg-surface cursor-pointer"
-                    title="Custom color"
-                  />
-                  <span className="text-[13px] text-muted">Custom</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 h-10 px-3 bg-subtle rounded-lg">
-                <div className="w-5 h-5 rounded-full border border-line" style={{ background: localWidget.themeColor }} />
-                <code className="text-[13px] font-mono text-ink/80">{localWidget.themeColor}</code>
-              </div>
-            </FormSection>
-
-            {/* Chat Bubble Colors */}
-            <FormSection
-              title="Chat bubble colors"
-              icon={MessageSquare}
-              description="Select the background styling for chat message bubbles in conversations."
-              cols="2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setChatColorTheme('sky-blue')}
-                  className={`p-4 rounded-xl border text-left transition-colors ${
-                    chatColorTheme === 'sky-blue'
-                      ? 'border-ink ring-1 ring-ink bg-surface'
-                      : 'border-line hover:border-ink/30'
-                  }`}
-                >
-                  <span className="text-[14px] font-medium text-ink block mb-1">Sky Blue (3rd Image Style)</span>
-                  <span className="text-[13px] text-muted block mb-3">Vibrant blue sender bubbles, soft grey recipient bubbles.</span>
-                  <div className="flex flex-col gap-1.5 p-2 bg-subtle rounded-lg">
-                    <div className="bg-slate-200 dark:bg-slate-700 w-2/3 px-1.5 py-1 rounded text-[11px] text-slate-600 dark:text-slate-300">Recipient bubble</div>
-                    <div className="bg-[#0284c7] w-2/3 px-1.5 py-1 rounded text-[11px] text-white self-end text-right">Sender bubble</div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setChatColorTheme('classic')}
-                  className={`p-4 rounded-xl border text-left transition-colors ${
-                    chatColorTheme === 'classic'
-                      ? 'border-ink ring-1 ring-ink bg-surface'
-                      : 'border-line hover:border-ink/30'
-                  }`}
-                >
-                  <span className="text-[14px] font-medium text-ink block mb-1">Classic Violet</span>
-                  <span className="text-[13px] text-muted block mb-3">Rich purple-indigo sender bubbles, bordered white recipient bubbles.</span>
-                  <div className="flex flex-col gap-1.5 p-2 bg-subtle rounded-lg">
-                    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 w-2/3 px-1.5 py-1 rounded text-[11px] text-slate-600 dark:text-slate-300">Recipient bubble</div>
-                    <div className="bg-gradient-to-tr from-violet-600 to-indigo-600 w-2/3 px-1.5 py-1 rounded text-[11px] text-white self-end text-right">Sender bubble</div>
-                  </div>
-                </button>
-              </div>
-            </FormSection>
-
-            {/* Messenger Preview Mode */}
-            <FormSection
-              title="Widget theme"
-              description="Choose how the Messenger looks to your customers."
-              cols="2xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"
-            >
-              <div className="flex items-center gap-3">
-                <ToggleSwitch checked={localWidget.darkTheme} onChange={v => updateWidget({ darkTheme: v })} />
-                <div>
-                  <p className="text-[14px] font-medium text-ink flex items-center gap-1.5"><Moon className="w-4 h-4 text-muted" /> Dark widget theme</p>
-                  <p className="ic-help">Show widget in dark mode to customers</p>
-                </div>
-              </div>
-            </FormSection>
-          </div>
-
-          {/* Live Preview */}
-          <div className="hidden xl:flex flex-col gap-3 items-center sticky top-6 self-start">
-            <p className="text-[13px] font-medium text-muted">Live preview</p>
-            <WidgetPreview
-              themeColor={localWidget.themeColor}
-              brandName={localWidget.brandName}
-              greeting={localWidget.greeting}
-              welcome={localWidget.welcome}
-              darkTheme={localWidget.darkTheme}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Install Tab */}
-      {messengerTab === 'install' && (
-        <div className="flex flex-col gap-4 max-w-3xl">
-          {/* Status Cards */}
-          <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: 'Install for web', icon: Globe, installed: false },
-              { label: 'Install for mobile', icon: Smartphone, installed: false },
-            ].map(card => (
-              <div key={card.label} className={`flex flex-col items-center gap-2.5 p-6 rounded-xl border ${card.installed ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10' : 'border-dashed border-line bg-surface'}`}>
-                <card.icon className={`w-8 h-8 ${card.installed ? 'text-emerald-600 dark:text-emerald-300' : 'text-muted'}`} strokeWidth={1.75} />
-                <div className="text-center">
-                  <p className="text-[14px] font-medium text-ink">{card.label}</p>
-                  <p className={`text-[13px] ${card.installed ? 'text-emerald-700 dark:text-emerald-300' : 'text-faint'}`}>{card.installed ? 'Installed' : 'Not installed'}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <SectionCard>
-            <div className="px-8 pt-7 pb-5 border-b border-line">
-              <p className="ic-section-title">Install the messenger on your site or app</p>
-              <p className="text-[14px] text-muted mt-1">The messenger helps you support your customers and learn more about them.</p>
-            </div>
-
-            <div className="p-8 flex flex-col gap-6">
-              <div>
-                <p className="ic-label mb-3">1. Choose how to install the messenger</p>
-                <div className="flex flex-wrap gap-2">
-                  {INSTALL_PLATFORMS.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setInstallPlatform(p.id)}
-                      className={`ic-chip ${
-                        installPlatform === p.id
-                          ? 'border-ink ring-1 ring-ink'
-                          : 'text-ink/80'
-                      }`}
-                    >
-                      <span>{p.icon}</span> {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="ic-label mb-3">2. Configure your code snippet</p>
-                <div className="relative">
-                  <pre className="bg-subtle text-ink text-[13px] font-mono p-4 pr-24 rounded-lg overflow-x-auto leading-relaxed border border-line">
-                    {getInstallSnippet()}
-                  </pre>
-                  <button
-                    onClick={() => copyToClipboard(getInstallSnippet(), 'snippet')}
-                    className="ic-btn-outline ic-btn-sm absolute top-3 right-3"
-                  >
-                    {copied === 'snippet' ? <><Check className="w-3.5 h-3.5 text-emerald-600" /> Copied!</> : <><Copy className="w-3.5 h-3.5" /> Copy</>}
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-3.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
-                <p className="text-[13px] text-amber-800 dark:text-amber-200">
-                  Replace <code className="font-mono bg-amber-100 dark:bg-amber-500/20 px-1 py-0.5 rounded">YOUR_API_KEY</code> with your actual workspace API key before deploying to production.
-                </p>
-              </div>
-            </div>
-          </SectionCard>
-        </div>
-      )}
-
-      {/* Security Tab */}
-      {messengerTab === 'security' && (
-        <div className="max-w-4xl">
-          <FormSection
-            title="Identity verification"
-            icon={Shield}
-            description="Identity verification ensures that conversations are tied to real, authenticated users in your system — preventing impersonation."
-          >
-            <div>
-              <label className="ic-label">Your secret key</label>
-              <div className="flex items-stretch">
-                <code className="flex-1 min-w-0 h-10 flex items-center text-[13px] font-mono text-muted bg-subtle border border-line rounded-l-lg px-3 truncate">
-                  sk_live_••••••••••••••••••••••••••••••••
-                </code>
-                <button
-                  onClick={() => copyToClipboard('sk_live_demo_key', 'secret')}
-                  className="h-10 px-3.5 border border-l-0 border-line rounded-r-lg bg-surface hover:bg-subtle text-[13px] font-medium text-ink transition-colors flex items-center gap-1.5"
-                >
-                  {copied === 'secret' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} Reveal
-                </button>
-              </div>
-            </div>
-            <div className="flex items-start gap-3 pt-1">
-              <ToggleSwitch checked={false} onChange={() => {}} />
-              <div>
-                <p className="text-[14px] font-medium text-ink">Enforce identity verification</p>
-                <p className="ic-help">Require HMAC signatures for all new conversations</p>
-              </div>
-            </div>
-          </FormSection>
-        </div>
-      )}
     </div>
   );
 
@@ -1292,7 +807,7 @@ function App() {
     notifications: 'Notifications & preferences',
     teammates: 'Teammates',
     officeHours: 'Office hours',
-    messenger: 'Messenger',
+    messenger: 'Messenger Live Chat',
     integrations: 'Integrations',
     macros: 'Macros',
   };
@@ -1313,12 +828,12 @@ function App() {
               <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
               <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
-              <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => setSection('messenger')} />
+              <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
               <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => setSection('home')} />
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Channels" open={openGroups.channels} onToggle={() => toggleGroup('channels')}>
-              <SettingsNavItem icon={MessageSquare} label="Messenger" active={section === 'messenger'} onClick={() => setSection('messenger')} />
+              <SettingsNavItem icon={MessageSquare} label="Messenger Live Chat" active={section === 'messenger'} onClick={() => { setMessengerTab('overview'); setSection('messenger'); }} />
               <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => setSection('profile')} />
               <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => setSection('profile')} />
             </SettingsNavGroup>
@@ -1341,6 +856,7 @@ function App() {
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
         {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
+        {section === 'messenger' && <MessengerSettings onBack={() => setSection('home')} tab={messengerTab} onTabChange={setMessengerTab} />}
         {section === 'profile' && <ProfileSettings onBack={() => setSection('home')} onOpenNotifications={() => setSection('notifications')} />}
         {!SELF_CONTAINED.includes(section) && (<>
         <div className="ic-panel-header">
@@ -1355,15 +871,6 @@ function App() {
           )}
           <h2 className="ic-title flex-1 min-w-0">{PAGE_TITLES[section]}</h2>
 
-          {section === 'messenger' && (
-            <button
-              onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }}
-              className="ic-btn-primary"
-            >
-              {saved ? <><CheckCircle2 className="w-4 h-4" /> Saved!</> : <><Check className="w-4 h-4" /> Save and set live</>}
-            </button>
-          )}
-
           {(section === 'notifications' || section === 'workspace') && agentSettings && (
             <Button type="submit" form="settings-profile-form" loading={loading}>
               Save
@@ -1371,27 +878,11 @@ function App() {
           )}
         </div>
 
-        {/* Messenger sub-tabs */}
-        {section === 'messenger' && (
-          <div className="ic-tabs pt-4 px-8 shrink-0">
-            {(['widget', 'appearance', 'install', 'security'] as MessengerTab[]).map(tab => (
-              <button
-                key={tab}
-                onClick={() => setMessengerTab(tab)}
-                className={`ic-tab capitalize ${messengerTab === tab ? 'ic-tab-active' : ''}`}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Content Area */}
         <div className="flex-1 min-h-0 overflow-y-auto p-8">
           {/* Called as functions on purpose: rendering these inner sections as <Section /> would
               remount them on every keystroke (inputs lose focus, color pickers close). */}
           {section === 'home' && HomeSection()}
-          {section === 'messenger' && MessengerSection()}
           {(section === 'notifications' || section === 'workspace') && ProfileSection()}
           {section === 'macros' && MacrosSection()}
         </div>

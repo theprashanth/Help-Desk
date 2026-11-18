@@ -5,6 +5,7 @@ import DemoLandingPage from './pages/demo/DemoLandingPage';
 import Login from './pages/agent/Login';
 import Inbox from './pages/agent/Inbox';
 import MessengerWidget from './components/customer/MessengerWidget';
+import MessengerFrame from './pages/messenger/MessengerFrame';
 import { useStore } from './store/useStore';
 
 export const App: React.FC = () => {
@@ -16,6 +17,9 @@ export const App: React.FC = () => {
         <Routes>
           {/* Mock SaaS Client homepage with integrated support widget */}
           <Route path="/" element={<DemoLandingPage />} />
+
+          {/* Embeddable Messenger: iframe for websites (messenger.js) or WebView for mobile apps */}
+          <Route path="/messenger/:appId" element={<MessengerFrame />} />
 
           {/* Standalone Messenger Testing screen */}
           <Route 

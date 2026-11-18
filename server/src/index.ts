@@ -7,7 +7,9 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
-import { SocketService, AGENTS_ROOM } from './services/socket';
+import { SocketService, AGENTS_ROOM, customerRoom } from './services/socket';
+
+const customerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 import { verifyAgentToken } from './middleware/auth';
 import { uploadDir } from './middleware/upload';
 
@@ -172,7 +174,7 @@ async function startServer() {
 
     // Join conversation room
     socket.on('join', (room: string) => {
-      if (room === AGENTS_ROOM) return; // only joinable via a verified agent:login
+      if (typeof room !== 'string' || room === AGENTS_ROOM || room.startsWith('customer:')) return; // protected rooms
       socket.join(room);
       console.log(`[Socket.IO] Socket ${socket.id} joined room ${room}`);
     });
@@ -196,9 +198,31 @@ async function startServer() {
     });
 
     // Handle Typing indicator
+    // Messenger: a customer's widget joins its private room with its (unguessable) User id
+    socket.on('messenger:join', (payload: { customerId?: string }) => {
+      const id = payload?.customerId;
+      if (typeof id === 'string' && id.length > 0 && id.length <= 100) socket.join(customerRoom(id));
+    });
+
+    // Customer is typing (from the Messenger) -> agents; auto-clears after 4s of silence
+    socket.on('customer:typing', async (payload: { conversationId?: string; guestName?: string }) => {
+      if (!payload?.conversationId) return;
+      const conv = await RepositoryFactory.getConversationRepository().findById(payload.conversationId).catch(() => null);
+      if (!conv || !socket.rooms.has(customerRoom(conv.customer.id))) return; // only the conversation's own customer
+      const event = { conversationId: conv.id, senderType: 'customer', senderName: conv.customer.name, isTyping: true };
+      SocketService.emitToRoom(AGENTS_ROOM, 'message:typing', event);
+      clearTimeout(customerTypingTimers.get(conv.id));
+      customerTypingTimers.set(conv.id, setTimeout(() => SocketService.emitToRoom(AGENTS_ROOM, 'message:typing', { ...event, isTyping: false }), 4000));
+    });
+
     socket.on('typing', (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => {
+      if (!socket.rooms.has(AGENTS_ROOM)) return; // only verified agents send this event
       // Broadcast typing event to others in the same room
       socket.to(payload.conversationId).emit('message:typing', payload);
+      // ...and tell the customer's Messenger ("Rishi is typing…")
+      SocketService.emitToConversationCustomer(payload.conversationId, 'agent:typing', {
+        conversationId: payload.conversationId, agentName: payload.senderName, isTyping: payload.isTyping,
+      });
       console.log(`[Socket.IO] Typing state in ${payload.conversationId}: ${payload.senderName} (${payload.senderType}) typing=${payload.isTyping}`);
     });
 

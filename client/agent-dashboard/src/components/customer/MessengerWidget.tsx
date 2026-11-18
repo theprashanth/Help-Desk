@@ -1,10 +1,45 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
-import { Message, Conversation, Attachment, CustomerSession } from '../../../../../shared/src/types';
+import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
 import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const BACKEND_URL = 'http://localhost:3000';
+
+/** Where the Messenger runs: the demo page in this app, inside the iframe on a customer's site, or a mobile WebView. */
+export type MessengerMode = 'demo' | 'embedded' | 'fullscreen';
+
+/** Who the visitor is on the host site/app (set by the host via ChaiSamosaSettings / boot). */
+type Identity = { userId?: string; name?: string; email?: string; phone?: string; userHash?: string };
+
+/** localStorage, namespaced per app id when embedded so different sites/apps never share visitors. */
+function makeStore(prefix: string) {
+  return {
+    get: (k: string) => { try { return localStorage.getItem(prefix + k); } catch { return null; } },
+    set: (k: string, v: string) => { try { localStorage.setItem(prefix + k, v); } catch { /* storage blocked */ } },
+    remove: (k: string) => { try { localStorage.removeItem(prefix + k); } catch { /* ignore */ } },
+  };
+}
+
+/** Identity handed to the Messenger: demo page uses window.HelpDesk; mobile WebViews use the URL #fragment. */
+function initialIdentity(mode: MessengerMode): Identity {
+  if (mode === 'fullscreen') {
+    const h = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    return { userId: h.get('user_id') || undefined, name: h.get('name') || undefined, email: h.get('email') || undefined, phone: h.get('phone') || undefined, userHash: h.get('user_hash') || undefined };
+  }
+  if (mode === 'demo') {
+    const cfg = (window as any).HelpDesk || {};
+    return { userId: cfg.userId ? String(cfg.userId) : undefined, name: cfg.userName, email: cfg.userEmail, phone: cfg.userPhone, userHash: cfg.userHash };
+  }
+  return {}; // embedded: arrives from the host page via postMessage
+}
+
+/** Map the host's settings object ({ user_id, name, email, phone, user_hash }) to an Identity. */
+function identityFromSettings(st: any): Identity {
+  if (!st || typeof st !== 'object') return {};
+  const str = (v: any) => (v === undefined || v === null || v === '' ? undefined : String(v).slice(0, 300));
+  return { userId: str(st.user_id), name: str(st.name), email: str(st.email), phone: str(st.phone), userHash: str(st.user_hash) };
+}
 
 /** Read widget settings from localStorage, with fallback defaults */
 function getStoredSettings() {
@@ -32,6 +67,7 @@ type Availability = {
   replyTime: string | null; isOpenNow: boolean; nextOpenAt?: string;
   name?: string; showAttribution?: boolean; attributionText?: string;
   onlineAgents?: { id: string; name: string; avatar?: string }[];
+  messenger?: Partial<MessengerAppearance>;
 };
 
 /** "in 25 minutes", "at 9:00 AM", "tomorrow at 9:00 AM", "on Monday at 9:00 AM" */
@@ -74,10 +110,30 @@ const formatMarkdown = (text: string) => {
   );
 };
 
-export const MessengerWidget: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(false);
+export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }> = ({ appId = 'default_workspace', mode = 'demo' }) => {
+  const embedded = mode === 'embedded';
+  const fullscreen = mode === 'fullscreen';
+  const store = useMemo(() => makeStore(mode === 'demo' ? '' : `cs_${appId}_`), [mode, appId]);
+  const [identity, setIdentity] = useState<Identity>(() => initialIdentity(mode));
+  const [booted, setBooted] = useState(mode !== 'embedded'); // embedded waits for the host page
+  const [blocked, setBlocked] = useState(false);             // not allowed on this domain
+  const [resetNonce, setResetNonce] = useState(0);           // bumps on shutdown (logout)
+  const parentOriginRef = useRef<string | null>(null);
+  const [isOpen, setIsOpen] = useState(fullscreen);
   const [activeTab, setActiveTab] = useState<'home' | 'chat'>('home');
   const [guestId, setGuestId] = useState('');
+  // Every request names the app (workspace) and, once known, this visitor's User id — the server only
+  // returns a conversation to the customer it belongs to.
+  const guestIdRef = useRef('');
+  useEffect(() => { guestIdRef.current = guestId; }, [guestId]);
+  const api = useCallback((path: string, init: RequestInit = {}) => fetch(`${BACKEND_URL}${path}`, {
+    ...init,
+    headers: {
+      ...((init.headers as Record<string, string>) || {}),
+      'X-Workspace-Id': appId,
+      ...(guestIdRef.current ? { 'X-Customer-Id': guestIdRef.current } : {}),
+    },
+  }), [appId]);
   const [guestName, setGuestName] = useState('');
   const [localConversations, setLocalConversations] = useState<Conversation[]>([]);
   const [activeConv, setActiveConv] = useState<Conversation | null>(null);
@@ -118,7 +174,7 @@ export const MessengerWidget: React.FC = () => {
     };
   }, []);
 
-  const themeColor = widgetSettings.themeColor || '#8B5CF6';
+
 
   const socket = useSocket();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,15 +240,12 @@ export const MessengerWidget: React.FC = () => {
 
   // Initialize Guest/User
   useEffect(() => {
-    const helpDeskConfig = (window as any).HelpDesk || {};
-    
+ 
     // User id: a UUID v4 (e.g. 47f1664a-c15e-42fc-b74e-5046559f92db) for everyone, guest or logged in.
     // A logged-in user's own id (window.HelpDesk.userId) is sent separately as externalUserId, and the
     // server answers with the canonical User id for that person (same id on every device).
-    let id = localStorage.getItem('customer_guest_id') || '';
-    if (helpDeskConfig.userId) {
-      localStorage.setItem('customer_external_id', String(helpDeskConfig.userId));
-    }
+    if (!booted) return;
+    let id = store.get('customer_guest_id') || '';
     if (!id) {
       id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
         ? crypto.randomUUID()
@@ -201,34 +254,31 @@ export const MessengerWidget: React.FC = () => {
             const v = c === 'x' ? r : (r & 0x3) | 0x8;
             return v.toString(16);
           });
-      localStorage.setItem('customer_guest_id', id);
+      store.set('customer_guest_id', id);
     }
+    guestIdRef.current = id;
     setGuestId(id);
 
     // Read or set display name
-    let name = localStorage.getItem('customer_guest_name') || '';
-    if (helpDeskConfig.userName) {
-      name = helpDeskConfig.userName;
-      localStorage.setItem('customer_guest_name', name);
+    let name = store.get('customer_guest_name') || '';
+    if (identity.name) {
+      name = identity.name;
+      store.set('customer_guest_name', name);
     } else if (!name) {
       name = `Guest #${id.slice(-4)}`;
-      localStorage.setItem('customer_guest_name', name);
+      store.set('customer_guest_name', name);
     }
     setGuestName(name);
 
-    // Cache email and phone if provided by parent host app config
-    if (helpDeskConfig.userEmail) {
-      localStorage.setItem('customer_guest_email', helpDeskConfig.userEmail);
-    }
-    if (helpDeskConfig.userPhone) {
-      localStorage.setItem('customer_guest_phone', helpDeskConfig.userPhone);
-    }
+    // Cache email and phone if provided by the host site/app
+    if (identity.email) store.set('customer_guest_email', identity.email);
+    if (identity.phone) store.set('customer_guest_phone', identity.phone);
 
     // Fetch geo-IP data once (cached in localStorage for 24h)
     const geoKey = 'customer_geo_info';
     const geoExpiry = 'customer_geo_expiry';
-    const cachedGeo = localStorage.getItem(geoKey);
-    const cachedExpiry = localStorage.getItem(geoExpiry);
+    const cachedGeo = store.get(geoKey);
+    const cachedExpiry = store.get(geoExpiry);
     const now = Date.now();
 
     if (cachedGeo && cachedExpiry && now < parseInt(cachedExpiry)) {
@@ -245,28 +295,29 @@ export const MessengerWidget: React.FC = () => {
             timezone: data.timezone || undefined,
           };
           setGeoInfo(geo);
-          localStorage.setItem(geoKey, JSON.stringify(geo));
+          store.set(geoKey, JSON.stringify(geo));
           // Cache for 24 hours
-          localStorage.setItem(geoExpiry, String(now + 24 * 60 * 60 * 1000));
+          store.set(geoExpiry, String(now + 24 * 60 * 60 * 1000));
         })
         .catch(() => {
           // Silently fall back — geo will be null
         });
     }
-  }, []);
+  }, [booted, store, identity, resetNonce]);
 
   // Office hours + reply time: on mount, whenever the Messenger is opened, and every 5 min while open
   useEffect(() => {
     let cancelled = false;
     const load = () => {
       // Public workspace info: customer-facing name, attribution, reply time, office hours, who's online
-      fetch(`${BACKEND_URL}/api/workspace/public`)
+      api(`/api/workspace/public`)
         .then(r => (r.ok ? r.json() : null))
         .then(data => {
           if (!cancelled && data) setAvailability({
             replyTime: data.replyTime, isOpenNow: data.isOpenNow !== false, nextOpenAt: data.nextOpenAt,
             name: data.name, showAttribution: data.showAttribution !== false, attributionText: data.attributionText,
             onlineAgents: Array.isArray(data.onlineAgents) ? data.onlineAgents : [],
+            messenger: data.messenger || undefined,
           });
         })
         .catch(() => {});
@@ -274,12 +325,117 @@ export const MessengerWidget: React.FC = () => {
     load();
     const interval = isOpen ? setInterval(load, 5 * 60 * 1000) : undefined;
     return () => { cancelled = true; if (interval) clearInterval(interval); };
-  }, [isOpen]);
+  }, [isOpen, api]);
+
+  // Appearance from Settings > Messenger Live Chat (server); local dashboard settings only as a fallback
+  const look = {
+    themeColor: availability?.messenger?.themeColor || widgetSettings.themeColor || '#8B5CF6',
+    brandName: availability?.messenger?.brandName || availability?.name || widgetSettings.brandName,
+    greeting: availability?.messenger?.greeting || widgetSettings.greeting,
+    welcome: availability?.messenger?.welcome || widgetSettings.welcome,
+    launcherPosition: (availability?.messenger?.launcherPosition || 'right') as 'left' | 'right',
+    showLauncher: fullscreen ? false : availability?.messenger?.showLauncher !== false,
+  };
+  const themeColor = look.themeColor;
+
+  // ── Host page <-> Messenger (embedded in an iframe by messenger.js) ─────
+  const postToHost = useCallback((msg: any) => {
+    if (!embedded || window.parent === window) return;
+    window.parent.postMessage({ source: 'chai-samosa', ...msg }, parentOriginRef.current || '*');
+  }, [embedded]);
+
+  const resetVisitor = useCallback(() => {
+    // ChaiSamosa('shutdown'): forget this visitor (e.g. on logout) and start fresh as a new lead
+    const id = store.get('customer_guest_id');
+    if (id) store.remove(`guest_conv_ids_${id}`);
+    ['customer_guest_id', 'customer_guest_name', 'customer_guest_email', 'customer_guest_phone'].forEach(k => store.remove(k));
+    guestIdRef.current = '';
+    setGuestId('');
+    setLocalConversations([]);
+    setActiveConv(null);
+    setChatMessages([]);
+    setIsOpen(false);
+    setResetNonce(n => n + 1);
+  }, [store]);
+
+  useEffect(() => {
+    if (!embedded) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window.parent || !e.data || e.data.source !== 'chai-samosa-host') return;
+      const { type, settings, page } = e.data;
+      if (type === 'boot') {
+        parentOriginRef.current = e.origin; // the browser guarantees this is the real host site
+        hostPageRef.current = { host: new URL(e.origin).host, url: typeof page?.url === 'string' ? page.url : e.origin };
+        setIdentity(identityFromSettings(settings));
+        setBooted(true);
+      } else if (type === 'update') {
+        setIdentity(prev => ({ ...prev, ...identityFromSettings(settings) }));
+      } else if (type === 'shutdown') {
+        setIdentity({});
+        resetVisitor();
+      } else if (type === 'show') {
+        setIsOpen(true);
+      } else if (type === 'hide') {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('message', onMessage);
+    window.parent.postMessage({ source: 'chai-samosa', type: 'ready' }, '*'); // ask the host for boot settings
+    return () => window.removeEventListener('message', onMessage);
+  }, [embedded, resetVisitor]);
+
+  // Tell the host how big the iframe must be (closed = just the launcher, open = the panel)
+  useEffect(() => {
+    if (booted) postToHost({ type: 'resize', open: isOpen, position: look.launcherPosition, showLauncher: look.showLauncher, hidden: blocked });
+  }, [booted, isOpen, look.launcherPosition, look.showLauncher, blocked, postToHost]);
+
+  // Boot check: is the Messenger allowed on this site, and does the logged-in identity verify?
+  const hostPageRef = useRef<{ host: string; url: string } | null>(null);
+  useEffect(() => {
+    if (!booted) return;
+    const params = new URLSearchParams(window.location.search);
+    const isMobile = fullscreen;
+    const host = isMobile
+      ? `${params.get('app') || 'mobile app'}`
+      : hostPageRef.current?.host || window.location.host;
+    api('/api/messenger/ping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        host,
+        url: isMobile ? undefined : (hostPageRef.current?.url || window.location.href),
+        kind: isMobile ? 'mobile' : 'website',
+        platform: isMobile ? (params.get('platform') || 'mobile') : 'web',
+        userId: identity.userId,
+        userHash: identity.userHash,
+      }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(res => {
+        if (!res) return;
+        if (res.allowed === false) { setBlocked(true); return; }
+        if (res.identity === 'rejected') {
+          console.warn('[Chai Samosa] Identity verification failed (missing or wrong user_hash). Continuing as an anonymous visitor.');
+          setIdentity({});
+        }
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [booted, identity.userId, identity.userHash]);
+
+  // Private real-time channel for this visitor (their messages, typing, read receipts)
+  useEffect(() => {
+    if (!socket || !guestId) return;
+    const join = () => socket.emit('messenger:join', { customerId: guestId });
+    join();
+    socket.on('connect', join);
+    return () => { socket.off('connect', join); };
+  }, [socket, guestId]);
 
   const isAway = availability ? !availability.isOpenNow : false;
   const headerSubtitle = isAway
     ? `We're away right now — back ${describeBack(availability?.nextOpenAt)}`
-    : (availability?.replyTime && REPLY_TIME_TEXT[availability.replyTime]) || widgetSettings.greeting;
+    : (availability?.replyTime && REPLY_TIME_TEXT[availability.replyTime]) || look.greeting;
 
   // Read receipts: when the customer is looking at a conversation, mark the team's replies as seen
   // (the agent dashboard then shows "Seen" instead of "Not seen")
@@ -291,7 +447,7 @@ export const MessengerWidget: React.FC = () => {
       if (!hasUnseen) return;
       // optimistic local update so we don't send this again for the same messages
       setChatMessages(prev => prev.map(m => (m.sender.type === 'agent' && !m.isInternalNote ? { ...m, seen: true } : m)));
-      fetch(`${BACKEND_URL}/api/messages/seen/${activeConv.id}`, {
+      api(`/api/messages/seen/${activeConv.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: 'customer' })
@@ -313,14 +469,14 @@ export const MessengerWidget: React.FC = () => {
     const fetchGuestConvs = async () => {
       try {
         // IDs are stored in localStorage when tickets are created (guest has no auth token)
-        const raw = localStorage.getItem(`guest_conv_ids_${guestId}`);
+        const raw = store.get(`guest_conv_ids_${guestId}`);
         const ids: string[] = raw ? JSON.parse(raw) : [];
         if (ids.length === 0) return;
 
         // Fetch each ticket individually via the open endpoint
         const results = await Promise.all(
           ids.map(id =>
-            fetch(`${BACKEND_URL}/api/tickets/${id}`)
+            api(`/api/tickets/${id}`)
               .then(r => (r.ok ? r.json() : null))
               .catch(() => null)
           )
@@ -374,7 +530,7 @@ export const MessengerWidget: React.FC = () => {
 
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/messages/${activeConv.id}`);
+        const res = await api(`/api/messages/${activeConv.id}`);
         if (res.ok) {
           const data: Message[] = await res.json();
           setChatMessages(data.filter(m => !m.isInternalNote && m.sender?.type !== 'system'));
@@ -438,15 +594,16 @@ export const MessengerWidget: React.FC = () => {
     try {
       // ── Lazy ticket creation: first message creates the conversation ──────
       if (isPendingNewConv) {
-        const res = await fetch(`${BACKEND_URL}/api/tickets`, {
+        const res = await api(`/api/tickets`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             customerId: guestId,
-            externalUserId: localStorage.getItem('customer_external_id') || undefined,
+            externalUserId: identity.userId,
+            userHash: identity.userHash,
             name: guestName,
-            email: localStorage.getItem('customer_guest_email') || undefined,
-            phone: localStorage.getItem('customer_guest_phone') || undefined,
+            email: store.get('customer_guest_email') || undefined,
+            phone: store.get('customer_guest_phone') || undefined,
             initialMessage: content,
             initialAttachments: attachments,
             messageMetadata: getDeviceMetadata(),
@@ -471,25 +628,26 @@ export const MessengerWidget: React.FC = () => {
           // carrying over the list of this browser's conversations.
           const userId = conv.customer?.id || guestId;
           if (userId !== guestId) {
-            const previous: string[] = JSON.parse(localStorage.getItem(`guest_conv_ids_${guestId}`) || '[]');
-            const merged: string[] = JSON.parse(localStorage.getItem(`guest_conv_ids_${userId}`) || '[]');
-            localStorage.setItem(`guest_conv_ids_${userId}`, JSON.stringify([...new Set([...merged, ...previous])]));
-            localStorage.setItem('customer_guest_id', userId);
+            const previous: string[] = JSON.parse(store.get(`guest_conv_ids_${guestId}`) || '[]');
+            const merged: string[] = JSON.parse(store.get(`guest_conv_ids_${userId}`) || '[]');
+            store.set(`guest_conv_ids_${userId}`, JSON.stringify([...new Set([...merged, ...previous])]));
+            store.set('customer_guest_id', userId);
+            guestIdRef.current = userId;
             setGuestId(userId);
           }
 
           // Persist conv ID so it survives page refresh (guest has no auth)
           const storageKey = `guest_conv_ids_${userId}`;
-          const existing: string[] = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          const existing: string[] = JSON.parse(store.get(storageKey) || '[]');
           if (!existing.includes(conv.id)) {
-            localStorage.setItem(storageKey, JSON.stringify([conv.id, ...existing]));
+            store.set(storageKey, JSON.stringify([conv.id, ...existing]));
           }
 
           setLocalConversations(prev => [conv, ...prev]);
           setActiveConv(conv);
           setIsPendingNewConv(false);
           // Fetch the messages that now include the initial message
-          const msgRes = await fetch(`${BACKEND_URL}/api/messages/${conv.id}`);
+          const msgRes = await api(`/api/messages/${conv.id}`);
           if (msgRes.ok) {
             setChatMessages(await msgRes.json());
           }
@@ -502,7 +660,7 @@ export const MessengerWidget: React.FC = () => {
       // ── Normal send to existing conversation ─────────────────────────────
       if (!activeConv) return;
 
-      const res = await fetch(`${BACKEND_URL}/api/messages`, {
+      const res = await api(`/api/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -546,7 +704,7 @@ export const MessengerWidget: React.FC = () => {
         const formData = new FormData();
         formData.append('file', file, file.name || `screenshot-${Date.now()}.png`);
         if (activeConv) formData.append('conversationId', activeConv.id);
-        const res = await fetch(`${BACKEND_URL}/api/attachments/upload`, { method: 'POST', body: formData });
+        const res = await api(`/api/attachments/upload`, { method: 'POST', body: formData });
         if (res.ok) {
           const attachment: Attachment = await res.json();
           setPendingAttachments(prev => [...prev, attachment]);
@@ -588,8 +746,22 @@ export const MessengerWidget: React.FC = () => {
       ? 'bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100'
       : 'bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-slate-800 dark:text-slate-200';
 
+  // Not allowed on this domain (Settings > Messenger > Security), or still waiting for the host page
+  if (blocked || !booted) return null;
+  const onLeft = look.launcherPosition === 'left';
+  const rootClass = fullscreen
+    ? 'fixed inset-0 flex flex-col'
+    : embedded
+      ? `fixed bottom-3 ${onLeft ? 'left-3 items-start' : 'right-3 items-end'} z-50 flex flex-col`
+      : `fixed bottom-6 ${onLeft ? 'left-6 items-start' : 'right-6 items-end'} z-50 flex flex-col`;
+  const panelSize = fullscreen
+    ? 'w-full h-full rounded-none border-0 shadow-none'
+    : embedded
+      ? 'w-[calc(100vw-24px)] max-w-96 h-[calc(100vh-96px)] max-h-[600px] rounded-3xl shadow-xl border mb-3'
+      : 'w-96 h-[550px] rounded-3xl shadow-2xl border mb-4';
+
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <div className={rootClass}>
       {/* Messenger Screen Container */}
       <AnimatePresence>
         {isOpen && (
@@ -598,19 +770,22 @@ export const MessengerWidget: React.FC = () => {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 30, scale: 0.9 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="w-96 h-[550px] bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl flex flex-col overflow-hidden mb-4"
+            className={`${panelSize} bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 flex flex-col overflow-hidden`}
           >
             {/* Header — uses themeColor */}
             <div
               className="p-6 text-white flex flex-col gap-4 relative"
               style={{ background: `linear-gradient(135deg, ${themeColor}ee, ${themeColor})` }}
             >
-              <button
-                onClick={() => setIsOpen(false)}
-                className="absolute top-4 right-4 text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              {!fullscreen && (
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="absolute top-4 right-4 text-white/70 hover:text-white hover:bg-white/10 p-1.5 rounded-full transition-colors"
+                  title="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
 
               <div className="flex items-center gap-3">
                 {activeTab === 'chat' && (
@@ -622,7 +797,7 @@ export const MessengerWidget: React.FC = () => {
                   </button>
                 )}
                 <div>
-                  <h3 className="font-bold text-lg tracking-wide">{availability?.name || widgetSettings.brandName}</h3>
+                  <h3 className="font-bold text-lg tracking-wide">{look.brandName}</h3>
                   <p className="text-xs text-white/80 flex items-center gap-1.5 mt-0.5">
                     <span className={`w-2 h-2 rounded-full ${isAway ? 'bg-slate-300' : 'bg-emerald-400 animate-pulse'}`} />
                     {headerSubtitle}
@@ -668,7 +843,7 @@ export const MessengerWidget: React.FC = () => {
                     </div>
                     <h4 className="font-bold text-slate-800 dark:text-slate-100 text-lg">Hello there!</h4>
                     <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[280px]">
-                      {widgetSettings.welcome}
+                      {look.welcome}
                     </p>
                   </div>
 
@@ -907,7 +1082,8 @@ export const MessengerWidget: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Floating launcher bubble — uses themeColor */}
+      {/* Floating launcher bubble — uses themeColor (hidden in mobile apps or when turned off) */}
+      {look.showLauncher && (
       <motion.button
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -917,6 +1093,7 @@ export const MessengerWidget: React.FC = () => {
       >
         {isOpen ? <X className="w-6 h-6 animate-fade-in" /> : <MessageSquare className="w-6 h-6 animate-fade-in" />}
       </motion.button>
+      )}
     </div>
   );
 };

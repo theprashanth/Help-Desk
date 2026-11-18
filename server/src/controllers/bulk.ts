@@ -123,7 +123,7 @@ export async function bulkUpdate(req: AuthenticatedRequest, res: Response) {
         if (action === 'delete') {
           await msgRepo.deleteByConversationId(id);
           await convRepo.delete(id);
-          SocketService.broadcastConversationDeleted(id);
+          SocketService.broadcastConversationDeleted(id, before.customer.id);
           done.push(id);
           continue;
         }

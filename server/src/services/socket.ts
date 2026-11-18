@@ -1,9 +1,13 @@
 import { Server } from 'socket.io';
 import { Conversation, Message } from '../../../shared/src/types';
 import { toCustomerView, isCustomerVisible } from './conversationView';
+import { RepositoryFactory } from '../repositories/factory';
 
 /** Room joined only by sockets that presented a valid agent token. */
 export const AGENTS_ROOM = 'agents';
+
+/** Private room for one customer's Messenger (joined with their unguessable UUID User id). */
+export const customerRoom = (customerId: string) => `customer:${customerId}`;
 
 /** Internal notes and conversation events must never reach customer sockets. */
 const isAgentOnly = (m: Message) => !!m.isInternalNote || m.sender?.type === 'system';
@@ -36,28 +40,31 @@ export class SocketService {
     }
   }
 
-  static broadcastMessageNew(message: Message) {
-    if (isAgentOnly(message)) {
-      this.emitToRoom(AGENTS_ROOM, 'message:new', message);
-      return;
+  /** Send to the conversation's customer only (their private room), if they may see it. */
+  static async emitToConversationCustomer(conversationId: string, event: string, data: any) {
+    if (!this.io) return;
+    try {
+      const conv = await RepositoryFactory.getConversationRepository().findById(conversationId);
+      if (conv && isCustomerVisible(conv)) this.io.to(customerRoom(conv.customer.id)).emit(event, data);
+    } catch (err) {
+      console.error('[SocketService] customer emit failed:', err);
     }
-    // Message room can be the conversationId
-    this.emitToRoom(message.conversationId, 'message:new', message);
-    this.emitGlobal('message:new', message);
+  }
+
+  // Messages: agents get everything; a customer only gets public messages of their own conversations
+  static broadcastMessageNew(message: Message) {
+    this.emitToRoom(AGENTS_ROOM, 'message:new', message);
+    if (!isAgentOnly(message)) this.emitToConversationCustomer(message.conversationId, 'message:new', message);
   }
 
   static broadcastMessageUpdate(message: Message) {
-    if (isAgentOnly(message)) {
-      this.emitToRoom(AGENTS_ROOM, 'message:update', message);
-      return;
-    }
-    this.emitToRoom(message.conversationId, 'message:update', message);
-    this.emitGlobal('message:update', message);
+    this.emitToRoom(AGENTS_ROOM, 'message:update', message);
+    if (!isAgentOnly(message)) this.emitToConversationCustomer(message.conversationId, 'message:update', message);
   }
 
   static broadcastMessageDeleted(messageId: string, conversationId: string) {
-    this.emitToRoom(conversationId, 'message:deleted', { messageId, conversationId });
-    this.emitGlobal('message:deleted', { messageId, conversationId });
+    this.emitToRoom(AGENTS_ROOM, 'message:deleted', { messageId, conversationId });
+    this.emitToConversationCustomer(conversationId, 'message:deleted', { messageId, conversationId });
   }
 
   /**
@@ -68,7 +75,7 @@ export class SocketService {
     if (!this.io) return;
     this.io.to(AGENTS_ROOM).emit(event, conv);
     if (isCustomerVisible(conv)) {
-      this.io.except(AGENTS_ROOM).emit(event, toCustomerView(conv));
+      this.io.to(customerRoom(conv.customer.id)).emit(event, toCustomerView(conv));
     }
   }
 
@@ -80,9 +87,9 @@ export class SocketService {
     this.broadcastConversation('conversation:update', conv);
   }
 
-  static broadcastConversationDeleted(conversationId: string) {
-    this.emitToRoom(conversationId, 'conversation:deleted', conversationId);
-    this.emitGlobal('conversation:deleted', conversationId);
+  static broadcastConversationDeleted(conversationId: string, customerId?: string) {
+    this.emitToRoom(AGENTS_ROOM, 'conversation:deleted', conversationId);
+    if (customerId) this.emitToRoom(customerRoom(customerId), 'conversation:deleted', conversationId);
   }
 
   static broadcastAgentOnline(agentId: string, name: string) {

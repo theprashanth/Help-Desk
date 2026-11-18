@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
+import { appearanceOf } from '../services/messenger';
 import { ReplyTime, SnoozePreset, Workspace } from '../../../shared/src/types';
 import { isOpenAt, nextOpening, validateOfficeHours, isValidTimeZone, REPLY_TIMES } from '../services/officeHours';
 import { SocketService } from '../services/socket';
@@ -103,6 +104,7 @@ export async function getPublicWorkspace(req: AuthenticatedRequest, res: Respons
       name: (ws.customerFacingName || '').trim() || ws.name,
       showAttribution: ws.showAttribution !== false,
       attributionText: (ws.attributionText || '').trim() || DEFAULT_ATTRIBUTION,
+      messenger: appearanceOf(ws),
       replyTime: ws.replyTime || null,
       replyTimeNotice: ws.replyTimeNotice !== false,
       officeHours: ws.officeHours || null,

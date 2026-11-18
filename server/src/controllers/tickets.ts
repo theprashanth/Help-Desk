@@ -8,6 +8,7 @@ import { toCustomerView, isCustomerVisible, computeCustomerSnippet } from '../se
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
 import { resolveCustomerId } from '../services/customerIdentity';
+import { verifyUserHash } from '../services/messenger';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -51,8 +52,8 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
     }
     if (req.user) return res.json(conv);
 
-    // Customer (Messenger widget): hide internal-only tickets and internal-note previews
-    if (!isCustomerVisible(conv)) {
+    // Customer (Messenger widget): only their own conversation, never internal-only tickets
+    if (req.headers['x-customer-id'] !== conv.customer.id || !isCustomerVisible(conv)) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     if (conv.customerSnippet === undefined) {
@@ -65,7 +66,7 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
 }
 
 export async function createTicket(req: AuthenticatedRequest, res: Response) {
-  const { customerId: requestedId, externalUserId, name, email, phone, priority, category, initialMessage, initialAttachments, session, messageMetadata } = req.body;
+  const { customerId: requestedId, externalUserId, userHash, name, email, phone, priority, category, initialMessage, initialAttachments, session, messageMetadata } = req.body;
   // Files the customer attached to their first message (uploaded first via /api/attachments/upload)
   const firstAttachments = Array.isArray(initialAttachments)
     ? initialAttachments
@@ -78,6 +79,14 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     const custRepo = RepositoryFactory.getCustomerRepository();
     const convRepo = RepositoryFactory.getConversationRepository();
     const msgRepo = RepositoryFactory.getMessageRepository();
+
+    // Identity verification: a logged-in user's id must be signed by your server (user_hash) when enforced
+    if (typeof externalUserId === 'string' && externalUserId.trim()) {
+      const ws = await RepositoryFactory.getWorkspaceRepository().findById(req.workspaceId || 'default_workspace');
+      if (ws?.identityEnforced && !verifyUserHash(ws.identitySecret, externalUserId.trim(), userHash)) {
+        return res.status(401).json({ error: 'Identity verification failed: user_hash is missing or wrong', code: 'identity_verification_failed' });
+      }
+    }
 
     // Every new customer gets a UUID User id (logged-in users keep their own id as externalId).
     // The response's conversation.customer.id tells the Messenger which id to use from now on.

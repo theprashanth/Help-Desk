@@ -24,6 +24,10 @@ import { resetDatabase, seedData, simulateActivity } from '../controllers/simula
 import { resolveTenant } from '../middleware/tenant.middleware';
 import { getStateCounts, bulkUpdate } from '../controllers/bulk';
 import { searchConversations } from '../controllers/search';
+import {
+  requireKnownWorkspace, getMessengerSettings, updateMessengerSettings, getIdentitySecret,
+  rotateIdentitySecret, removeInstallation, messengerPing
+} from '../controllers/messenger';
 
 const router = Router();
 
@@ -65,12 +69,19 @@ router.delete('/integrations/webhook', authenticateJWT, disconnectWebhook);
 router.post('/integrations/webhook/test', authenticateJWT, testWebhook);
 
 // --- Ticket / Conversation Routes ---
+// Messenger Live Chat (Settings) + the public boot ping the embedded Messenger sends
+router.get('/messenger/settings', authenticateJWT, getMessengerSettings);
+router.put('/messenger/settings', authenticateJWT, updateMessengerSettings);
+router.get('/messenger/identity-secret', authenticateJWT, getIdentitySecret);
+router.post('/messenger/identity-secret/rotate', authenticateJWT, rotateIdentitySecret);
+router.delete('/messenger/installations/:id', authenticateJWT, removeInstallation);
+router.post('/messenger/ping', requireKnownWorkspace, messengerPing);
 router.get('/search', authenticateJWT, searchConversations); // full search: messages, notes, tickets, customers, tags
 router.get('/tickets/state-counts', authenticateJWT, getStateCounts); // counts per state for the list's state menu
 router.post('/tickets/bulk', authenticateJWT, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete
 router.get('/tickets', authenticateJWT, getTickets);
 router.get('/tickets/:id', optionalJWT, getTicket); // Let guest fetch single ticket details if needed
-router.post('/tickets', createTicket); // Guest can create conversations
+router.post('/tickets', requireKnownWorkspace, createTicket); // Guest can create conversations
 router.post('/tickets/manual', authenticateJWT, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);
 router.get('/customers', authenticateJWT, searchCustomers);
@@ -93,13 +104,13 @@ router.delete('/tags/:id', authenticateJWT, deleteTag);
 
 // --- Message Routes ---
 router.get('/messages/:conversationId', optionalJWT, getMessages); // Open for guest testing
-router.post('/messages', createMessage); // Guest & Agent can post messages
+router.post('/messages', requireKnownWorkspace, optionalJWT, createMessage); // Guest & Agent can post messages
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
 router.put('/messages/:messageId/tags', authenticateJWT, updateMessageTags);
 router.delete('/messages/:messageId', authenticateJWT, deleteMessage);
 router.post('/messages/upload', upload.single('file'), uploadFiles); // File attachments
 router.post('/attachments/upload', upload.single('file'), uploadFiles); // Alias for widget file attachments
-router.put('/messages/seen/:conversationId', markSeen); // Mark conversation as read
+router.put('/messages/seen/:conversationId', optionalJWT, markSeen); // Mark conversation as read
 
 // --- Analytics Route ---
 router.get('/analytics', authenticateJWT, getAnalytics);

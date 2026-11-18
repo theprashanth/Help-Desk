@@ -81,7 +81,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log(`[Socket] Connected: ${newSocket.id}`);
       
       // If we are logged in as an agent, register online status
-      if (token && agent) {
+      // (never from the embedded Messenger, which may share this browser's storage with the dashboard)
+      if (token && agent && !window.location.pathname.startsWith('/messenger/')) {
         newSocket.emit('agent:login', {
           agentId: agent.id,
           name: agent.name,

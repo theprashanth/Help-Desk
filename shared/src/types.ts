@@ -39,6 +39,35 @@ export interface Workspace {
     slack?: SlackIntegration;
     webhook?: WebhookIntegration;
   };
+  // Settings > Messenger Live Chat
+  messenger?: Partial<MessengerAppearance>;
+  identitySecret?: string;          // HMAC key for identity verification (server-side only)
+  identityEnforced?: boolean;       // reject logged-in users without a valid user_hash
+  allowedDomains?: string[];        // empty = the Messenger may load on any site
+  installations?: MessengerInstallation[];
+}
+
+/** How the Messenger looks for customers (saved on the server, applied everywhere it's installed). */
+export interface MessengerAppearance {
+  brandName: string;
+  themeColor: string;
+  greeting: string;      // header subtitle when no reply time is set
+  welcome: string;       // home screen message
+  launcherPosition: 'right' | 'left';
+  showLauncher: boolean; // false = open it from your own button via ChaiSamosa('show')
+}
+
+/** A website or app where the Messenger has loaded (detected automatically). */
+export interface MessengerInstallation {
+  id: string;
+  kind: 'website' | 'mobile';
+  host: string;             // e.g. "shop.example.com" or "com.example.app (iOS)"
+  platform?: string;        // web | ios | android | react-native
+  firstSeenAt: string;
+  lastSeenAt: string;
+  lastUrl?: string;
+  identifiedAt?: string;    // last time a logged-in (identified) user was seen there
+  verifiedAt?: string;      // last time that identity carried a valid user_hash
 }
 
 /** A snooze menu entry. kind: hours/days use `amount`; days and the named ones land at 9:00 AM. */

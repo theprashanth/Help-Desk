@@ -8,12 +8,23 @@ import { recordEvent, getActor } from '../services/events';
 import { refreshConversationSnippets } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
 
+/** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
+async function customerOwnsConversation(req: AuthenticatedRequest, conversationId: string): Promise<boolean> {
+  const customerId = req.headers['x-customer-id'];
+  if (typeof customerId !== 'string' || !customerId) return false;
+  const conv = await RepositoryFactory.getConversationRepository().findById(conversationId);
+  return !!conv && conv.customer.id === customerId;
+}
+
 export async function getMessages(req: AuthenticatedRequest, res: Response) {
   const { conversationId } = req.params;
   const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
   const skip = req.query.skip ? parseInt(req.query.skip as string) : 0;
 
   try {
+    if (!req.user && !(await customerOwnsConversation(req, conversationId))) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
     const msgRepo = RepositoryFactory.getMessageRepository();
     const list = await msgRepo.findByConversationId(conversationId, limit, skip);
     // Customers (no agent token) never see internal notes or conversation events
@@ -25,7 +36,8 @@ export async function getMessages(req: AuthenticatedRequest, res: Response) {
 }
 
 export async function createMessage(req: AuthenticatedRequest, res: Response) {
-  const { conversationId, sender, content, attachments, isInternalNote } = req.body;
+  const { conversationId, content, attachments, isInternalNote } = req.body;
+  let sender = req.body.sender;
 
   if (!conversationId || !sender || (!content && (!attachments || attachments.length === 0))) {
     return res.status(400).json({ error: 'conversationId, sender, and content/attachments are required' });
@@ -38,6 +50,16 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     const conv = await convRepo.findById(conversationId);
     if (!conv) {
       return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    if (sender?.type !== 'customer' || isInternalNote) {
+      // Agent replies and internal notes: only a logged-in teammate, and always as themselves
+      if (!req.user) return res.status(401).json({ error: 'Only teammates can send replies or notes' });
+      const me = await RepositoryFactory.getUserRepository().findById(req.user.id);
+      sender = { type: 'agent', id: req.user.id, name: me?.name || sender?.name || 'Agent', ...(me?.avatar ? { avatar: me.avatar } : {}) };
+    } else if (!req.user && sender.id !== conv.customer.id) {
+      // Customers can only post into their own conversation
+      return res.status(403).json({ error: 'Not your conversation' });
     }
 
     const createdMsg = await msgRepo.create({
@@ -253,6 +275,9 @@ export async function markSeen(req: AuthenticatedRequest, res: Response) {
 
   if (!conversationId || !role) {
     return res.status(400).json({ error: 'conversationId and role are required' });
+  }
+  if (role === 'agent' ? !req.user : (!req.user && !(await customerOwnsConversation(req, conversationId)))) {
+    return res.status(403).json({ error: 'Not allowed' });
   }
 
   try {
