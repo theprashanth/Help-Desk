@@ -147,6 +147,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [flowIntake, setFlowIntake] = useState<{ step: number; answers: Record<string, string | null> } | null>(null);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowError, setFlowError] = useState<string | null>(null);
+  const flowBusyRef = useRef(false);                 // blocks double taps before React re-renders
+  const reloadWorkspaceRef = useRef<() => void>(() => {});
   // Real geo-IP data fetched once and cached
   const [geoInfo, setGeoInfo] = useState<{
     country: string; city: string; ip: string; countryCode: string; timezone?: string;
@@ -307,6 +309,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   useEffect(() => {
     let cancelled = false;
     const load = () => {
+      reloadWorkspaceRef.current = load;
       // Public workspace info: customer-facing name, attribution, reply time, office hours, who's online
       api(`/api/workspace/public`)
         .then(r => (r.ok ? r.json() : null))
@@ -501,16 +504,20 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       // Internal-only tickets/issues are never shown to the customer
       if (conv.kind === 'issue' || conv.sharing === 'internal') return;
       if (conv.customer.id === guestId) {
+        // Updates can arrive out of order: an older copy must never replace a newer one
+        // (that's what made chat-flow buttons jump back to the previous menu)
+        const newer = (old?: Conversation | null) => !old?.updatedAt || !conv.updatedAt || conv.updatedAt >= old.updatedAt;
         setLocalConversations(prev => {
           const idx = prev.findIndex(c => c.id === conv.id);
           if (idx === -1) return [conv, ...prev];
+          if (!newer(prev[idx])) return prev;
           const next = [...prev];
           next[idx] = conv;
           return next.sort(
             (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
           );
         });
-        if (activeConv && activeConv.id === conv.id) {
+        if (activeConv && activeConv.id === conv.id && newer(activeConv)) {
           setActiveConv(conv);
         }
       }
@@ -611,7 +618,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
   /** Details form complete: create the bot-handled conversation (the server writes the transcript). */
   const finishFlowIntake = async (answers: Record<string, string | null>) => {
-    if (!liveFlow) return;
+    if (!liveFlow || flowBusyRef.current) return;
+    flowBusyRef.current = true;
     const known: Record<string, string> = {};
     for (const q of liveFlow.askDetails ? liveFlow.questions : []) {
       if (q.type === 'name' && identity.name) known[q.id] = identity.name;
@@ -648,6 +656,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     } catch {
       setFlowError('Couldn’t connect — please try again');
     } finally {
+      flowBusyRef.current = false;
       setFlowBusy(false);
     }
   };
@@ -665,7 +674,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
   /** A button in the flow (option, Yes/No, Back, Restart). */
   const runFlowAction = async (b: FlowAction) => {
-    if (!activeConv || flowBusy) return;
+    if (!activeConv || flowBusyRef.current) return;
+    flowBusyRef.current = true;
     setFlowBusy(true); setFlowError(null);
     try {
       const res = await api('/api/chat-flow/action', {
@@ -676,7 +686,11 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setFlowError(data.error || 'Something went wrong — please try again');
-        if (data.resync || res.status === 409) setAvailability(a => (a ? { ...a } : a)); // re-render with latest
+        // The flow was edited/published while the visitor was in it: fetch the latest version
+        if (data.resync || res.status === 409) reloadWorkspaceRef.current();
+        // Re-sync this conversation's position too
+        const fresh = await api(`/api/tickets/${activeConv.id}`).then(r => (r.ok ? r.json() : null)).catch(() => null);
+        if (fresh) setActiveConv(fresh);
         return;
       }
       setActiveConv(data);
@@ -689,6 +703,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     } catch {
       setFlowError('Couldn’t connect — please try again');
     } finally {
+      flowBusyRef.current = false;
       setFlowBusy(false);
     }
   };

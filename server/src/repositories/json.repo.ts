@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { AsyncLocalStorage } from 'async_hooks';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -24,6 +25,21 @@ async function ensureDataDir() {
 }
 
 const fileLocks: Record<string, Promise<any>> = {};
+
+/**
+ * Read-modify-write transactions. Every repository method that writes runs inside one, so two
+ * requests can't both read a file and then overwrite each other's change (lost updates, e.g. a
+ * "seen" receipt wiping out the chat-flow bot's new position). Re-entrant: nested repository calls
+ * inside a transaction (a message create that also updates its conversation) just run.
+ */
+const inTransaction = new AsyncLocalStorage<boolean>();
+let transactionChain: Promise<unknown> = Promise.resolve();
+function transaction<T>(fn: () => Promise<T>): Promise<T> {
+  if (inTransaction.getStore()) return fn();
+  const run = transactionChain.then(() => inTransaction.run(true, fn));
+  transactionChain = run.catch(() => {});
+  return run;
+}
 
 async function lockFile<T>(filename: string, operation: () => Promise<T>): Promise<T> {
   const currentLock = fileLocks[filename] || Promise.resolve();
@@ -107,38 +123,42 @@ export class JsonUserRepository implements IUserRepository {
   }
 
   async create(agentData: Omit<Agent, 'id'> & { passwordPlain: string }): Promise<Agent> {
-    const users = await readJson<any[]>(this.file, []);
-    const passwordHash = await bcrypt.hash(agentData.passwordPlain, 10);
-    const newAgent = {
-      id: `agent_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      workspaceId: getActiveWorkspaceId(),
-      createdAt: new Date().toISOString(),
-      email: agentData.email,
-      name: agentData.name,
-      avatar: agentData.avatar,
-      role: agentData.role,
-      status: agentData.status,
-      lastSeen: agentData.lastSeen || new Date().toISOString(),
-      passwordHash
-    };
-    users.push(newAgent);
-    await writeJson(this.file, users);
+    return transaction(async () => {
+      const users = await readJson<any[]>(this.file, []);
+      const passwordHash = await bcrypt.hash(agentData.passwordPlain, 10);
+      const newAgent = {
+        id: `agent_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        workspaceId: getActiveWorkspaceId(),
+        createdAt: new Date().toISOString(),
+        email: agentData.email,
+        name: agentData.name,
+        avatar: agentData.avatar,
+        role: agentData.role,
+        status: agentData.status,
+        lastSeen: agentData.lastSeen || new Date().toISOString(),
+        passwordHash
+      };
+      users.push(newAgent);
+      await writeJson(this.file, users);
     
-    const { passwordHash: _, ...rest } = newAgent;
-    return rest as Agent;
+      const { passwordHash: _, ...rest } = newAgent;
+      return rest as Agent;
+    });
   }
 
   async update(id: string, updateData: Partial<Agent>): Promise<Agent | null> {
-    const users = await readJson<any[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const idx = users.findIndex(u => u.id === id && u.workspaceId === workspaceId);
-    if (idx === -1) return null;
+    return transaction(async () => {
+      const users = await readJson<any[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const idx = users.findIndex(u => u.id === id && u.workspaceId === workspaceId);
+      if (idx === -1) return null;
     
-    users[idx] = { ...users[idx], ...updateData };
-    await writeJson(this.file, users);
+      users[idx] = { ...users[idx], ...updateData };
+      await writeJson(this.file, users);
     
-    const { passwordHash, ...rest } = users[idx];
-    return rest as Agent;
+      const { passwordHash, ...rest } = users[idx];
+      return rest as Agent;
+    });
   }
 
   async findAll(): Promise<Agent[]> {
@@ -153,12 +173,14 @@ export class JsonUserRepository implements IUserRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const users = await readJson<any[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const kept = users.filter(u => !(u.id === id && u.workspaceId === workspaceId));
-    if (kept.length === users.length) return false;
-    await writeJson(this.file, kept);
-    return true;
+    return transaction(async () => {
+      const users = await readJson<any[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const kept = users.filter(u => !(u.id === id && u.workspaceId === workspaceId));
+      if (kept.length === users.length) return false;
+      await writeJson(this.file, kept);
+      return true;
+    });
   }
 }
 
@@ -179,66 +201,72 @@ export class JsonCustomerRepository implements ICustomerRepository {
   }
 
   async findOrCreate(id: string, defaultData: Omit<Customer, 'id'>): Promise<Customer> {
-    const customers = await readJson<Customer[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    let customer = customers.find(c => c.id === id && c.workspaceId === workspaceId);
-    if (!customer) {
-      customer = {
-        id,
-        workspaceId,
-        ...(defaultData.externalId ? { externalId: defaultData.externalId } : {}),
-        name: defaultData.name,
-        email: defaultData.email,
-        phone: defaultData.phone,
-        session: {
-          ...defaultData.session,
-          firstSeen: defaultData.session.firstSeen || new Date().toISOString(),
-          lastSeen: defaultData.session.lastSeen || new Date().toISOString(),
-        },
-        tags: defaultData.tags || [],
-        notes: defaultData.notes || []
-      };
-      customers.push(customer);
-      await writeJson(this.file, customers);
-    }
-    return customer;
+    return transaction(async () => {
+      const customers = await readJson<Customer[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      let customer = customers.find(c => c.id === id && c.workspaceId === workspaceId);
+      if (!customer) {
+        customer = {
+          id,
+          workspaceId,
+          ...(defaultData.externalId ? { externalId: defaultData.externalId } : {}),
+          name: defaultData.name,
+          email: defaultData.email,
+          phone: defaultData.phone,
+          session: {
+            ...defaultData.session,
+            firstSeen: defaultData.session.firstSeen || new Date().toISOString(),
+            lastSeen: defaultData.session.lastSeen || new Date().toISOString(),
+          },
+          tags: defaultData.tags || [],
+          notes: defaultData.notes || []
+        };
+        customers.push(customer);
+        await writeJson(this.file, customers);
+      }
+      return customer;
+    });
   }
 
   async create(customer: Customer): Promise<Customer> {
-    const customers = await readJson<Customer[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const filtered = customers.filter(c => !(c.id === customer.id && c.workspaceId === workspaceId));
-    const newCustomer = {
-      ...customer,
-      workspaceId,
-      session: {
-        ...customer.session,
-        firstSeen: customer.session.firstSeen || new Date().toISOString(),
-        lastSeen: customer.session.lastSeen || new Date().toISOString(),
-      }
-    };
-    filtered.push(newCustomer);
-    await writeJson(this.file, filtered);
-    return newCustomer;
+    return transaction(async () => {
+      const customers = await readJson<Customer[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const filtered = customers.filter(c => !(c.id === customer.id && c.workspaceId === workspaceId));
+      const newCustomer = {
+        ...customer,
+        workspaceId,
+        session: {
+          ...customer.session,
+          firstSeen: customer.session.firstSeen || new Date().toISOString(),
+          lastSeen: customer.session.lastSeen || new Date().toISOString(),
+        }
+      };
+      filtered.push(newCustomer);
+      await writeJson(this.file, filtered);
+      return newCustomer;
+    });
   }
 
   async update(id: string, updateData: Partial<Customer>): Promise<Customer | null> {
-    const customers = await readJson<Customer[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const idx = customers.findIndex(c => c.id === id && c.workspaceId === workspaceId);
-    if (idx === -1) return null;
+    return transaction(async () => {
+      const customers = await readJson<Customer[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const idx = customers.findIndex(c => c.id === id && c.workspaceId === workspaceId);
+      if (idx === -1) return null;
 
-    const current = customers[idx];
-    const session = updateData.session ? { ...current.session, ...updateData.session } : current.session;
+      const current = customers[idx];
+      const session = updateData.session ? { ...current.session, ...updateData.session } : current.session;
     
-    customers[idx] = {
-      ...current,
-      ...updateData,
-      session
-    };
+      customers[idx] = {
+        ...current,
+        ...updateData,
+        session
+      };
     
-    await writeJson(this.file, customers);
-    return customers[idx];
+      await writeJson(this.file, customers);
+      return customers[idx];
+    });
   }
 
   async findAll(): Promise<Customer[]> {
@@ -263,72 +291,76 @@ export class JsonConversationRepository implements IConversationRepository {
   }
 
   async create(conv: Omit<Conversation, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>): Promise<Conversation> {
-    const rawConversations = await readJson<any[]>(this.file, []);
-    const ticketNumber = `TICKET-${1000 + rawConversations.length + 1}`;
-    const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const now = new Date().toISOString();
-    const workspaceId = getActiveWorkspaceId();
+    return transaction(async () => {
+      const rawConversations = await readJson<any[]>(this.file, []);
+      const ticketNumber = `TICKET-${1000 + rawConversations.length + 1}`;
+      const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const now = new Date().toISOString();
+      const workspaceId = getActiveWorkspaceId();
     
-    const newConvRaw = {
-      id,
-      workspaceId,
-      ticketNumber,
-      customerId: conv.customer.id,
-      assignedAgentId: conv.assignedAgentId,
-      status: conv.status,
-      priority: conv.priority,
-      category: conv.category,
-      lastMessageSnippet: conv.lastMessageSnippet || '',
-      unreadCountAgent: conv.unreadCountAgent || 0,
-      unreadCountCustomer: conv.unreadCountCustomer || 0,
-      starred: conv.starred || false,
-      snoozedUntil: conv.snoozedUntil || null,
-      customerSnippet: conv.customerSnippet,
-      tags: conv.tags || [],
-      kind: conv.kind || 'conversation',
-      title: conv.title,
-      description: conv.description,
-      createdByAgentId: conv.createdByAgentId,
-      attributes: conv.attributes || {},
-      sharing: conv.sharing || 'shared',
-      bot: conv.bot,
-      createdAt: now,
-      updatedAt: now
-    };
-    rawConversations.push(newConvRaw);
-    await writeJson(this.file, rawConversations);
+      const newConvRaw = {
+        id,
+        workspaceId,
+        ticketNumber,
+        customerId: conv.customer.id,
+        assignedAgentId: conv.assignedAgentId,
+        status: conv.status,
+        priority: conv.priority,
+        category: conv.category,
+        lastMessageSnippet: conv.lastMessageSnippet || '',
+        unreadCountAgent: conv.unreadCountAgent || 0,
+        unreadCountCustomer: conv.unreadCountCustomer || 0,
+        starred: conv.starred || false,
+        snoozedUntil: conv.snoozedUntil || null,
+        customerSnippet: conv.customerSnippet,
+        tags: conv.tags || [],
+        kind: conv.kind || 'conversation',
+        title: conv.title,
+        description: conv.description,
+        createdByAgentId: conv.createdByAgentId,
+        attributes: conv.attributes || {},
+        sharing: conv.sharing || 'shared',
+        bot: conv.bot,
+        createdAt: now,
+        updatedAt: now
+      };
+      rawConversations.push(newConvRaw);
+      await writeJson(this.file, rawConversations);
     
-    return {
-      ...conv,
-      id,
-      workspaceId,
-      ticketNumber,
-      createdAt: now,
-      updatedAt: now
-    } as Conversation;
+      return {
+        ...conv,
+        id,
+        workspaceId,
+        ticketNumber,
+        createdAt: now,
+        updatedAt: now
+      } as Conversation;
+    });
   }
 
   async update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null> {
-    const rawConversations = await readJson<any[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const idx = rawConversations.findIndex(c => c.id === id && c.workspaceId === workspaceId);
-    if (idx === -1) return null;
+    return transaction(async () => {
+      const rawConversations = await readJson<any[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const idx = rawConversations.findIndex(c => c.id === id && c.workspaceId === workspaceId);
+      if (idx === -1) return null;
 
-    const current = rawConversations[idx];
-    const cleanUpdates: any = { ...updateData };
-    if (updateData.customer) {
-      cleanUpdates.customerId = updateData.customer.id;
-      delete cleanUpdates.customer;
-    }
+      const current = rawConversations[idx];
+      const cleanUpdates: any = { ...updateData };
+      if (updateData.customer) {
+        cleanUpdates.customerId = updateData.customer.id;
+        delete cleanUpdates.customer;
+      }
     
-    rawConversations[idx] = {
-      ...current,
-      ...cleanUpdates,
-      updatedAt: new Date().toISOString()
-    };
+      rawConversations[idx] = {
+        ...current,
+        ...cleanUpdates,
+        updatedAt: new Date().toISOString()
+      };
     
-    await writeJson(this.file, rawConversations);
-    return await this.findById(id);
+      await writeJson(this.file, rawConversations);
+      return await this.findById(id);
+    });
   }
 
   async findAll(): Promise<Conversation[]> {
@@ -381,12 +413,14 @@ export class JsonConversationRepository implements IConversationRepository {
   }
 
   async delete(id: string): Promise<boolean> {
-    const rawConversations = await readJson<any[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const filtered = rawConversations.filter(c => !(c.id === id && c.workspaceId === workspaceId));
-    if (rawConversations.length === filtered.length) return false;
-    await writeJson(this.file, filtered);
-    return true;
+    return transaction(async () => {
+      const rawConversations = await readJson<any[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const filtered = rawConversations.filter(c => !(c.id === id && c.workspaceId === workspaceId));
+      if (rawConversations.length === filtered.length) return false;
+      await writeJson(this.file, filtered);
+      return true;
+    });
   }
 
   async findFiltered(filters: {
@@ -469,56 +503,62 @@ export class JsonMessageRepository implements IMessageRepository {
   }
 
   async create(msg: Omit<Message, 'id' | 'createdAt'>): Promise<Message> {
-    const messages = await readJson<Message[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const newMsg: Message = {
-      ...msg,
-      workspaceId,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      createdAt: new Date().toISOString()
-    };
-    messages.push(newMsg);
-    await writeJson(this.file, messages);
+    return transaction(async () => {
+      const messages = await readJson<Message[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const newMsg: Message = {
+        ...msg,
+        workspaceId,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        createdAt: new Date().toISOString()
+      };
+      messages.push(newMsg);
+      await writeJson(this.file, messages);
 
-    // Update conversation snippet
-    let snippet = msg.content;
-    if (msg.attachments && msg.attachments.length > 0) {
-      snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
-    }
-    if (msg.isInternalNote) {
-      snippet = `[Note] ${snippet}`;
-    }
+      // Update conversation snippet
+      let snippet = msg.content;
+      if (msg.attachments && msg.attachments.length > 0) {
+        snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
+      }
+      if (msg.isInternalNote) {
+        snippet = `[Note] ${snippet}`;
+      }
 
-    const conversations = await readJson<any[]>('conversations.json', []);
-    const idx = conversations.findIndex(c => c.id === msg.conversationId && c.workspaceId === workspaceId);
-    // Conversation events (system) don't change the preview or last-activity time
-    if (idx !== -1 && msg.sender.type !== 'system' && msg.metadata?.type !== 'auto_reply') {
-      conversations[idx].lastMessageSnippet = snippet;
-      conversations[idx].updatedAt = new Date().toISOString();
-      await writeJson('conversations.json', conversations);
-    }
+      const conversations = await readJson<any[]>('conversations.json', []);
+      const idx = conversations.findIndex(c => c.id === msg.conversationId && c.workspaceId === workspaceId);
+      // Conversation events (system) don't change the preview or last-activity time
+      if (idx !== -1 && msg.sender.type !== 'system' && msg.metadata?.type !== 'auto_reply') {
+        conversations[idx].lastMessageSnippet = snippet;
+        conversations[idx].updatedAt = new Date().toISOString();
+        await writeJson('conversations.json', conversations);
+      }
 
-    return newMsg;
+      return newMsg;
+    });
   }
 
   async update(id: string, updateData: Partial<Message>): Promise<Message | null> {
-    const messages = await readJson<Message[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const idx = messages.findIndex(m => m.id === id && m.workspaceId === workspaceId);
-    if (idx === -1) return null;
+    return transaction(async () => {
+      const messages = await readJson<Message[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const idx = messages.findIndex(m => m.id === id && m.workspaceId === workspaceId);
+      if (idx === -1) return null;
 
-    messages[idx] = { ...messages[idx], ...updateData };
-    await writeJson(this.file, messages);
-    return messages[idx];
+      messages[idx] = { ...messages[idx], ...updateData };
+      await writeJson(this.file, messages);
+      return messages[idx];
+    });
   }
 
   async delete(id: string): Promise<boolean> {
-    const messages = await readJson<Message[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const filtered = messages.filter(m => !(m.id === id && m.workspaceId === workspaceId));
-    if (messages.length === filtered.length) return false;
-    await writeJson(this.file, filtered);
-    return true;
+    return transaction(async () => {
+      const messages = await readJson<Message[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const filtered = messages.filter(m => !(m.id === id && m.workspaceId === workspaceId));
+      if (messages.length === filtered.length) return false;
+      await writeJson(this.file, filtered);
+      return true;
+    });
   }
 
   async searchByTerms(terms: string[], limit = 5000): Promise<Message[]> {
@@ -539,48 +579,52 @@ export class JsonMessageRepository implements IMessageRepository {
   }
 
   async deleteByConversationId(conversationId: string): Promise<number> {
-    const messages = await readJson<Message[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const kept = messages.filter(m => !(m.conversationId === conversationId && m.workspaceId === workspaceId));
-    if (kept.length !== messages.length) await writeJson(this.file, kept);
-    return messages.length - kept.length;
+    return transaction(async () => {
+      const messages = await readJson<Message[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const kept = messages.filter(m => !(m.conversationId === conversationId && m.workspaceId === workspaceId));
+      if (kept.length !== messages.length) await writeJson(this.file, kept);
+      return messages.length - kept.length;
+    });
   }
 
   async markConversationSeen(conversationId: string, role: 'customer' | 'agent'): Promise<void> {
-    const messages = await readJson<Message[]>(this.file, []);
-    const now = new Date().toISOString();
-    const workspaceId = getActiveWorkspaceId();
+    return transaction(async () => {
+      const messages = await readJson<Message[]>(this.file, []);
+      const now = new Date().toISOString();
+      const workspaceId = getActiveWorkspaceId();
     
-    let updated = false;
-    for (const m of messages) {
-      if (m.conversationId === conversationId && m.workspaceId === workspaceId) {
-        if (role === 'agent' && m.sender.type === 'customer' && !m.seen) {
-          m.seen = true;
-          m.seenAt = now;
-          updated = true;
-        } else if (role === 'customer' && m.sender.type === 'agent' && !m.isInternalNote && !m.seen) {
-          m.seen = true;
-          m.seenAt = now;
-          updated = true;
+      let updated = false;
+      for (const m of messages) {
+        if (m.conversationId === conversationId && m.workspaceId === workspaceId) {
+          if (role === 'agent' && m.sender.type === 'customer' && !m.seen) {
+            m.seen = true;
+            m.seenAt = now;
+            updated = true;
+          } else if (role === 'customer' && m.sender.type === 'agent' && !m.isInternalNote && !m.seen) {
+            m.seen = true;
+            m.seenAt = now;
+            updated = true;
+          }
         }
       }
-    }
 
-    if (updated) {
-      await writeJson(this.file, messages);
-    }
-
-    // Reset unread count
-    const conversations = await readJson<any[]>('conversations.json', []);
-    const idx = conversations.findIndex(c => c.id === conversationId && c.workspaceId === workspaceId);
-    if (idx !== -1) {
-      if (role === 'agent') {
-        conversations[idx].unreadCountAgent = 0;
-      } else {
-        conversations[idx].unreadCountCustomer = 0;
+      if (updated) {
+        await writeJson(this.file, messages);
       }
-      await writeJson('conversations.json', conversations);
-    }
+
+      // Reset unread count
+      const conversations = await readJson<any[]>('conversations.json', []);
+      const idx = conversations.findIndex(c => c.id === conversationId && c.workspaceId === workspaceId);
+      if (idx !== -1) {
+        if (role === 'agent') {
+          conversations[idx].unreadCountAgent = 0;
+        } else {
+          conversations[idx].unreadCountCustomer = 0;
+        }
+        await writeJson('conversations.json', conversations);
+      }
+    });
   }
 
   async countMessages(conversationId: string): Promise<number> {
@@ -606,38 +650,44 @@ export class JsonSavedReplyRepository implements ISavedReplyRepository {
   }
 
   async create(reply: Omit<SavedReply, 'id'>): Promise<SavedReply> {
-    const replies = await readJson<SavedReply[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const newReply: SavedReply = {
-      id: `reply_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      workspaceId,
-      trigger: reply.trigger,
-      title: reply.title,
-      content: reply.content,
-      availableFor: reply.availableFor || 'everyone',
-      availableWhen: reply.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
-    };
-    replies.push(newReply);
-    await writeJson(this.file, replies);
-    return newReply;
+    return transaction(async () => {
+      const replies = await readJson<SavedReply[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const newReply: SavedReply = {
+        id: `reply_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        workspaceId,
+        trigger: reply.trigger,
+        title: reply.title,
+        content: reply.content,
+        availableFor: reply.availableFor || 'everyone',
+        availableWhen: reply.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
+      };
+      replies.push(newReply);
+      await writeJson(this.file, replies);
+      return newReply;
+    });
   }
 
   async update(id: string, reply: Partial<SavedReply>): Promise<SavedReply | null> {
-    const replies = await this.findAll();
-    const idx = replies.findIndex(r => r.id === id);
-    if (idx === -1) return null;
+    return transaction(async () => {
+      const replies = await this.findAll();
+      const idx = replies.findIndex(r => r.id === id);
+      if (idx === -1) return null;
 
-    replies[idx] = { ...replies[idx], ...reply };
-    await writeJson(this.file, replies);
-    return replies[idx];
+      replies[idx] = { ...replies[idx], ...reply };
+      await writeJson(this.file, replies);
+      return replies[idx];
+    });
   }
 
   async delete(id: string): Promise<boolean> {
-    const replies = await this.findAll();
-    const filtered = replies.filter(r => r.id !== id);
-    if (replies.length === filtered.length) return false;
-    await writeJson(this.file, filtered);
-    return true;
+    return transaction(async () => {
+      const replies = await this.findAll();
+      const filtered = replies.filter(r => r.id !== id);
+      if (replies.length === filtered.length) return false;
+      await writeJson(this.file, filtered);
+      return true;
+    });
   }
 }
 
@@ -657,25 +707,29 @@ export class JsonTagRepository implements ITagRepository {
   }
 
   async create(tag: Omit<Tag, 'id'>): Promise<Tag> {
-    const tags = await readJson<Tag[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const newTag: Tag = {
-      id: `tag_${Date.now()}`,
-      workspaceId,
-      name: tag.name,
-      color: tag.color
-    };
-    tags.push(newTag);
-    await writeJson(this.file, tags);
-    return newTag;
+    return transaction(async () => {
+      const tags = await readJson<Tag[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const newTag: Tag = {
+        id: `tag_${Date.now()}`,
+        workspaceId,
+        name: tag.name,
+        color: tag.color
+      };
+      tags.push(newTag);
+      await writeJson(this.file, tags);
+      return newTag;
+    });
   }
 
   async delete(id: string): Promise<boolean> {
-    const tags = await this.findAll();
-    const filtered = tags.filter(t => t.id !== id);
-    if (tags.length === filtered.length) return false;
-    await writeJson(this.file, filtered);
-    return true;
+    return transaction(async () => {
+      const tags = await this.findAll();
+      const filtered = tags.filter(t => t.id !== id);
+      if (tags.length === filtered.length) return false;
+      await writeJson(this.file, filtered);
+      return true;
+    });
   }
 }
 
@@ -690,17 +744,19 @@ export class JsonSettingsRepository implements ISettingsRepository {
   }
 
   async save(settings: AgentSettings): Promise<AgentSettings> {
-    const list = await readJson<AgentSettings[]>(this.file, []);
-    const workspaceId = getActiveWorkspaceId();
-    const idx = list.findIndex(s => s.agentId === settings.agentId && s.workspaceId === workspaceId);
-    const scopedSettings = { ...settings, workspaceId };
-    if (idx === -1) {
-      list.push(scopedSettings);
-    } else {
-      list[idx] = scopedSettings;
-    }
-    await writeJson(this.file, list);
-    return scopedSettings;
+    return transaction(async () => {
+      const list = await readJson<AgentSettings[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const idx = list.findIndex(s => s.agentId === settings.agentId && s.workspaceId === workspaceId);
+      const scopedSettings = { ...settings, workspaceId };
+      if (idx === -1) {
+        list.push(scopedSettings);
+      } else {
+        list[idx] = scopedSettings;
+      }
+      await writeJson(this.file, list);
+      return scopedSettings;
+    });
   }
 }
 
@@ -719,25 +775,29 @@ export class JsonWorkspaceRepository implements IWorkspaceRepository {
   }
 
   async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
-    const list = await readJson<Workspace[]>(this.file, []);
-    const id = `work_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-    const now = new Date().toISOString();
-    const newWorkspace: Workspace = {
-      ...workspace,
-      id,
-      createdAt: now
-    };
-    list.push(newWorkspace);
-    await writeJson(this.file, list);
-    return newWorkspace;
+    return transaction(async () => {
+      const list = await readJson<Workspace[]>(this.file, []);
+      const id = `work_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const now = new Date().toISOString();
+      const newWorkspace: Workspace = {
+        ...workspace,
+        id,
+        createdAt: now
+      };
+      list.push(newWorkspace);
+      await writeJson(this.file, list);
+      return newWorkspace;
+    });
   }
 
   async update(id: string, updateData: Partial<Workspace>): Promise<Workspace | null> {
-    const list = await readJson<Workspace[]>(this.file, []);
-    const idx = list.findIndex(w => w.id === id);
-    if (idx === -1) return null;
-    list[idx] = { ...list[idx], ...updateData, id: list[idx].id };
-    await writeJson(this.file, list);
-    return list[idx];
+    return transaction(async () => {
+      const list = await readJson<Workspace[]>(this.file, []);
+      const idx = list.findIndex(w => w.id === id);
+      if (idx === -1) return null;
+      list[idx] = { ...list[idx], ...updateData, id: list[idx].id };
+      await writeJson(this.file, list);
+      return list[idx];
+    });
   }
 }

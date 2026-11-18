@@ -138,6 +138,9 @@ export const useStore = create<AppState>((set) => ({
     }),
   updateConversation: (conversation) =>
     set((state) => {
+      // Live updates can arrive out of order: never let an older copy overwrite a newer one
+      const known = state.conversations.find((c) => c.id === conversation.id);
+      if (known?.updatedAt && conversation.updatedAt && conversation.updatedAt < known.updatedAt) return state;
       // On the Search page the list is the search results: refresh in place, never add/drop by view
       if (state.currentQueue === 'search') {
         const i = state.conversations.findIndex((c) => c.id === conversation.id);

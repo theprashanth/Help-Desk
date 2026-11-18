@@ -179,7 +179,19 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
  * Body: { conversationId, action: 'choose' | 'yes' | 'no' | 'back' | 'restart', optionId? }
  * The customer must own the conversation (X-Customer-Id). The server writes both sides of the exchange.
  */
-export async function chatFlowAction(req: AuthenticatedRequest, res: Response) {
+// One tap at a time per conversation: two quick taps (or two tabs) can't both act on the same position
+const conversationQueues = new Map<string, Promise<unknown>>();
+export function chatFlowAction(req: AuthenticatedRequest, res: Response) {
+  const key = typeof req.body?.conversationId === 'string' ? req.body.conversationId : '';
+  const prev = conversationQueues.get(key) || Promise.resolve();
+  const run = prev.then(() => runChatFlowAction(req, res));
+  const tail = run.catch(() => {});
+  conversationQueues.set(key, tail);
+  tail.then(() => { if (conversationQueues.get(key) === tail) conversationQueues.delete(key); });
+  return run;
+}
+
+async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
   try {
     const { conversationId, action, optionId } = req.body || {};
     if (typeof conversationId !== 'string') return res.status(400).json({ error: 'conversationId is required' });
