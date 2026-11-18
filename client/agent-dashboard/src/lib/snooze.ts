@@ -1,4 +1,4 @@
-import { Conversation } from '../../../../shared/src/types';
+import { Conversation, SnoozePreset } from '../../../../shared/src/types';
 
 export type SnoozeOption = { value: string; label: string; sub: string };
 
@@ -10,9 +10,41 @@ export const SNOOZE_OPTIONS: SnoozeOption[] = [
   { value: 'next-month', label: 'Next month', sub: '1st, 9:00 AM' },
 ];
 
+/** Default list, as presets (used when the workspace hasn't customised its snooze options). */
+export const DEFAULT_SNOOZE_PRESETS: SnoozePreset[] = [
+  { kind: 'hours', amount: 3, label: 'Later today' },
+  { kind: 'tomorrow' },
+  { kind: 'next-week' },
+  { kind: 'next-month' },
+];
+
+/** Turn a workspace snooze preset into a menu option. Values: "h:N", "d:N", "tomorrow", "next-week", "next-month". */
+export function presetToOption(p: SnoozePreset): SnoozeOption {
+  switch (p.kind) {
+    case 'hours': {
+      const n = p.amount || 1;
+      return { value: `h:${n}`, label: p.label || `In ${n} hour${n === 1 ? '' : 's'}`, sub: n < 24 ? `In ${n}h` : `In ${Math.round(n / 24)}d` };
+    }
+    case 'days': {
+      const n = p.amount || 1;
+      return { value: `d:${n}`, label: p.label || `In ${n} day${n === 1 ? '' : 's'}`, sub: '9:00 AM' };
+    }
+    case 'tomorrow': return { value: 'tomorrow', label: p.label || 'Tomorrow', sub: '9:00 AM' };
+    case 'next-week': return { value: 'next-week', label: p.label || 'Next week', sub: 'Mon 9:00 AM' };
+    default: return { value: 'next-month', label: p.label || 'Next month', sub: '1st, 9:00 AM' };
+  }
+}
+
 /** Resolve a preset into an absolute ISO timestamp (local time). */
 export function computeSnoozeUntil(value: string, from: Date = new Date()): string {
   const d = new Date(from);
+  const m = /^(h|d):(\d+)$/.exec(value);
+  if (m) {
+    const n = parseInt(m[2], 10);
+    if (m[1] === 'h') d.setHours(d.getHours() + n);
+    else { d.setDate(d.getDate() + n); d.setHours(9, 0, 0, 0); }
+    return d.toISOString();
+  }
   switch (value) {
     case '3h':
       d.setHours(d.getHours() + 3);

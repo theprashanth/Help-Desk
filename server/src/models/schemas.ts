@@ -8,12 +8,28 @@ export interface IWorkspaceDoc extends Document {
   name: string;
   subdomain?: string;
   apiKey: string;
+  officeHours?: any;
+  replyTime?: string;
+  customerFacingName?: string;
+  timezone?: string;
+  showAttribution?: boolean;
+  snoozeOptions?: any[];
+  replyTimeNotice?: boolean;
+  integrations?: any;
 }
 
 export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   name: { type: String, required: true },
   subdomain: { type: String, unique: true, sparse: true },
-  apiKey: { type: String, required: true, unique: true, index: true }
+  apiKey: { type: String, required: true, unique: true, index: true },
+  officeHours: { type: Schema.Types.Mixed },
+  replyTime: { type: String, enum: ['asap', 'minutes', 'hours', 'day'], default: 'asap' },
+  customerFacingName: { type: String },
+  timezone: { type: String },
+  showAttribution: { type: Boolean, default: true },
+  snoozeOptions: { type: [Schema.Types.Mixed], default: undefined },
+  replyTimeNotice: { type: Boolean, default: true },
+  integrations: { type: Schema.Types.Mixed, default: {} }
 }, { timestamps: true });
 
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);
@@ -26,6 +42,13 @@ export interface IUserDoc extends Document {
   name: string;
   avatar?: string;
   role: 'admin' | 'support_agent';
+  jobTitle?: string;
+  department?: string;
+  phone?: string;
+  bio?: string;
+  calendarLink?: string;
+  location?: string;
+  timezone?: string;
   status: 'online' | 'offline';
   lastSeen?: Date;
 }
@@ -38,7 +61,14 @@ export const UserSchema = new Schema<IUserDoc>({
   avatar: { type: String },
   role: { type: String, enum: ['admin', 'support_agent'], default: 'support_agent' },
   status: { type: String, enum: ['online', 'offline'], default: 'offline' },
-  lastSeen: { type: Date, default: Date.now }
+  lastSeen: { type: Date, default: Date.now },
+  jobTitle: { type: String },
+  department: { type: String },
+  phone: { type: String },
+  bio: { type: String },
+  calendarLink: { type: String },
+  location: { type: String },
+  timezone: { type: String }
 }, { timestamps: true });
 
 export const UserModel = mongoose.model<IUserDoc>('User', UserSchema);
@@ -61,6 +91,7 @@ export interface ICustomerDoc extends Document {
     firstSeen?: Date;
     lastSeen?: Date;
     totalConversations?: number;
+    timezone?: string;
   };
   tags: string[];
   notes: string[];
@@ -82,7 +113,8 @@ export const CustomerSchema = new Schema<ICustomerDoc>({
     sessionDuration: { type: Number, default: 0 },
     firstSeen: { type: Date, default: Date.now },
     lastSeen: { type: Date, default: Date.now },
-    totalConversations: { type: Number, default: 0 }
+    totalConversations: { type: Number, default: 0 },
+    timezone: { type: String }
   },
   tags: [{ type: String }],
   notes: [{ type: String }]
@@ -105,6 +137,7 @@ export interface IConversationDoc extends Document {
   starred?: boolean;
   snoozedUntil?: Date | null;
   customerSnippet?: string;
+  tags?: string[];
   kind?: string;
   title?: string;
   description?: string;
@@ -119,7 +152,7 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   customerId: { type: String, required: true, index: true },
   assignedAgentId: { type: String, index: true },
   status: { type: String, required: true, enum: ['open', 'waiting', 'resolved', 'closed', 'archived'], default: 'open' },
-  priority: { type: String, required: true, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+  priority: { type: String, required: true, enum: ['none', 'low', 'medium', 'high', 'critical'], default: 'medium' },
   category: { type: String, required: true, enum: ['general', 'bug', 'payment', 'subscription', 'refund', 'feature_request', 'other'], default: 'general' },
   lastMessageSnippet: { type: String, default: '' },
   unreadCountAgent: { type: Number, default: 0 },
@@ -127,6 +160,7 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   starred: { type: Boolean, default: false },
   snoozedUntil: { type: Date, default: null },
   customerSnippet: { type: String },
+  tags: { type: [String], default: [] },
   kind: { type: String, enum: ['conversation', 'ticket', 'issue'], default: 'conversation', index: true },
   title: { type: String },
   description: { type: String },

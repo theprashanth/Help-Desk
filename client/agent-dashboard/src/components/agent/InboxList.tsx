@@ -2,11 +2,15 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
-  AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench
+  AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
+  ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User
 } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
-import { SNOOZE_OPTIONS, computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
+import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
+import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 import { STATE_FILTERS, StateFilter, statusesFor, viewParams, matchesState } from '../../lib/inboxViews';
+import { PRIORITY_OPTIONS, PriorityIcon } from '../../lib/priority';
+import { Agent } from '../../../../../shared/src/types';
 
 type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until';
 
@@ -17,16 +21,18 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] =
   { key: 'snoozed_until', label: 'Snoozed until', icon: AlarmClock },
 ];
 
-const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
 
 const BACKEND_URL = 'http://localhost:3000';
 
 interface InboxListProps {
   currentQueue: string; // inbox view id: yours | created | all | unassigned | agent:<id> | kind:<kind>
   viewTitle: string;    // shown as the panel title
+  agents?: Agent[];     // for the row menu's Assign submenu
 }
 
-export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle }) => {
+export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, agents = [] }) => {
+  const snoozeOptions = useSnoozeOptions();
   const conversations = useStore((state) => state.conversations);
   const setConversations = useStore((state) => state.setConversations);
   const activeConversationId = useStore((state) => state.activeConversationId);
@@ -78,6 +84,33 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
 
   // Track which conversation card has its action menu open
   const [openMenuConvId, setOpenMenuConvId] = useState<string | null>(null);
+  const [rowMenuView, setRowMenuView] = useState<'main' | 'snooze' | 'assign'>('main');
+  const [rowMenuPos, setRowMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const openRowMenu = (convId: string, anchor: HTMLElement) => {
+    if (openMenuConvId === convId) { setOpenMenuConvId(null); return; }
+    const r = anchor.getBoundingClientRect();
+    const width = 256, height = 380;
+    const top = r.bottom + height + 8 > window.innerHeight ? Math.max(8, r.top - height - 4) : r.bottom + 4;
+    setRowMenuPos({ top, left: Math.max(8, Math.min(r.right - width, window.innerWidth - width - 8)) });
+    setRowMenuView('main');
+    setOpenMenuConvId(convId);
+  };
+  const updateConversationInStore = useStore((state) => state.updateConversation);
+  const putTicket = async (url: string, body: any) => {
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(body)
+      });
+      if (res.ok) updateConversationInStore(await res.json());
+    } catch (e) {
+      console.error('Failed to update conversation:', e);
+    }
+  };
+  const handleSetPriority = (convId: string, priority: string) => putTicket(`${BACKEND_URL}/api/tickets/${convId}`, { priority });
+  const handleAssignTo = (convId: string, agentId: string | null) => putTicket(`${BACKEND_URL}/api/tickets/${convId}/assign`, { agentId });
+  const handleCloseConversation = (convId: string) => putTicket(`${BACKEND_URL}/api/tickets/${convId}`, { status: 'closed' });
 
   // Which view/state/filters the current list was loaded for. Auto-selecting the first
   // conversation waits until the list matches what's on screen, so a deep link (or a just-created
@@ -435,7 +468,8 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
-                <option value="critical">Critical</option>
+                <option value="critical">Urgent</option>
+                <option value="none">No priority</option>
               </select>
             </div>
 
@@ -543,10 +577,22 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
                         {c.starred && (
                           <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
                         )}
+                        {(c.priority === 'critical' || c.priority === 'high') && (
+                          <span title={c.priority === 'critical' ? 'Urgent' : 'High priority'}><PriorityIcon priority={c.priority} className="w-3.5 h-3.5" /></span>
+                        )}
+                        {c.status !== 'closed' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleCloseConversation(c.id); }}
+                            title="Close conversation"
+                            className="w-6 h-6 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-ink/[0.06] transition-colors shrink-0 opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+                          >
+                            <InboxIcon className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setOpenMenuConvId(openMenuConvId === c.id ? null : c.id);
+                            openRowMenu(c.id, e.currentTarget);
                           }}
                           title="More actions"
                           className={`w-6 h-6 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-ink/[0.06] transition-colors shrink-0 focus:opacity-100 ${
@@ -597,52 +643,94 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle })
                 </div>
 
                 {/* Dropdown Menu on Card */}
-                {openMenuConvId === c.id && (
-                  <div className="ic-menu absolute top-10 right-3 w-64 animate-slide-up">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleToggleStar(c.id, c.starred || false);
-                        setOpenMenuConvId(null);
-                      }}
-                      className="ic-menu-item"
-                    >
-                      <Star className={`w-4 h-4 ${c.starred ? 'fill-amber-400 text-amber-400' : 'text-muted'}`} />
-                      <span>{c.starred ? 'Remove priority' : 'Mark as priority'}</span>
-                    </button>
-                    <div className="my-1.5 border-t border-line" />
-                    {snoozed ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSnooze(c.id, null);
-                          setOpenMenuConvId(null);
-                        }}
-                        className="ic-menu-item"
-                      >
-                        <AlarmClock className="w-4 h-4 text-muted" />
-                        <span>Unsnooze</span>
-                      </button>
-                    ) : (
+                {openMenuConvId === c.id && rowMenuPos && (
+                  <div
+                    className="ic-menu fixed w-64 animate-fade-in"
+                    style={{ top: rowMenuPos.top, left: rowMenuPos.left }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {rowMenuView === 'main' && (
                       <>
-                        <div className="px-3.5 pt-0.5 pb-1 text-[12px] font-medium text-faint">Snooze until</div>
-                        {SNOOZE_OPTIONS.map(opt => (
+                        <button onClick={() => setRowMenuView('snooze')} className="ic-menu-item">
+                          <AlarmClock className="w-4 h-4 text-muted" />
+                          <span className="flex-1">{snoozed ? 'Snoozed' : 'Snooze'}</span>
+                          <ChevronRight className="w-4 h-4 text-muted" />
+                        </button>
+                        <button onClick={() => setRowMenuView('assign')} className="ic-menu-item">
+                          <UserCheck className="w-4 h-4 text-muted" />
+                          <span className="flex-1">Assign</span>
+                          <ChevronRight className="w-4 h-4 text-muted" />
+                        </button>
+                        <div className="my-1.5 border-t border-line" />
+                        <div className="px-3.5 pt-0.5 pb-1 text-[12px] font-medium text-faint">Priority</div>
+                        {PRIORITY_OPTIONS.map(o => (
+                          <button
+                            key={o.value}
+                            onClick={() => { handleSetPriority(c.id, o.value); setOpenMenuConvId(null); }}
+                            className="ic-menu-item"
+                          >
+                            <PriorityIcon priority={o.value} />
+                            <span className="flex-1">{o.label}</span>
+                            {(c.priority || 'none') === o.value && <Check className="w-4 h-4 text-accent" />}
+                          </button>
+                        ))}
+                        <div className="my-1.5 border-t border-line" />
+                        <button
+                          onClick={() => { handleToggleStar(c.id, c.starred || false); setOpenMenuConvId(null); }}
+                          className="ic-menu-item"
+                        >
+                          <Star className={`w-4 h-4 ${c.starred ? 'fill-amber-400 text-amber-400' : 'text-muted'}`} />
+                          <span>{c.starred ? 'Remove star' : 'Star conversation'}</span>
+                        </button>
+                      </>
+                    )}
+
+                    {rowMenuView === 'snooze' && (
+                      <>
+                        <button onClick={() => setRowMenuView('main')} className="ic-menu-item text-muted">
+                          <ChevronLeft className="w-4 h-4" /> Snooze
+                        </button>
+                        <div className="my-1 border-t border-line" />
+                        {snoozed && (
+                          <button onClick={() => { handleSnooze(c.id, null); setOpenMenuConvId(null); }} className="ic-menu-item">
+                            <AlarmClock className="w-4 h-4 text-muted" /> Unsnooze
+                          </button>
+                        )}
+                        {snoozeOptions.map(opt => (
                           <button
                             key={opt.value}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSnooze(c.id, computeSnoozeUntil(opt.value));
-                              setOpenMenuConvId(null);
-                            }}
+                            onClick={() => { handleSnooze(c.id, computeSnoozeUntil(opt.value)); setOpenMenuConvId(null); }}
                             className="ic-menu-item justify-between"
                           >
-                            <span className="flex items-center gap-3">
-                              <AlarmClock className="w-4 h-4 text-muted" />
-                              {opt.label}
-                            </span>
+                            <span>{opt.label}</span>
                             <span className="text-[12px] text-faint">{opt.sub}</span>
                           </button>
                         ))}
+                      </>
+                    )}
+
+                    {rowMenuView === 'assign' && (
+                      <>
+                        <button onClick={() => setRowMenuView('main')} className="ic-menu-item text-muted">
+                          <ChevronLeft className="w-4 h-4" /> Assign
+                        </button>
+                        <div className="my-1 border-t border-line" />
+                        <div className="max-h-64 overflow-y-auto">
+                          <button onClick={() => { handleAssignTo(c.id, null); setOpenMenuConvId(null); }} className="ic-menu-item">
+                            <User className="w-4 h-4 text-muted" />
+                            <span className="flex-1">Unassigned</span>
+                            {!c.assignedAgentId && <Check className="w-4 h-4 text-accent" />}
+                          </button>
+                          {agents.map(a => (
+                            <button key={a.id} onClick={() => { handleAssignTo(c.id, a.id); setOpenMenuConvId(null); }} className="ic-menu-item">
+                              {a.avatar
+                                ? <img src={a.avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
+                                : <span className="w-4 h-4 rounded-full bg-subtle text-[9px] font-semibold flex items-center justify-center">{a.name.charAt(0)}</span>}
+                              <span className="flex-1 truncate">{a.id === agent?.id ? `${a.name} (you)` : a.name}</span>
+                              {c.assignedAgentId === a.id && <Check className="w-4 h-4 text-accent" />}
+                            </button>
+                          ))}
+                        </div>
                       </>
                     )}
                   </div>

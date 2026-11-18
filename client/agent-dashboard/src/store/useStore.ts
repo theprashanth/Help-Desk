@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Conversation, Message, Tag, SavedReply } from '../../../../shared/src/types';
+import { Agent, Conversation, Message, Tag, SavedReply, SnoozePreset } from '../../../../shared/src/types';
 import { Socket } from 'socket.io-client';
 import { matchesView, statusesFor, StateFilter } from '../lib/inboxViews';
 
@@ -48,6 +48,10 @@ interface AppState {
   // Layout: whether the Inbox navigation panel is expanded
   inboxNavOpen: boolean;
   setInboxNavOpen: (open: boolean) => void;
+
+  // Workspace snooze presets (Settings > General); empty = default list
+  snoozePresets: SnoozePreset[];
+  setSnoozePresets: (p: SnoozePreset[]) => void;
 
   // Deep link target: scroll to and highlight this message once it's loaded
   focusMessageId: string | null;
@@ -117,6 +121,7 @@ export const useStore = create<AppState>((set) => ({
   searchRequest: 0,
   inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
   focusMessageId: null,
+  snoozePresets: [],
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
@@ -166,6 +171,7 @@ export const useStore = create<AppState>((set) => ({
   requestSearch: () => set((st) => ({ searchRequest: st.searchRequest + 1 })),
   setInboxNavOpen: (open) => set({ inboxNavOpen: open }),
   setFocusMessageId: (id) => set({ focusMessageId: id }),
+  setSnoozePresets: (snoozePresets) => set({ snoozePresets }),
 
   // Messages
   messages: {},

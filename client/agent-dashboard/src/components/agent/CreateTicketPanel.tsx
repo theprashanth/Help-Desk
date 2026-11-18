@@ -267,10 +267,11 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
                 <div className="grid grid-cols-[160px_1fr] items-center min-h-[36px]">
                   <span className="text-muted">Priority</span>
                   <select value={priority} onChange={(e) => setPriority(e.target.value)} className="ic-select h-8 w-48 text-[14px]">
+                    <option value="none">No priority</option>
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
                     <option value="high">High</option>
-                    <option value="critical">Critical</option>
+                    <option value="critical">Urgent</option>
                   </select>
                 </div>
                 <div className="grid grid-cols-[160px_1fr] items-center min-h-[36px]">

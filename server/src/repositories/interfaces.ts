@@ -4,6 +4,7 @@ export interface IWorkspaceRepository {
   findById(id: string): Promise<Workspace | null>;
   findByApiKey(apiKey: string): Promise<Workspace | null>;
   create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace>;
+  update(id: string, updateData: Partial<Workspace>): Promise<Workspace | null>;
 }
 
 export interface IUserRepository {
@@ -13,6 +14,7 @@ export interface IUserRepository {
   create(agentData: Omit<Agent, 'id'> & { passwordPlain: string }): Promise<Agent>;
   update(id: string, updateData: Partial<Agent>): Promise<Agent | null>;
   findAll(): Promise<Agent[]>;
+  delete(id: string): Promise<boolean>;
 }
 
 export interface ICustomerRepository {

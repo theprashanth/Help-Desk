@@ -4,8 +4,9 @@ import { Customer } from '../../../../../shared/src/types';
 import { 
   Mail, Phone, Globe, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
   FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
-  Sidebar, Link2, ShieldAlert, Sparkles, Clock, GitMerge, MessageSquare, Copy
+  Sidebar, Link2, ShieldAlert, Sparkles, Clock, GitMerge, MessageSquare, Copy, Eye, Layers
 } from 'lucide-react';
+import { Conversation } from '../../../../../shared/src/types';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -37,10 +38,11 @@ export const CustomerProfilePanel: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'details' | 'copilot'>('details');
 
   // Accordion Expand/Collapse States
-  const [linksOpen, setLinksOpen] = useState(true);
+  // Open by default: User data, Conversation attributes, Recent conversations
+  const [linksOpen, setLinksOpen] = useState(false);
   const [attrsOpen, setAttrsOpen] = useState(true);
   const [userDataOpen, setUserDataOpen] = useState(true);
-  const [notesOpen, setNotesOpen] = useState(true);
+  const [notesOpen, setNotesOpen] = useState(false);
 
   // Editable fields
   const [isEditing, setIsEditing] = useState(false);
@@ -84,6 +86,17 @@ export const CustomerProfilePanel: React.FC = () => {
 
   // Recent conversations from same customer
   const [recentConvs, setRecentConvs] = useState<any[]>([]);
+  const [showAllUserData, setShowAllUserData] = useState(false);
+  const [userTagsOpen, setUserTagsOpen] = useState(false);
+  const [convTagsOpen, setConvTagsOpen] = useState(false);
+  const [showAddConvTag, setShowAddConvTag] = useState(false);
+  const [pageViewsOpen, setPageViewsOpen] = useState(false);
+  const [similarOpen, setSimilarOpen] = useState(false);
+  const [pageViews, setPageViews] = useState<{ url: string; at: string }[]>([]);
+  const [similar, setSimilar] = useState<Conversation[]>([]);
+  const setViewingMergedConversationId = useStore((state) => state.setViewingMergedConversationId);
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => { const t = setInterval(() => setClock(Date.now()), 60_000); return () => clearInterval(t); }, []);
   const [recentOpen, setRecentOpen] = useState(true);
   const [mergeConfirm, setMergeConfirm] = useState<string | null>(null);
   const [mergeLoading, setMergeLoading] = useState(false);
@@ -122,6 +135,46 @@ export const CustomerProfilePanel: React.FC = () => {
         const updated = await res.json();
         updateConversation(updated);
       }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Recent page views: pages the customer wrote from in this conversation (+ their current page)
+  useEffect(() => {
+    if (!activeConversationId || !token) return;
+    fetch(`${BACKEND_URL}/api/messages/${activeConversationId}`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then((msgs: any[]) => {
+        const seen = new Map<string, string>();
+        msgs.filter(m => m.sender?.type === 'customer' && m.metadata?.sourceUrl)
+          .forEach(m => seen.set(m.metadata.sourceUrl, m.createdAt));
+        setPageViews([...seen.entries()].map(([url, at]) => ({ url, at })).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8));
+      })
+      .catch(() => setPageViews([]));
+  }, [activeConversationId, token]);
+
+  // Similar conversations: same category, other customers
+  const activeCategory = conversations.find(c => c.id === activeConversationId)?.category;
+  const activeCustomerId = conversations.find(c => c.id === activeConversationId)?.customer.id;
+  useEffect(() => {
+    if (!activeConversationId || !token || !activeCategory) return;
+    fetch(`${BACKEND_URL}/api/tickets?category=${activeCategory}&status=open,waiting,resolved,closed`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then((list: Conversation[]) => setSimilar(list.filter(c => c.id !== activeConversationId && c.customer.id !== activeCustomerId).slice(0, 5)))
+      .catch(() => setSimilar([]));
+  }, [activeConversationId, activeCategory, activeCustomerId, token]);
+
+  // Conversation tags (separate from the customer's own tags)
+  const handleConversationTags = async (nextTags: string[]) => {
+    if (!activeConversationId || !token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ tags: nextTags })
+      });
+      if (res.ok) updateConversation(await res.json());
     } catch (e) {
       console.error(e);
     }
@@ -214,7 +267,7 @@ export const CustomerProfilePanel: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ name, email, phone })
+        body: JSON.stringify({ name, email, phone, conversationId: activeConversationId })
       });
 
       if (res.ok) {
@@ -237,7 +290,7 @@ export const CustomerProfilePanel: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ tags: updatedTags })
+        body: JSON.stringify({ tags: updatedTags, conversationId: activeConversationId })
       });
       setShowAddTag(false);
     } catch (err) {
@@ -255,7 +308,7 @@ export const CustomerProfilePanel: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ tags: updatedTags })
+        body: JSON.stringify({ tags: updatedTags, conversationId: activeConversationId })
       });
     } catch (err) {
       console.error(err);
@@ -272,7 +325,7 @@ export const CustomerProfilePanel: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ notes: updatedNotes })
+        body: JSON.stringify({ notes: updatedNotes, conversationId: activeConversationId })
       });
       if (res.ok) {
         setNewNote('');
@@ -292,7 +345,7 @@ export const CustomerProfilePanel: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ notes: updatedNotes })
+        body: JSON.stringify({ notes: updatedNotes, conversationId: activeConversationId })
       });
     } catch (err) {
       console.error(err);
@@ -317,6 +370,16 @@ export const CustomerProfilePanel: React.FC = () => {
 
   // Find assigned agent object
   const assignedAgent = agents.find(a => a.id === conv.assignedAgentId);
+  // Lead = anonymous visitor (guest id, no email); User = identified
+  const isLead = !customer.email && /^guest_/i.test(customer.id);
+  // Customer's local time (timezone comes from the Messenger's geo lookup)
+  const localTime = (() => {
+    const tz = customer.session?.timezone;
+    if (!tz) return '';
+    try {
+      return new Date(clock).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+    } catch { return ''; }
+  })();
 
   return (
     <div className="ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col overflow-hidden">
@@ -494,7 +557,8 @@ export const CustomerProfilePanel: React.FC = () => {
                       <option value="low" className="bg-surface text-ink">Low</option>
                       <option value="medium" className="bg-surface text-ink">Medium</option>
                       <option value="high" className="bg-surface text-ink">High</option>
-                      <option value="critical" className="bg-surface text-ink">Critical</option>
+                      <option value="critical" className="bg-surface text-ink">Urgent</option>
+                      <option value="none" className="bg-surface text-ink">No priority</option>
                     </select>
                   </div>
                 </div>
@@ -603,16 +667,23 @@ export const CustomerProfilePanel: React.FC = () => {
                   <div className="ic-detail-row group relative">
                     <span className="ic-detail-label">Location</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
-                      <InstantTooltip text={customer.session?.country || 'Unknown'}>
+                      <InstantTooltip text={`${localTime ? localTime + ' local time · ' : ''}${customer.session?.country || 'Unknown'}`}>
                         <span className="ic-detail-value flex items-center gap-2">
                           <Globe className="w-4 h-4 text-muted shrink-0" />
-                          <span className="truncate">{customer.session?.country || 'Unknown'}</span>
+                          <span className="truncate">{localTime ? `${localTime} · ` : ''}{customer.session?.country || 'Unknown'}</span>
                         </span>
                       </InstantTooltip>
                       {renderCopyButton(customer.session?.country, 'location')}
                     </div>
                   </div>
 
+                  {/* Type */}
+                  <div className="ic-detail-row">
+                    <span className="ic-detail-label">Type</span>
+                    <span className="ic-detail-value" title={isLead ? 'Anonymous visitor (no email / account yet)' : 'Identified user'}>{isLead ? 'Lead' : 'User'}</span>
+                  </div>
+
+                  {showAllUserData && (<>
                   {/* Browser / OS */}
                   <div className="ic-detail-row group relative">
                     <span className="ic-detail-label">Browser/OS</span>
@@ -661,60 +732,117 @@ export const CustomerProfilePanel: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Tags sub-section */}
-                  <div className="flex flex-col gap-2.5 mt-2 pt-3 border-t border-line">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[14px] text-muted flex items-center gap-2">
-                        <TagIcon className="w-4 h-4" /> Tags
-                      </span>
-                      <button 
-                        onClick={() => setShowAddTag(!showAddTag)}
-                        className="ic-icon-btn w-8 h-8"
-                        title="Add tag"
-                      >
-                        <Plus className="w-4 h-4" />
-                      </button>
-                    </div>
+                  </>)}
 
-                    {showAddTag && (
-                      <div className="flex flex-col gap-2 p-3 bg-surface rounded-xl border border-line shadow-pop animate-slide-up">
-                        <span className="text-[13px] text-muted">Select tag</span>
-                        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
-                          {tags.filter(t => !customer.tags.includes(t.name)).map(t => (
-                            <button
-                              key={t.id}
-                              onClick={() => handleAddTag(t.name)}
-                              style={{ backgroundColor: t.color + '15', color: t.color, borderColor: t.color + '40' }}
-                              className="px-2.5 h-6 rounded-full text-[12px] font-medium border hover:opacity-80 transition-opacity"
-                            >
-                              {t.name}
-                            </button>
-                          ))}
-                          {tags.filter(t => !customer.tags.includes(t.name)).length === 0 && (
-                            <span className="text-[13px] text-faint p-1">No tags available.</span>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                  <button
+                    onClick={() => setShowAllUserData(v => !v)}
+                    className="self-start mt-1 px-1 h-8 text-[14px] font-semibold text-ink hover:underline underline-offset-2"
+                  >
+                    {showAllUserData ? 'See less' : 'See all'}
+                  </button>
+                </div>
+              )}
+            </div>
 
-                    <div className="flex flex-wrap gap-1.5">
-                      {customer.tags && customer.tags.length > 0 ? (
-                        customer.tags.map((t, i) => (
-                          <span
-                            key={i}
-                            style={{ backgroundColor: getTagColor(t) + '15', color: getTagColor(t), borderColor: getTagColor(t) + '40' }}
-                            className="inline-flex items-center gap-1 pl-2.5 pr-1 h-6 border text-[12px] font-medium rounded-full"
-                          >
-                            {t}
-                            <button onClick={() => handleRemoveTag(t)} className="opacity-60 hover:opacity-100 p-0.5 rounded-full hover:bg-ink/5">
-                              <X className="w-3 h-3" />
-                            </button>
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-[14px] text-faint">No tags associated.</span>
+            {/* SECTION: USER TAGS */}
+            <div className="ic-detail-section">
+              <div className="w-full flex items-center justify-between">
+                <button onClick={() => setUserTagsOpen(!userTagsOpen)} className="ic-detail-section-title">
+                  <TagIcon className="w-[18px] h-[18px]" /> User tags
+                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setUserTagsOpen(true); setShowAddTag(!showAddTag); }} className="ic-icon-btn-ghost" title="Tag this person">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setUserTagsOpen(!userTagsOpen)} className="ic-icon-btn-ghost">
+                    {userTagsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+                  </button>
+                </div>
+              </div>
+              {userTagsOpen && (
+                <div className="mt-2 flex flex-col gap-2">
+                  {showAddTag && (
+                    <div className="flex flex-wrap gap-1.5 p-3 bg-surface rounded-xl border border-line shadow-pop animate-slide-up max-h-28 overflow-y-auto">
+                      {tags.filter(t => !customer.tags.includes(t.name)).map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => handleAddTag(t.name)}
+                          style={{ backgroundColor: t.color + '15', color: t.color, borderColor: t.color + '40' }}
+                          className="px-2.5 h-6 rounded-full text-[12px] font-medium border hover:opacity-80 transition-opacity"
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                      {tags.filter(t => !customer.tags.includes(t.name)).length === 0 && (
+                        <span className="text-[13px] text-faint p-1">No more tags available.</span>
                       )}
                     </div>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {customer.tags && customer.tags.length > 0 ? customer.tags.map((t, i) => (
+                      <span
+                        key={i}
+                        style={{ backgroundColor: getTagColor(t) + '15', color: getTagColor(t), borderColor: getTagColor(t) + '40' }}
+                        className="inline-flex items-center gap-1 pl-2.5 pr-1 h-6 border text-[12px] font-medium rounded-full"
+                      >
+                        {t}
+                        <button onClick={() => handleRemoveTag(t)} className="opacity-60 hover:opacity-100 p-0.5 rounded-full hover:bg-ink/5">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )) : <span className="text-[14px] text-faint">No tags yet</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* SECTION: CONVERSATION TAGS */}
+            <div className="ic-detail-section">
+              <div className="w-full flex items-center justify-between">
+                <button onClick={() => setConvTagsOpen(!convTagsOpen)} className="ic-detail-section-title">
+                  <TagIcon className="w-[18px] h-[18px]" /> Conversation tags
+                </button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => { setConvTagsOpen(true); setShowAddConvTag(!showAddConvTag); }} className="ic-icon-btn-ghost" title="Tag this conversation">
+                    <Plus className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => setConvTagsOpen(!convTagsOpen)} className="ic-icon-btn-ghost">
+                    {convTagsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+                  </button>
+                </div>
+              </div>
+              {convTagsOpen && (
+                <div className="mt-2 flex flex-col gap-2">
+                  {showAddConvTag && (
+                    <div className="flex flex-wrap gap-1.5 p-3 bg-surface rounded-xl border border-line shadow-pop animate-slide-up max-h-28 overflow-y-auto">
+                      {tags.filter(t => !(conv.tags || []).includes(t.name)).map(t => (
+                        <button
+                          key={t.id}
+                          onClick={() => { handleConversationTags([...(conv.tags || []), t.name]); setShowAddConvTag(false); }}
+                          style={{ backgroundColor: t.color + '15', color: t.color, borderColor: t.color + '40' }}
+                          className="px-2.5 h-6 rounded-full text-[12px] font-medium border hover:opacity-80 transition-opacity"
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                      {tags.filter(t => !(conv.tags || []).includes(t.name)).length === 0 && (
+                        <span className="text-[13px] text-faint p-1">No more tags available.</span>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {(conv.tags || []).length > 0 ? (conv.tags || []).map(t => (
+                      <span
+                        key={t}
+                        style={{ backgroundColor: getTagColor(t) + '15', color: getTagColor(t), borderColor: getTagColor(t) + '40' }}
+                        className="inline-flex items-center gap-1 pl-2.5 pr-1 h-6 border text-[12px] font-medium rounded-full"
+                      >
+                        {t}
+                        <button onClick={() => handleConversationTags((conv.tags || []).filter(x => x !== t))} className="opacity-60 hover:opacity-100 p-0.5 rounded-full hover:bg-ink/5">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    )) : <span className="text-[14px] text-faint">No tags yet</span>}
                   </div>
                 </div>
               )}
@@ -727,7 +855,7 @@ export const CustomerProfilePanel: React.FC = () => {
                 className="w-full flex items-center justify-between"
               >
                 <span className="ic-detail-section-title">
-                  <FileText className="w-[18px] h-[18px]" /> Customer notes
+                  <FileText className="w-[18px] h-[18px]" /> User notes
                 </span>
                 {notesOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
               </button>
@@ -782,10 +910,10 @@ export const CustomerProfilePanel: React.FC = () => {
                 className="w-full flex items-center justify-between"
               >
                 <span className="ic-detail-section-title">
-                  <MessageSquare className="w-[18px] h-[18px]" /> Previous conversations
+                  <MessageSquare className="w-[18px] h-[18px]" /> Recent conversations
                   {recentConvs.length > 1 && (
-                    <span className="ic-badge">
-                      {recentConvs.length}
+                    <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-accent/10 text-accent text-[12px] font-semibold inline-flex items-center justify-center">
+                      {recentConvs.length - 1}
                     </span>
                   )}
                 </span>
@@ -887,6 +1015,53 @@ export const CustomerProfilePanel: React.FC = () => {
                         );
                       })
                   )}
+                </div>
+              )}
+            </div>
+
+            {/* SECTION: RECENT PAGE VIEWS */}
+            <div className="ic-detail-section">
+              <button onClick={() => setPageViewsOpen(!pageViewsOpen)} className="w-full flex items-center justify-between">
+                <span className="ic-detail-section-title"><Eye className="w-[18px] h-[18px]" /> Recent page views</span>
+                {pageViewsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+              {pageViewsOpen && (
+                <div className="mt-2 flex flex-col">
+                  {(pageViews.length > 0 ? pageViews : (customer.session?.currentPage ? [{ url: customer.session.currentPage, at: customer.session.lastSeen || '' }] : [])).map(v => (
+                    <a key={v.url} href={v.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 min-h-[34px] text-[14px] group/pv">
+                      <span className="truncate text-ink group-hover/pv:underline underline-offset-2" title={v.url}>{v.url.replace(/^https?:\/\//, '')}</span>
+                      <span className="text-[12px] text-faint shrink-0">{v.at ? new Date(v.at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>
+                    </a>
+                  ))}
+                  {pageViews.length === 0 && !customer.session?.currentPage && <span className="text-[14px] text-faint">No page views recorded</span>}
+                </div>
+              )}
+            </div>
+
+            {/* SECTION: SIMILAR CONVERSATIONS */}
+            <div className="ic-detail-section">
+              <button onClick={() => setSimilarOpen(!similarOpen)} className="w-full flex items-center justify-between">
+                <span className="ic-detail-section-title"><Layers className="w-[18px] h-[18px]" /> Similar conversations</span>
+                {similarOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
+              </button>
+              {similarOpen && (
+                <div className="mt-2 flex flex-col gap-1">
+                  <span className="text-[12px] text-faint mb-1 capitalize">Same category: {conv.category.replace('_', ' ')}</span>
+                  {similar.length === 0 && <span className="text-[14px] text-faint">No similar conversations</span>}
+                  {similar.map(sc => (
+                    <button
+                      key={sc.id}
+                      onClick={() => setViewingMergedConversationId(sc.id)}
+                      className="text-left rounded-lg px-2 py-2 -mx-2 hover:bg-subtle transition-colors"
+                      title="Preview this conversation"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[13px]">
+                        <span className="font-medium text-ink truncate">{sc.title || sc.customer.name}</span>
+                        <span className="text-faint shrink-0">{sc.ticketNumber}</span>
+                      </div>
+                      <div className="text-[13px] text-muted truncate">{sc.lastMessageSnippet || 'No messages'}</div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>

@@ -21,6 +21,14 @@ const mapWorkspace = (doc: any): Workspace => ({
   subdomain: doc.subdomain,
   apiKey: doc.apiKey,
   createdAt: doc.createdAt?.toISOString(),
+  officeHours: doc.officeHours || undefined,
+  replyTime: doc.replyTime || 'asap',
+  customerFacingName: doc.customerFacingName,
+  timezone: doc.timezone,
+  showAttribution: doc.showAttribution,
+  snoozeOptions: doc.snoozeOptions,
+  replyTimeNotice: doc.replyTimeNotice,
+  integrations: doc.integrations,
 });
 
 export class MongooseWorkspaceRepository implements IWorkspaceRepository {
@@ -43,6 +51,11 @@ export class MongooseWorkspaceRepository implements IWorkspaceRepository {
     await doc.save();
     return mapWorkspace(doc);
   }
+
+  async update(id: string, updateData: Partial<Workspace>): Promise<Workspace | null> {
+    const doc = await WorkspaceModel.findByIdAndUpdate(id, { $set: updateData }, { new: true });
+    return doc ? mapWorkspace(doc) : null;
+  }
 }
 
 const mapAgent = (doc: any): Agent => ({
@@ -54,6 +67,14 @@ const mapAgent = (doc: any): Agent => ({
   role: doc.role,
   status: doc.status,
   lastSeen: doc.lastSeen?.toISOString(),
+  createdAt: doc.createdAt?.toISOString(),
+  jobTitle: doc.jobTitle,
+  department: doc.department,
+  phone: doc.phone,
+  bio: doc.bio,
+  calendarLink: doc.calendarLink,
+  location: doc.location,
+  timezone: doc.timezone,
 });
 
 const mapCustomer = (doc: any): Customer => ({
@@ -71,6 +92,7 @@ const mapCustomer = (doc: any): Customer => ({
     sessionDuration: doc.session?.sessionDuration,
     firstSeen: doc.session?.firstSeen?.toISOString(),
     lastSeen: doc.session?.lastSeen?.toISOString(),
+    timezone: doc.session?.timezone,
     totalConversations: doc.session?.totalConversations,
   },
   tags: doc.tags || [],
@@ -159,6 +181,11 @@ export class MongooseUserRepository implements IUserRepository {
   async findAll(): Promise<Agent[]> {
     const docs = await UserModel.find();
     return docs.map(mapAgent);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const res = await UserModel.findByIdAndDelete(id);
+    return res !== null;
   }
 }
 
@@ -251,6 +278,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       starred: doc.starred || false,
       snoozedUntil: doc.snoozedUntil ? new Date(doc.snoozedUntil).toISOString() : null,
       customerSnippet: doc.customerSnippet,
+      tags: doc.tags || [],
       kind: (doc.kind as any) || 'conversation',
       title: doc.title,
       description: doc.description,
@@ -290,6 +318,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       starred: conv.starred || false,
       snoozedUntil: conv.snoozedUntil || null,
       customerSnippet: conv.customerSnippet,
+      tags: conv.tags || [],
       kind: conv.kind || 'conversation',
       title: conv.title,
       description: conv.description,
@@ -307,7 +336,17 @@ export class MongooseConversationRepository implements IConversationRepository {
       cleanUpdates.customerId = updateData.customer.id;
       delete cleanUpdates.customer;
     }
-    const doc = await ConversationModel.findByIdAndUpdate(id, { $set: cleanUpdates }, { new: true });
+    // Keys explicitly set to undefined/null (e.g. unassigning) must be removed, not skipped
+    const unset: Record<string, ''> = {};
+    for (const k of Object.keys(cleanUpdates)) {
+      if (cleanUpdates[k] === undefined || (k === 'assignedAgentId' && cleanUpdates[k] === null)) {
+        unset[k] = '';
+        delete cleanUpdates[k];
+      }
+    }
+    const update: any = { $set: cleanUpdates };
+    if (Object.keys(unset).length) update.$unset = unset;
+    const doc = await ConversationModel.findByIdAndUpdate(id, update, { new: true });
     return doc ? this.buildConversationObject(doc) : null;
   }
 
@@ -451,7 +490,7 @@ export class MongooseMessageRepository implements IMessageRepository {
       snippet = `[Note] ${snippet}`;
     }
     // Conversation events (system) don't change the preview
-    if (msg.sender.type !== 'system') {
+    if (msg.sender.type !== 'system' && msg.metadata?.type !== 'auto_reply') {
       await ConversationModel.findByIdAndUpdate(msg.conversationId, {
         $set: { lastMessageSnippet: snippet }
       });

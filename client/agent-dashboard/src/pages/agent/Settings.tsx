@@ -6,13 +6,21 @@ import {
   Bell, Calendar, User, ShieldAlert, Check,
   MessageSquare, Puzzle, Globe, Smartphone, ChevronRight, Copy,
   Moon, Sun, Palette, Home, Shield, Languages, CreditCard, Activity,
-  Mail, Phone, Slack, Twitter, Github, CheckCircle2, AlertCircle, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft
+  Mail, Phone, CheckCircle2, AlertCircle, ArrowLeft,
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal
 } from 'lucide-react';
+import TeammatesSettings from '../../components/settings/TeammatesSettings';
+import ProfileSettings from '../../components/settings/ProfileSettings';
+import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
+import GeneralSettings from '../../components/settings/GeneralSettings';
+import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'workspace' | 'messenger' | 'integrations' | 'profile' | 'macros';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'integrations' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
+
+// Pages that render their own header/tabs/scroll area (components/settings/*)
+const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations'];
 type MessengerTab = 'widget' | 'appearance' | 'install' | 'security';
 
 const PRESET_COLORS = [
@@ -29,13 +37,6 @@ const INSTALL_PLATFORMS = [
   { id: 'shopify', label: 'Shopify', icon: '🛍️' },
   { id: 'nextjs', label: 'Next.js', icon: '▲' },
   { id: 'gtm', label: 'Google Tag Manager', icon: '🏷️' },
-];
-
-const INTEGRATIONS = [
-  { id: 'slack', name: 'Slack', icon: Slack, desc: 'Get notified in Slack for new conversations', color: '#4A154B', connected: false },
-  { id: 'github', name: 'GitHub', icon: Github, desc: 'Link GitHub issues to support tickets', color: '#181717', connected: false },
-  { id: 'twitter', name: 'Twitter / X', icon: Twitter, desc: 'Reply to DMs & mentions from inbox', color: '#1DA1F2', connected: false },
-  { id: 'email', name: 'Email', icon: Mail, desc: 'Forward email support to inbox', color: '#EA4335', connected: true },
 ];
 
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -132,10 +133,9 @@ function WidgetPreview({ themeColor, brandName, greeting, welcome, darkTheme }: 
       {/* Widget Header */}
       <div className="p-5 text-white relative" style={{ background: `linear-gradient(135deg, ${themeColor}ee, ${themeColor})` }}>
         <div className="flex items-center gap-2.5">
-          <div className="flex -space-x-1.5">
-            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop" className="w-7 h-7 rounded-full border-2 border-white/40 object-cover" alt="" />
-            <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop" className="w-7 h-7 rounded-full border-2 border-white/40 object-cover" alt="" />
-          </div>
+          <span className="w-7 h-7 rounded-full border-2 border-white/40 bg-white/20 flex items-center justify-center text-[12px] font-semibold uppercase">
+            {(brandName || '?').trim().charAt(0)}
+          </span>
           <div>
             <p className="font-bold text-sm">{brandName}</p>
             <p className="text-[11px] text-white/70 flex items-center gap-1">
@@ -180,9 +180,11 @@ function WidgetPreview({ themeColor, brandName, greeting, welcome, darkTheme }: 
 
 // ─── MAIN SETTINGS PAGE ─────────────────────────────────────────────────────
 export const Settings: React.FC = () => {
+  // Macro editor dropdowns (kept here, not inside MacrosSection, so the section can be rendered
+  // as part of this component's tree instead of remounting on every keystroke)
+  const [showForDropdown, setShowForDropdown] = useState(false);
+  const [showWhenDropdown, setShowWhenDropdown] = useState(false);
   const token = useStore((state) => state.token);
-  const agent = useStore((state) => state.agent);
-  const setAgent = useStore((state) => (state as any).setAgent);
   const widgetSettings = useStore((state) => state.widgetSettings);
   const setWidgetSettings = useStore((state) => state.setWidgetSettings);
   const chatColorTheme = useStore((state) => (state as any).chatColorTheme);
@@ -191,7 +193,6 @@ export const Settings: React.FC = () => {
   const [section, setSection] = useState<Section>('home');
   const [messengerTab, setMessengerTab] = useState<MessengerTab>('widget');
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null);
-  const [agentName, setAgentName] = useState(agent?.name || '');
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
@@ -335,19 +336,7 @@ export const Settings: React.FC = () => {
         body: JSON.stringify(agentSettings)
       });
 
-      // Save agent name if changed
-      if (agentName.trim() && agentName.trim() !== agent?.name) {
-        const profileRes = await fetch(`${BACKEND_URL}/api/auth/profile`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify({ name: agentName.trim() })
-        });
-        if (profileRes.ok) {
-          const updated = await profileRes.json();
-          // Update store so header/sidebar reflects new name immediately
-          if (setAgent) setAgent(updated);
-        }
-      }
+      // (Name and other profile fields are edited on the Details page — components/settings/ProfileSettings.)
 
       if (res.ok) {
         setSaved(true);
@@ -412,16 +401,16 @@ function App() {
         <h2 className="ic-section-title mb-4">Workspace</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[
-            { icon: User, label: 'General', desc: 'Profile and name settings' },
-            { icon: Shield, label: 'Security', desc: 'Authentication and permissions', badge: '⚠️' },
-            { icon: Calendar, label: 'Office Hours', desc: 'Set your support availability' },
-            { icon: Languages, label: 'Multilingual', desc: 'Manage language settings' },
-            { icon: Globe, label: 'Brands', desc: 'Manage your brand identity' },
-            { icon: Activity, label: 'Teammates', desc: 'Invite and manage agents' },
+            { icon: SlidersHorizontal, label: 'General', desc: 'Workspace name, time zone and snooze options', target: 'general' as Section },
+            { icon: Shield, label: 'Security', desc: 'Authentication and permissions', badge: '⚠️', target: 'profile' as Section },
+            { icon: Calendar, label: 'Office Hours', desc: 'Set your support availability', target: 'officeHours' as Section },
+            { icon: Languages, label: 'Multilingual', desc: 'Manage language settings', target: 'profile' as Section },
+            { icon: Globe, label: 'Brands', desc: 'Manage your brand identity', target: 'profile' as Section },
+            { icon: Activity, label: 'Teammates', desc: 'Invite and manage agents', target: 'teammates' as Section },
           ].map(item => (
             <button
               key={item.label}
-              onClick={() => setSection('profile')}
+              onClick={() => setSection(item.target)}
               className="ic-card-hover p-5 flex items-start gap-4 text-left"
             >
               <div className="ic-tile-icon bg-violet-200/70 text-violet-900 dark:bg-violet-400/20 dark:text-violet-200">
@@ -821,33 +810,6 @@ function App() {
     </div>
   );
 
-  // ── Integrations Section ──────────────────────────────────────────────────
-  const IntegrationsSection = () => (
-    <div className="flex flex-col gap-6">
-      <p className="text-[14px] text-muted">Connect your tools to supercharge your support workflow.</p>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-w-6xl">
-        {INTEGRATIONS.map(intg => (
-          <div key={intg.id} className="ic-card p-5 flex items-start gap-4 hover:border-ink/20 transition-colors">
-            <div className="ic-tile-icon" style={{ background: `${intg.color}22` }}>
-              <intg.icon className="w-5 h-5" style={{ color: intg.color }} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[15px] font-medium text-ink">{intg.name}</p>
-                {intg.connected
-                  ? <span className="inline-flex items-center gap-1 h-6 px-2.5 rounded-full text-[12px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"><CheckCircle2 className="w-3.5 h-3.5" /> Connected</span>
-                  : <button className="ic-btn-outline ic-btn-sm">Connect</button>
-                }
-              </div>
-              <p className="text-[14px] text-muted mt-1 leading-snug">{intg.desc}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-
   // ── Profile Section ───────────────────────────────────────────────────────
   // (The submit button lives in the panel header and targets this form via its id.)
   const ProfileSection = () => (
@@ -860,23 +822,6 @@ function App() {
 
       {agentSettings && (
         <>
-          <FormSection title="Agent profile" icon={User} description="Your name as it appears to teammates and customers.">
-            <div>
-              <label className="ic-label">Full name</label>
-              <input
-                type="text"
-                value={agentName}
-                onChange={e => setAgentName(e.target.value)}
-                className="ic-input"
-                placeholder="Your display name"
-              />
-            </div>
-            <div>
-              <label className="ic-label">Email address</label>
-              <span className="ic-input flex items-center bg-subtle text-muted font-mono text-[13px] truncate" title={agent?.email}>{agent?.email}</span>
-            </div>
-          </FormSection>
-
           <FormSection title="Notifications & theme" icon={Bell} description="Choose how the dashboard looks and how you get notified about new activity.">
             {[
               {
@@ -960,8 +905,6 @@ function App() {
 
   // ── Macros Section ────────────────────────────────────────────────────────
   const MacrosSection = () => {
-    const [showForDropdown, setShowForDropdown] = useState(false);
-    const [showWhenDropdown, setShowWhenDropdown] = useState(false);
 
     const AVAILABLE_FOR_LABELS: Record<'everyone' | 'myself' | 'teams', string> = {
       everyone: 'Everyone',
@@ -1343,8 +1286,12 @@ function App() {
 
   const PAGE_TITLES: Record<Section, string> = {
     home: 'Home',
-    workspace: 'Account & preferences',
-    profile: 'Account & preferences',
+    general: 'General',
+    workspace: 'Notifications & preferences',
+    profile: 'Details',
+    notifications: 'Notifications & preferences',
+    teammates: 'Teammates',
+    officeHours: 'Office hours',
     messenger: 'Messenger',
     integrations: 'Integrations',
     macros: 'Macros',
@@ -1362,6 +1309,9 @@ function App() {
 
           <div className="mt-2 flex flex-col gap-0.5">
             <SettingsNavGroup label="Workspace" open={openGroups.workspace} onToggle={() => toggleGroup('workspace')}>
+              <SettingsNavItem icon={SlidersHorizontal} label="General" active={section === 'general'} onClick={() => setSection('general')} />
+              <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
+              <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => setSection('messenger')} />
               <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => setSection('home')} />
@@ -1378,7 +1328,8 @@ function App() {
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Personal" open={openGroups.personal} onToggle={() => toggleGroup('personal')}>
-              <SettingsNavItem icon={User} label="Profile" active={section === 'profile'} onClick={() => setSection('profile')} />
+              <SettingsNavItem icon={User} label="Details" active={section === 'profile'} onClick={() => setSection('profile')} />
+              <SettingsNavItem icon={Bell} label="Notifications" active={section === 'notifications' || section === 'workspace'} onClick={() => setSection('notifications')} />
             </SettingsNavGroup>
           </div>
         </nav>
@@ -1386,6 +1337,12 @@ function App() {
 
       {/* Content Panel */}
       <div className="ic-panel flex-1 min-w-0 h-full flex flex-col">
+        {section === 'teammates' && <TeammatesSettings onBack={() => setSection('home')} />}
+        {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
+        {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
+        {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
+        {section === 'profile' && <ProfileSettings onBack={() => setSection('home')} onOpenNotifications={() => setSection('notifications')} />}
+        {!SELF_CONTAINED.includes(section) && (<>
         <div className="ic-panel-header">
           {section === 'home' ? (
             <span className="ic-icon-btn-ghost pointer-events-none" aria-hidden="true">
@@ -1407,7 +1364,7 @@ function App() {
             </button>
           )}
 
-          {(section === 'profile' || section === 'workspace') && agentSettings && (
+          {(section === 'notifications' || section === 'workspace') && agentSettings && (
             <Button type="submit" form="settings-profile-form" loading={loading}>
               Save
             </Button>
@@ -1431,12 +1388,14 @@ function App() {
 
         {/* Content Area */}
         <div className="flex-1 min-h-0 overflow-y-auto p-8">
-          {section === 'home' && <HomeSection />}
-          {section === 'messenger' && <MessengerSection />}
-          {section === 'integrations' && <IntegrationsSection />}
-          {(section === 'profile' || section === 'workspace') && <ProfileSection />}
-          {section === 'macros' && <MacrosSection />}
+          {/* Called as functions on purpose: rendering these inner sections as <Section /> would
+              remount them on every keystroke (inputs lose focus, color pickers close). */}
+          {section === 'home' && HomeSection()}
+          {section === 'messenger' && MessengerSection()}
+          {(section === 'notifications' || section === 'workspace') && ProfileSection()}
+          {section === 'macros' && MacrosSection()}
         </div>
+        </>)}
       </div>
     </div>
   );

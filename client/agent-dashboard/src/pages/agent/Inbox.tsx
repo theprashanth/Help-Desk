@@ -15,10 +15,19 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe
+  BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe, Bell, BellOff
 } from 'lucide-react';
+import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 
 const BACKEND_URL = 'http://localhost:3000';
+
+/** Profile photo, or initials when there isn't one (never a stock photo). */
+const AgentAvatar: React.FC<{ agent: { name: string; avatar?: string }; className?: string }> = ({ agent, className = '' }) =>
+  agent.avatar
+    ? <img src={agent.avatar} alt={agent.name} className={`${className} rounded-full object-cover shrink-0`} />
+    : <span className={`${className} rounded-full bg-ink/10 text-ink font-semibold flex items-center justify-center shrink-0 uppercase`}>
+        {agent.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('') || '?'}
+      </span>;
 
 export const Inbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState<string>('yours'); // inbox view id (yours, created, all, unassigned, agent:<id>, kind:<kind>) or analytics | settings | testing
@@ -37,6 +46,16 @@ export const Inbox: React.FC = () => {
   const setComposer = useStore((state) => state.setComposer);
   const requestSearch = useStore((state) => state.requestSearch);
   const socket = useStore((state) => state.socket);
+
+  // Workspace snooze presets (Settings > General)
+  const setSnoozePresets = useStore((state) => state.setSnoozePresets);
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/workspace`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(ws => { if (ws && Array.isArray(ws.snoozeOptions)) setSnoozePresets(ws.snoozeOptions); })
+      .catch(() => {});
+  }, [token, setSnoozePresets]);
 
   // Teammates (for the Teammates section and assignee pickers)
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -159,6 +178,14 @@ export const Inbox: React.FC = () => {
 
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
+  // Sound alerts need one click before the browser allows audio
+  const [soundReady, setSoundReady] = useState(isAudioReady());
+  useEffect(() => onAudioReadyChange(setSoundReady), []);
+  const handleSoundButton = async () => {
+    const ok = await unlockAudio();
+    if (ok) playChime({ force: true });
+  };
+
   const viewTitle = (() => {
     if (activeTab === 'yours') return 'Your inbox';
     if (activeTab === 'created') return 'Created by you';
@@ -213,6 +240,14 @@ export const Inbox: React.FC = () => {
         <div className="flex-1" />
 
         <button
+          onClick={handleSoundButton}
+          className={`ic-rail-btn relative ${soundReady ? '' : 'text-accent bg-accent/10 hover:bg-accent/20'}`}
+          title={soundReady ? 'Sound alerts are on — click to play a test chime' : 'Sound alerts are blocked by the browser — click to turn them on'}
+        >
+          {soundReady ? <Bell className="w-[19px] h-[19px]" /> : <BellOff className="w-[19px] h-[19px]" />}
+          {!soundReady && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent animate-pulse" />}
+        </button>
+        <button
           onClick={toggleDarkMode}
           className="ic-rail-btn"
           title="Toggle Dark Mode"
@@ -234,11 +269,7 @@ export const Inbox: React.FC = () => {
             className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-ink/[0.06]"
             title={agent.name}
           >
-            <img
-              src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'}
-              className="w-7 h-7 rounded-full object-cover"
-              alt="Avatar"
-            />
+            <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
             <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-canvas" />
           </button>
 
@@ -247,11 +278,7 @@ export const Inbox: React.FC = () => {
               <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
               <div className="ic-menu absolute left-11 bottom-0 w-60 animate-fade-in">
                 <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-line mb-1">
-                  <img
-                    src={agent.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop'}
-                    className="w-8 h-8 rounded-full object-cover shrink-0"
-                    alt="Avatar"
-                  />
+                  <AgentAvatar agent={agent} className="w-8 h-8 text-[12px]" />
                   <div className="flex flex-col min-w-0">
                     <span className="text-[14px] font-semibold text-ink truncate">{agent.name}</span>
                     <span className="text-[12px] text-muted truncate capitalize">{agent.role.replace('_', ' ')}</span>
@@ -297,7 +324,7 @@ export const Inbox: React.FC = () => {
             )}
 
             {/* List column */}
-            <InboxList currentQueue={activeTab} viewTitle={viewTitle} />
+            <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
 
             {composer ? (
               /* Manual create screen replaces the conversation + details panels */

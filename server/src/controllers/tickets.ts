@@ -5,6 +5,8 @@ import { SocketService } from '../services/socket';
 import { Conversation, Customer, Tag, SavedReply } from '../../../shared/src/types';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
 import { toCustomerView, isCustomerVisible, computeCustomerSnippet } from '../services/conversationView';
+import { sendReplyTimeNotice } from '../services/autoReply';
+import { notifyIntegrations } from '../services/notifications';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -134,7 +136,7 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
 
     // Save initial message if provided
     if (initialMessage) {
-      await msgRepo.create({
+      const firstMessage = await msgRepo.create({
         conversationId: newConv.id,
         sender: {
           type: 'customer',
@@ -155,6 +157,10 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       });
       // Retrieve updated conversation with correct last message snippet
       const updatedConv = await convRepo.findById(newConv.id);
+      // Slack / webhook integrations: a customer started a new conversation
+      notifyIntegrations(req.workspaceId || 'default_workspace', 'conversation.created', { conversation: updatedConv || newConv, message: firstMessage });
+      // Tell the customer when to expect a reply (Settings > Office hours)
+      await sendReplyTimeNotice(newConv, req.workspaceId || 'default_workspace');
       if (assignedAgentId) {
         const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
         await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}`, undefined,
@@ -167,6 +173,7 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     }
 
     SocketService.broadcastConversationNew(newConv);
+    notifyIntegrations(req.workspaceId || 'default_workspace', 'conversation.created', { conversation: newConv });
     return res.status(201).json(newConv);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -239,9 +246,35 @@ export async function updateCustomerProfile(req: AuthenticatedRequest, res: Resp
     const custRepo = RepositoryFactory.getCustomerRepository();
     const convRepo = RepositoryFactory.getConversationRepository();
     
-    const updatedCustomer = await custRepo.update(customerId, req.body);
+    // conversationId (optional) = the conversation the change was made from, for its event log
+    const { conversationId, ...changes } = req.body || {};
+    const beforeCustomer = await custRepo.findById(customerId);
+    const updatedCustomer = await custRepo.update(customerId, changes);
     if (!updatedCustomer) {
       return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    if (conversationId && beforeCustomer) {
+      const actor = await getActor(req);
+      const who = actor?.name || 'A teammate';
+      for (const field of ['name', 'email', 'phone'] as const) {
+        if (changes[field] !== undefined && (beforeCustomer as any)[field] !== changes[field]) {
+          const label = field === 'name' ? 'Name' : field === 'email' ? 'Email' : 'Phone';
+          await recordEvent(conversationId, 'attributes', `${who} set the customer's ${label} to ${changes[field] || '—'}`, actor, { field });
+        }
+      }
+      if (Array.isArray(changes.tags)) {
+        const prev = beforeCustomer.tags || [];
+        for (const t of changes.tags.filter((t: string) => !prev.includes(t))) {
+          await recordEvent(conversationId, 'tags', `${who} tagged the customer ${t}`, actor, { tag: t, action: 'added', scope: 'customer' });
+        }
+        for (const t of prev.filter(t => !changes.tags.includes(t))) {
+          await recordEvent(conversationId, 'tags', `${who} removed tag ${t} from the customer`, actor, { tag: t, action: 'removed', scope: 'customer' });
+        }
+      }
+      if (Array.isArray(changes.notes) && changes.notes.length > (beforeCustomer.notes || []).length) {
+        await recordEvent(conversationId, 'other', `${who} added a note to the customer`, actor, { field: 'notes' });
+      }
     }
 
     // Refresh all tickets associated with this customer

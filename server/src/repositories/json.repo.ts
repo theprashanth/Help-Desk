@@ -112,6 +112,7 @@ export class JsonUserRepository implements IUserRepository {
     const newAgent = {
       id: `agent_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       workspaceId: getActiveWorkspaceId(),
+      createdAt: new Date().toISOString(),
       email: agentData.email,
       name: agentData.name,
       avatar: agentData.avatar,
@@ -149,6 +150,15 @@ export class JsonUserRepository implements IUserRepository {
         const { passwordHash, ...rest } = u;
         return rest as Agent;
       });
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const users = await readJson<any[]>(this.file, []);
+    const workspaceId = getActiveWorkspaceId();
+    const kept = users.filter(u => !(u.id === id && u.workspaceId === workspaceId));
+    if (kept.length === users.length) return false;
+    await writeJson(this.file, kept);
+    return true;
   }
 }
 
@@ -267,6 +277,7 @@ export class JsonConversationRepository implements IConversationRepository {
       starred: conv.starred || false,
       snoozedUntil: conv.snoozedUntil || null,
       customerSnippet: conv.customerSnippet,
+      tags: conv.tags || [],
       kind: conv.kind || 'conversation',
       title: conv.title,
       description: conv.description,
@@ -344,6 +355,7 @@ export class JsonConversationRepository implements IConversationRepository {
         starred: raw.starred || false,
         snoozedUntil: raw.snoozedUntil || null,
         customerSnippet: raw.customerSnippet,
+        tags: raw.tags || [],
         kind: raw.kind || 'conversation',
         title: raw.title,
         description: raw.description,
@@ -469,7 +481,7 @@ export class JsonMessageRepository implements IMessageRepository {
     const conversations = await readJson<any[]>('conversations.json', []);
     const idx = conversations.findIndex(c => c.id === msg.conversationId && c.workspaceId === workspaceId);
     // Conversation events (system) don't change the preview or last-activity time
-    if (idx !== -1 && msg.sender.type !== 'system') {
+    if (idx !== -1 && msg.sender.type !== 'system' && msg.metadata?.type !== 'auto_reply') {
       conversations[idx].lastMessageSnippet = snippet;
       conversations[idx].updatedAt = new Date().toISOString();
       await writeJson('conversations.json', conversations);
@@ -682,5 +694,14 @@ export class JsonWorkspaceRepository implements IWorkspaceRepository {
     list.push(newWorkspace);
     await writeJson(this.file, list);
     return newWorkspace;
+  }
+
+  async update(id: string, updateData: Partial<Workspace>): Promise<Workspace | null> {
+    const list = await readJson<Workspace[]>(this.file, []);
+    const idx = list.findIndex(w => w.id === id);
+    if (idx === -1) return null;
+    list[idx] = { ...list[idx], ...updateData, id: list[idx].id };
+    await writeJson(this.file, list);
+    return list[idx];
   }
 }

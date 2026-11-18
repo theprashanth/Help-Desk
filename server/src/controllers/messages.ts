@@ -6,6 +6,7 @@ import { Message, Attachment } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
 import { refreshConversationSnippets } from '../services/conversationView';
+import { notifyIntegrations } from '../services/notifications';
 
 export async function getMessages(req: AuthenticatedRequest, res: Response) {
   const { conversationId } = req.params;
@@ -91,6 +92,10 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
 
     // Emit live updates
     SocketService.broadcastMessageNew(createdMsg);
+    if (sender.type === 'customer') {
+      // Slack / webhook integrations subscribed to "every new customer message"
+      notifyIntegrations(req.workspaceId || 'default_workspace', 'message.customer', { conversation: updatedConv || conv, message: createdMsg });
+    }
     if (updatedConv) {
       SocketService.broadcastConversationUpdate(updatedConv);
     }
@@ -196,6 +201,13 @@ export async function deleteMessage(req: AuthenticatedRequest, res: Response) {
     }
 
     SocketService.broadcastMessageDeleted(messageId, msg.conversationId);
+
+    if (msg.sender?.type !== 'system') {
+      const actor = await getActor(req);
+      await recordEvent(msg.conversationId, 'other',
+        `${actor?.name || 'A teammate'} deleted ${msg.isInternalNote ? 'a note' : msg.sender.type === 'customer' ? "a customer's message" : 'a message'}`,
+        actor, { field: 'deleted' });
+    }
 
     // Don't let the deleted text live on in previews or unread counts
     const refreshed = await refreshConversationSnippets(msg.conversationId);

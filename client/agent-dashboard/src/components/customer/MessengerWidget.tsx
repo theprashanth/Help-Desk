@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSocket } from '../../context/SocketContext';
-import { Message, Conversation, Attachment } from '../../../../../shared/src/types';
+import { Message, Conversation, Attachment, CustomerSession } from '../../../../../shared/src/types';
 import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -19,6 +19,36 @@ function getStoredSettings() {
     welcome: 'Ask us anything, or share your feedback.',
     darkTheme: false,
   };
+}
+
+const REPLY_TIME_TEXT: Record<string, string> = {
+  asap: "We'll reply as soon as we can",
+  minutes: 'We usually reply in a few minutes',
+  hours: 'We usually reply in a few hours',
+  day: 'We usually reply in a day',
+};
+
+type Availability = {
+  replyTime: string | null; isOpenNow: boolean; nextOpenAt?: string;
+  name?: string; showAttribution?: boolean;
+  onlineAgents?: { id: string; name: string; avatar?: string }[];
+};
+
+/** "in 25 minutes", "at 9:00 AM", "tomorrow at 9:00 AM", "on Monday at 9:00 AM" */
+function describeBack(iso?: string): string {
+  if (!iso) return 'soon';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'soon';
+  const diffMin = Math.round((d.getTime() - Date.now()) / 60000);
+  if (diffMin <= 1) return 'in a moment';
+  if (diffMin < 60) return `in ${diffMin} minutes`;
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  if (d.toDateString() === today.toDateString()) return `at ${time}`;
+  if (d.toDateString() === tomorrow.toDateString()) return `tomorrow at ${time}`;
+  if (diffMin < 7 * 24 * 60) return `on ${d.toLocaleDateString([], { weekday: 'long' })} at ${time}`;
+  return `on ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${time}`;
 }
 
 function getStoredChatTheme(): 'sky-blue' | 'classic' {
@@ -63,8 +93,10 @@ export const MessengerWidget: React.FC = () => {
   const [isPendingNewConv, setIsPendingNewConv] = useState(false);
   // Real geo-IP data fetched once and cached
   const [geoInfo, setGeoInfo] = useState<{
-    country: string; city: string; ip: string; countryCode: string;
+    country: string; city: string; ip: string; countryCode: string; timezone?: string;
   } | null>(null);
+  // Workspace office hours / reply time (public endpoint)
+  const [availability, setAvailability] = useState<Availability | null>(null);
 
   // ── Live theme settings (re-read whenever storage changes) ──────────────
   const [widgetSettings, setWidgetSettings] = useState(getStoredSettings);
@@ -205,6 +237,7 @@ export const MessengerWidget: React.FC = () => {
             city: data.city || '',
             ip: data.ip || '',
             countryCode: data.country_code || '',
+            timezone: data.timezone || undefined,
           };
           setGeoInfo(geo);
           localStorage.setItem(geoKey, JSON.stringify(geo));
@@ -216,6 +249,57 @@ export const MessengerWidget: React.FC = () => {
         });
     }
   }, []);
+
+  // Office hours + reply time: on mount, whenever the Messenger is opened, and every 5 min while open
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      // Public workspace info: customer-facing name, attribution, reply time, office hours, who's online
+      fetch(`${BACKEND_URL}/api/workspace/public`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(data => {
+          if (!cancelled && data) setAvailability({
+            replyTime: data.replyTime, isOpenNow: data.isOpenNow !== false, nextOpenAt: data.nextOpenAt,
+            name: data.name, showAttribution: data.showAttribution !== false,
+            onlineAgents: Array.isArray(data.onlineAgents) ? data.onlineAgents : [],
+          });
+        })
+        .catch(() => {});
+    };
+    load();
+    const interval = isOpen ? setInterval(load, 5 * 60 * 1000) : undefined;
+    return () => { cancelled = true; if (interval) clearInterval(interval); };
+  }, [isOpen]);
+
+  const isAway = availability ? !availability.isOpenNow : false;
+  const headerSubtitle = isAway
+    ? `We're away right now — back ${describeBack(availability?.nextOpenAt)}`
+    : (availability?.replyTime && REPLY_TIME_TEXT[availability.replyTime]) || widgetSettings.greeting;
+
+  // Read receipts: when the customer is looking at a conversation, mark the team's replies as seen
+  // (the agent dashboard then shows "Seen" instead of "Not seen")
+  useEffect(() => {
+    if (!isOpen || !activeConv) return;
+    const markSeen = () => {
+      if (document.visibilityState !== 'visible') return;
+      const hasUnseen = chatMessages.some(m => m.sender.type === 'agent' && !m.isInternalNote && !m.seen);
+      if (!hasUnseen) return;
+      // optimistic local update so we don't send this again for the same messages
+      setChatMessages(prev => prev.map(m => (m.sender.type === 'agent' && !m.isInternalNote ? { ...m, seen: true } : m)));
+      fetch(`${BACKEND_URL}/api/messages/seen/${activeConv.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: 'customer' })
+      }).catch(() => {});
+    };
+    markSeen();
+    document.addEventListener('visibilitychange', markSeen);
+    window.addEventListener('focus', markSeen);
+    return () => {
+      document.removeEventListener('visibilitychange', markSeen);
+      window.removeEventListener('focus', markSeen);
+    };
+  }, [isOpen, activeConv, chatMessages]);
 
   // Fetch Guest's previous conversations (stored IDs in localStorage)
   useEffect(() => {
@@ -363,7 +447,9 @@ export const MessengerWidget: React.FC = () => {
               lastSeen: new Date().toISOString(),
               country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
               ip: geoInfo?.ip || undefined,
-            }
+              // Not on CustomerSession yet — passed through via assertion (server spreads session fields).
+              timezone: geoInfo?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+            } as CustomerSession & { timezone?: string }
           })
         });
 
@@ -506,22 +592,36 @@ export const MessengerWidget: React.FC = () => {
                   </button>
                 )}
                 <div>
-                  <h3 className="font-bold text-lg tracking-wide">{widgetSettings.brandName}</h3>
+                  <h3 className="font-bold text-lg tracking-wide">{availability?.name || widgetSettings.brandName}</h3>
                   <p className="text-xs text-white/80 flex items-center gap-1.5 mt-0.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                    {widgetSettings.greeting}
+                    <span className={`w-2 h-2 rounded-full ${isAway ? 'bg-slate-300' : 'bg-emerald-400 animate-pulse'}`} />
+                    {headerSubtitle}
                   </p>
                 </div>
               </div>
 
-              {/* Support Avatars Facepile */}
-              <div className="flex items-center gap-2 mt-1">
-                <div className="flex -space-x-2">
-                  <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-white/40 object-cover" alt="Agent" />
-                  <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=50&h=50&fit=crop" className="w-8 h-8 rounded-full border-2 border-white/40 object-cover" alt="Agent" />
+              {/* Teammates who are online right now (real data) */}
+              {!!availability?.onlineAgents?.length && (
+                <div className="flex items-center gap-2 mt-1">
+                  <div className="flex -space-x-2">
+                    {availability.onlineAgents.slice(0, 3).map(a => a.avatar ? (
+                      <img key={a.id} src={a.avatar} className="w-8 h-8 rounded-full border-2 border-white/40 object-cover" alt={a.name} />
+                    ) : (
+                      <span key={a.id} className="w-8 h-8 rounded-full border-2 border-white/40 bg-white/25 text-white text-xs font-semibold flex items-center justify-center uppercase">
+                        {a.name.split(/\s+/).map(w => w[0]).slice(0, 2).join('')}
+                      </span>
+                    ))}
+                  </div>
+                  <span className="text-xs text-white/80 font-medium truncate">
+                    {(() => {
+                      const names = availability.onlineAgents!.map(a => a.name.split(/\s+/)[0]);
+                      if (names.length === 1) return `${names[0]} is online`;
+                      if (names.length === 2) return `${names[0]} & ${names[1]} are online`;
+                      return `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]} are online`;
+                    })()}
+                  </span>
                 </div>
-                <span className="text-xs text-white/80 font-medium">Sarah &amp; Emma are online</span>
-              </div>
+              )}
             </div>
 
             {/* Body */}
@@ -737,6 +837,13 @@ export const MessengerWidget: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Attribution (Settings > General) */}
+            {availability?.showAttribution !== false && (
+              <div className="shrink-0 py-1.5 text-center text-[11px] text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+                ⚡ Powered by Chai Samosa
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>

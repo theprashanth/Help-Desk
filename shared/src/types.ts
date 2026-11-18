@@ -1,5 +1,5 @@
 export type TicketStatus = 'open' | 'waiting' | 'resolved' | 'closed' | 'archived' | 'merged';
-export type TicketPriority = 'low' | 'medium' | 'high' | 'critical';
+export type TicketPriority = 'none' | 'low' | 'medium' | 'high' | 'critical'; // critical is shown as "Urgent"
 export type TicketCategory = 'general' | 'bug' | 'payment' | 'subscription' | 'refund' | 'feature_request' | 'other';
 export type UserRole = 'admin' | 'support_agent';
 /** conversation = customer chat, ticket = customer ticket, issue = internal tracker ticket */
@@ -8,12 +8,65 @@ export type ConversationKind = 'conversation' | 'ticket' | 'issue';
 /** Categories of conversation events (status changes, assignment, ...) shown inline in the thread */
 export type ConversationEventCategory = 'status' | 'assignment' | 'priority' | 'tags' | 'attributes' | 'tickets' | 'other';
 
+/** Weekly opening hours + closures; times are "HH:MM" in the workspace timezone. */
+export interface OfficeHours {
+  timezone: string;                                   // IANA, e.g. "Asia/Kolkata"
+  intervals: { days: number[]; start: string; end: string }[]; // days: 0=Sun..6=Sat; empty list = 24/7
+  closures: { date: string; label?: string }[];       // date: YYYY-MM-DD
+}
+
+/** What customers are told about reply speed in the Messenger */
+export type ReplyTime = 'asap' | 'minutes' | 'hours' | 'day';
+
 export interface Workspace {
   id: string;
   name: string;
   subdomain?: string;
   apiKey: string;
   createdAt: string;
+  officeHours?: OfficeHours;
+  replyTime?: ReplyTime;
+  // Settings > General
+  customerFacingName?: string;     // shown to customers in the Messenger; defaults to name
+  timezone?: string;               // IANA; office hours use this zone
+  showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
+  snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
+  // Settings > Office hours
+  replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
+  // Settings > Integrations (secrets are never sent to the browser)
+  integrations?: {
+    slack?: SlackIntegration;
+    webhook?: WebhookIntegration;
+  };
+}
+
+/** A snooze menu entry. kind: hours/days use `amount`; days and the named ones land at 9:00 AM. */
+export interface SnoozePreset {
+  kind: 'hours' | 'days' | 'tomorrow' | 'next-week' | 'next-month';
+  amount?: number;
+  label?: string; // optional custom label; otherwise generated
+}
+
+export type IntegrationEvent = 'conversation.created' | 'message.customer';
+
+export interface SlackIntegration {
+  webhookUrl: string;              // https://hooks.slack.com/services/... (server-side only)
+  enabled: boolean;
+  events: IntegrationEvent[];
+  connectedAt?: string;
+  connectedBy?: string;
+  lastDeliveryAt?: string;
+  lastError?: string | null;
+}
+
+export interface WebhookIntegration {
+  url: string;                     // any https URL (server-side only)
+  secret?: string;                 // used to sign payloads (HMAC-SHA256), server-side only
+  enabled: boolean;
+  events: IntegrationEvent[];
+  connectedAt?: string;
+  lastDeliveryAt?: string;
+  lastError?: string | null;
 }
 
 export interface Agent {
@@ -25,6 +78,15 @@ export interface Agent {
   role: UserRole;
   status: 'online' | 'offline';
   lastSeen?: string;
+  createdAt?: string;
+  // Public profile (Settings > Personal > Details)
+  jobTitle?: string;
+  department?: string;
+  phone?: string;
+  bio?: string;          // "Introduce yourself"
+  calendarLink?: string;
+  location?: string;     // e.g. "Hyderabad, India"
+  timezone?: string;     // IANA, e.g. "Asia/Kolkata"
 }
 
 export interface CustomerSession {
@@ -38,6 +100,7 @@ export interface CustomerSession {
   firstSeen?: string;
   lastSeen?: string;
   totalConversations?: number;
+  timezone?: string; // IANA zone from the Messenger's geo lookup, for the customer's local time
 }
 
 export interface Customer {
@@ -107,6 +170,7 @@ export interface Conversation {
   createdByAgentId?: string;      // set when a teammate creates it manually
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
+  tags?: string[];                 // conversation tags (separate from the customer's tags)
   createdAt: string;
   updatedAt: string;
 }

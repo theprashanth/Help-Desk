@@ -54,6 +54,8 @@ const STATE_LABELS: Record<string, string> = {
   merged: 'Merged',
 };
 const cap = (s?: string) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : '—');
+const PRIORITY_LABELS: Record<string, string> = { none: 'No priority', low: 'Low', medium: 'Medium', high: 'High', critical: 'Urgent' };
+const prio = (p?: string) => PRIORITY_LABELS[p || ''] || cap(p);
 const fmtTime = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -75,7 +77,7 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
     await recordEvent(id, 'status', `${who} unsnoozed this conversation`, actor, { field: 'snoozedUntil', to: null });
   }
   if (before.priority !== after.priority) {
-    await recordEvent(id, 'priority', `${who} changed priority from ${cap(before.priority)} to ${cap(after.priority)}`, actor,
+    await recordEvent(id, 'priority', `${who} changed priority from ${prio(before.priority)} to ${prio(after.priority)}`, actor,
       { field: 'priority', from: before.priority, to: after.priority });
   }
   if (!!before.starred !== !!after.starred) {
@@ -88,6 +90,14 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
   }
   if ((before.title || '') !== (after.title || '') && after.title) {
     await recordEvent(id, 'attributes', `${who} changed the title to "${after.title}"`, actor, { field: 'title', to: after.title });
+  }
+  const beforeTags = before.tags || [];
+  const afterTags = after.tags || [];
+  for (const t of afterTags.filter(t => !beforeTags.includes(t))) {
+    await recordEvent(id, 'tags', `${who} tagged this conversation ${t}`, actor, { tag: t, action: 'added' });
+  }
+  for (const t of beforeTags.filter(t => !afterTags.includes(t))) {
+    await recordEvent(id, 'tags', `${who} removed tag ${t} from this conversation`, actor, { tag: t, action: 'removed' });
   }
   const bp = (before.attributes?.platforms || []).join(', ');
   const ap = (after.attributes?.platforms || []).join(', ');

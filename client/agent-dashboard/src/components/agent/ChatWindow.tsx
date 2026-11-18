@@ -9,11 +9,12 @@ import {
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Inbox as InboxIcon, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
-  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
-import { SNOOZE_OPTIONS, computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
+import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
+import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
 const TICKET_STATES: {
@@ -36,7 +37,8 @@ const EVENT_CATEGORIES: { key: ConversationEventCategory; label: string; prefix:
   { key: 'tickets', label: 'Tickets', prefix: 'Ticket', icon: Ticket },
   { key: 'other', label: 'Other', prefix: '', icon: MoreVertical },
 ];
-const EVENT_FILTER_KEY = 'hd_conversation_event_filter';
+// v2: events are shown by default (Intercom shows every activity inline); older saved choices reset once
+const EVENT_FILTER_KEY = 'hd_conversation_event_filter_v2';
 
 const STATE_LABELS: Record<string, string> = {
   open: 'In progress', waiting: 'Waiting on customer', resolved: 'Resolved',
@@ -75,6 +77,7 @@ const formatRelativeTime = (dateString: string) => {
 
 
 export const ChatWindow: React.FC = () => {
+  const snoozeOptions = useSnoozeOptions();
   const activeConversationId = useStore((state) => state.activeConversationId);
   const conversations = useStore((state) => state.conversations);
   const token = useStore((state) => state.token);
@@ -114,7 +117,11 @@ export const ChatWindow: React.FC = () => {
 
   // Which conversation event categories to show inline (remembered per browser; none by default)
   const [eventFilter, setEventFilter] = useState<ConversationEventCategory[]>(() => {
-    try { return JSON.parse(localStorage.getItem(EVENT_FILTER_KEY) || '[]'); } catch { return []; }
+    const all = EVENT_CATEGORIES.map(c => c.key);
+    try {
+      const saved = localStorage.getItem(EVENT_FILTER_KEY);
+      return saved === null ? all : JSON.parse(saved);
+    } catch { return all; }
   });
   const [showEventsSubmenu, setShowEventsSubmenu] = useState(false);
   const [eventsFlyoutPos, setEventsFlyoutPos] = useState<{ top: number; left: number } | null>(null);
@@ -789,7 +796,7 @@ export const ChatWindow: React.FC = () => {
                   <div className="px-3.5 pt-1 pb-2 text-[13px] font-medium text-muted">
                     {ticketSnoozedUntil ? `Snoozed until ${formatSnoozeUntil(ticketSnoozedUntil)}` : 'Snooze until…'}
                   </div>
-                  {SNOOZE_OPTIONS.map(opt => (
+                  {snoozeOptions.map(opt => (
                     <button
                        key={opt.value}
                        onClick={() => { setShowSnoozeMenu(false); handleSnoozeChange(computeSnoozeUntil(opt.value)); }}
@@ -946,7 +953,7 @@ export const ChatWindow: React.FC = () => {
           </button>
           {ticket.priority === 'critical' && (
             <span className="inline-flex items-center h-7 px-2.5 rounded-full font-medium bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300 shrink-0">
-              Critical
+              Urgent
             </span>
           )}
           {ticket.priority === 'high' && (
@@ -1461,6 +1468,10 @@ export const ChatWindow: React.FC = () => {
                   <div className="flex items-center justify-end gap-1.5 mt-1 text-[13px] text-muted whitespace-nowrap">
                     {m.isInternalNote ? (
                       <span className="truncate">{m.sender.name}</span>
+                    ) : m.metadata?.type === 'auto_reply' ? (
+                      <span className="flex items-center gap-1" title="Sent automatically when the customer started the conversation (Settings > Office hours)">
+                        <Bot className="w-3.5 h-3.5" /> Automated
+                      </span>
                     ) : (
                       <span className={`flex items-center gap-1 ${m.seen ? 'text-link' : ''}`} title={m.seen && m.seenAt ? `Seen ${new Date(m.seenAt).toLocaleString()}` : 'Delivered, not seen yet'}>
                         {m.seen && <CheckCheck className="w-3.5 h-3.5" />}
@@ -1620,7 +1631,9 @@ export const ChatWindow: React.FC = () => {
               {/* Agent avatar on the right (last message of a block) */}
               {isLastAgentInBlock ? (
                 <div className="relative shrink-0 mb-0.5" title={m.sender.name}>
-                  {m.sender.avatar ? (
+                  {m.sender.id === 'bot' ? (
+                    <div className="w-7 h-7 rounded-full bg-ink text-on-ink flex items-center justify-center"><Bot className="w-4 h-4" /></div>
+                  ) : m.sender.avatar ? (
                     <img src={m.sender.avatar} alt={m.sender.name} className="w-7 h-7 rounded-full object-cover" />
                   ) : (
                     <div className="w-7 h-7 rounded-full bg-subtle text-ink/80 text-[11px] font-semibold flex items-center justify-center">

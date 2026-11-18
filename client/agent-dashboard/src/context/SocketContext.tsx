@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useRef } from 'react';
+import { playChime, unlockAudio } from '../lib/sound';
 import { io, Socket } from 'socket.io-client';
 import { useStore } from '../store/useStore';
 import { Message, Conversation } from '../../../../shared/src/types';
@@ -6,20 +7,8 @@ import { Message, Conversation } from '../../../../shared/src/types';
 const SocketContext = createContext<Socket | null>(null);
 const BACKEND_URL = 'http://localhost:3000';
 
-let sharedAudioCtx: AudioContext | null = null;
-
-const initAudioContext = () => {
-  if (sharedAudioCtx) return sharedAudioCtx;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (AudioContextClass) {
-      sharedAudioCtx = new AudioContextClass();
-    }
-  } catch (e) {
-    console.warn('Failed to create AudioContext:', e);
-  }
-  return sharedAudioCtx;
-};
+/** Alerts only make sense on the agent dashboard (not on the customer demo page). */
+const onAgentPage = () => window.location.pathname.startsWith('/agent');
 
 export const useSocket = () => useContext(SocketContext);
 
@@ -37,14 +26,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const removeConversation = useStore((state) => state.removeConversation);
   const activeConversationId = useStore((state) => state.activeConversationId);
 
-  // Warm up and unlock AudioContext on first click or keydown gesture
+  // Respect the agent's "Sound alerts" preference (Settings); defaults to on
+  const soundEnabledRef = useRef(true);
   useEffect(() => {
-    const unlock = () => {
-      const ctx = initAudioContext();
-      if (ctx && ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-    };
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/auth/settings`, { headers: { 'Authorization': `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(s => { if (s?.notifications) soundEnabledRef.current = s.notifications.sound !== false; })
+      .catch(() => {});
+  }, [token]);
+
+  // Browsers only allow audio after a user gesture: unlock on the first click / key press
+  useEffect(() => {
+    const unlock = () => { unlockAudio(); };
     window.addEventListener('click', unlock);
     window.addEventListener('keydown', unlock);
     return () => {
@@ -101,15 +95,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.log('[Socket] New message received:', msg);
       addMessage(msg);
 
-      // Only play sound + show notification for agent when it's an incoming customer message
-      // that was NOT sent by this same browser's guest session (widget in same tab)
-      const localGuestId = localStorage.getItem('customer_guest_id');
-      const isFromLocalGuest = msg.sender.id === localGuestId;
-      const isAgentMessage = msg.sender.type === 'agent' || msg.sender.type === 'system';
+      // Loud alert for every incoming customer message while you're on the agent dashboard.
+      // (Earlier this was skipped when the sender matched a guest id stored in this browser,
+      //  which silenced alerts whenever the widget had ever been used in the same browser.)
+      const isCustomerMessage = msg.sender.type === 'customer' && !msg.isInternalNote;
 
-      if (agent && !isAgentMessage && !msg.isInternalNote && !isFromLocalGuest) {
-        playNotificationSound();
-        showDesktopNotification(msg);
+      if (agent && isCustomerMessage && onAgentPage()) {
+        if (soundEnabledRef.current) playChime();
+        if (document.hidden || useStore.getState().activeConversationId !== msg.conversationId) {
+          showDesktopNotification(msg);
+        }
 
         // Show ticket ID/number in tab title
         if (document.hidden || useStore.getState().activeConversationId !== msg.conversationId) {
@@ -132,13 +127,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     newSocket.on('conversation:new', (conv: Conversation) => {
       addConversation(conv);
 
-      // Only play sound when an agent is logged in AND the conversation was NOT
-      // started by this browser's own guest widget (which would be the same tab).
-      const localGuestId = localStorage.getItem('customer_guest_id');
-      const isOwnGuestConv = conv.customer.id === localGuestId;
-
-      if (agent && !isOwnGuestConv) {
-        playNotificationSound();
+      // New conversation started by a customer (not one a teammate created manually)
+      if (agent && !conv.createdByAgentId && onAgentPage()) {
+        if (soundEnabledRef.current) playChime();
 
         // Show new ticket ID/number in tab title
         if (document.hidden || useStore.getState().activeConversationId !== conv.id) {
@@ -167,7 +158,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       newSocket.close();
       setSocket(null);
     };
-  }, [token, agent, setSocket, addMessage, updateMessage, deleteMessage, updateConversation, addConversation, removeConversation, activeConversationId]);
+  }, [token, agent, setSocket, addMessage, updateMessage, deleteMessage, updateConversation, addConversation, removeConversation]);
 
   // Request browser notification permissions
   useEffect(() => {
@@ -175,42 +166,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       Notification.requestPermission();
     }
   }, []);
-
-  const playNotificationSound = () => {
-    try {
-      const ctx = initAudioContext();
-      if (!ctx) return;
-
-      if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
-      }
-
-      const playNote = (freq: number, start: number, duration: number, vol: number = 0.25) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(freq, start);
-        
-        gain.gain.setValueAtTime(vol, start);
-        gain.gain.exponentialRampToValueAtTime(0.001, start + duration);
-        
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        
-        osc.start(start);
-        osc.stop(start + duration);
-      };
-      
-      const now = ctx.currentTime;
-      playNote(523.25, now, 0.15, 0.12);        // C5
-      playNote(659.25, now + 0.06, 0.15, 0.12);   // E5
-      playNote(783.99, now + 0.12, 0.18, 0.18);   // G5
-      playNote(1046.50, now + 0.18, 0.28, 0.22);  // C6
-    } catch (e) {
-      console.warn('AudioContext play failed:', e);
-    }
-  };
 
   const showDesktopNotification = (msg: Message) => {
     if ('Notification' in window && Notification.permission === 'granted') {
