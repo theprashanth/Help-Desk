@@ -7,8 +7,17 @@ export function isCustomerVisible(conv: Conversation): boolean {
 }
 
 /** Preview text for a message, as shown in conversation lists. */
+/** Previews are plain text: drop **bold** / *italic* / `code` / [link](url) markers. */
+export const plainText = (text: string) =>
+  (text || '')
+    .replace(/\*\*(?=\S)([^\n]*?\S)\*\*/g, '$1')
+    .replace(/__(?=\S)([^\n]*?\S)__/g, '$1')
+    .replace(/(^|[^*\w])\*(?=[^\s*])([^\n*]*?[^\s*])\*(?![*\w])/g, '$1$2')
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, '$1');
+
 export function snippetFor(m: Pick<Message, 'content' | 'attachments' | 'isInternalNote'>): string {
-  let snippet = m.content || '';
+  let snippet = plainText(m.content || '');
   if (m.attachments && m.attachments.length > 0) {
     snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
   }

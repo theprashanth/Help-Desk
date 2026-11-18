@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import { useNavigate } from 'react-router-dom';
 import InboxList from '../../components/agent/InboxList';
@@ -16,7 +16,7 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe, Bell, BellOff
+  BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 
@@ -40,6 +40,7 @@ export const Inbox: React.FC = () => {
   const activeConversationId = useStore((state) => state.activeConversationId);
   const viewingMergedConversationId = useStore((state) => state.viewingMergedConversationId);
   const inboxNavOpen = useStore((state) => state.inboxNavOpen);
+  const workspaceName = useStore((state) => state.workspaceName);
   const setActiveConversationId = useStore((state) => state.setActiveConversationId);
   const setFocusMessageId = useStore((state) => state.setFocusMessageId);
   const setStateFilter = useStore((state) => state.setStateFilter);
@@ -206,108 +207,162 @@ export const Inbox: React.FC = () => {
     setActiveTab(view);
   };
 
+  // Far-left menu: expands on hover (short delay so passing the mouse over it doesn't flash it open)
+  const [railPinned, setRailPinned] = useState(() => localStorage.getItem('nav_rail_pinned') === '1');
+  const [railHover, setRailHover] = useState(false);
+  const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const railHoverIn = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(true), 120); };
+  const railHoverOut = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => { setRailHover(false); setProfileMenuOpen(false); }, 180); };
+  useEffect(() => () => { if (railTimer.current) clearTimeout(railTimer.current); }, []);
+  const toggleRailPinned = () => {
+    const next = !railPinned;
+    setRailPinned(next);
+    if (!next) setRailHover(false);
+    try { localStorage.setItem('nav_rail_pinned', next ? '1' : '0'); } catch { /* private mode */ }
+  };
+  const railExpanded = railPinned || railHover;
+
+  // One row of the far-left menu; the icon stays in the same place whether collapsed or expanded
+  const railItem = (o: {
+    key: string; label: string; icon: React.ReactNode; onClick: () => void; title: string;
+    active?: boolean; badge?: number; dot?: boolean; className?: string;
+  }) => (
+    <button
+      key={o.key}
+      onClick={o.onClick}
+      title={railExpanded ? undefined : o.title}
+      className={`relative h-9 shrink-0 flex items-center rounded-lg text-ink/80 hover:bg-ink/[0.06] hover:text-ink transition-colors ${
+        railExpanded ? 'w-full gap-3 px-[8.5px]' : 'w-9 justify-center'
+      } ${o.active ? 'bg-surface shadow-pill text-ink hover:bg-surface' : ''} ${o.className || ''}`}
+    >
+      <span className="relative shrink-0 flex">
+        {o.icon}
+        {!railExpanded && !!o.badge && (
+          <span className="absolute -top-2 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center tabular-nums ring-2 ring-canvas">
+            {o.badge > 99 ? '99+' : o.badge}
+          </span>
+        )}
+      </span>
+      {railExpanded && <span className="truncate text-[14px] font-medium">{o.label}</span>}
+      {railExpanded && !!o.badge && (
+        <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums">
+          {o.badge > 99 ? '99+' : o.badge}
+        </span>
+      )}
+      {o.dot && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent animate-pulse" />}
+    </button>
+  );
+
   if (!agent) return null;
 
   return (
     <div className="h-screen w-screen bg-canvas text-ink flex overflow-hidden p-2 pl-0 gap-2">
-      {/* Far-left icon rail */}
-      <nav className="w-14 h-full shrink-0 flex flex-col items-center py-1.5 gap-1">
-        {/* Logo mark */}
-        <div className="w-9 h-9 mb-2 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Samosa">
-          <Globe className="w-[18px] h-[18px]" />
-        </div>
-
-        <button
-          onClick={() => setActiveTab(lastQueue)}
-          className={`ic-rail-btn ${isChatTab ? 'ic-rail-btn-active' : ''}`}
-          title={counts?.yoursUnread ? `Inbox (${counts.yoursUnread} unread in your inbox)` : 'Inbox'}
+      {/* Far-left navigation: a slim icon bar that expands over the page on hover (or stays open when pinned) */}
+      <div className="relative h-full shrink-0 transition-[width] duration-150" style={{ width: railPinned ? 220 : 56 }}>
+        <nav
+          onMouseEnter={railHoverIn}
+          onMouseLeave={railHoverOut}
+          className={`absolute left-0 top-0 bottom-0 z-50 flex flex-col gap-1 px-2.5 py-1.5 overflow-hidden transition-[width,box-shadow] duration-150 ease-out ${
+            railExpanded ? 'w-[220px]' : 'w-14'
+          } ${railExpanded && !railPinned ? 'bg-canvas shadow-2xl rounded-r-2xl ring-1 ring-line' : ''}`}
         >
-          <span className="relative">
-            <InboxIcon className="w-[19px] h-[19px]" />
-            {!!counts?.yoursUnread && (
-              <span className="absolute -top-2 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center tabular-nums ring-2 ring-canvas">
-                {counts.yoursUnread > 99 ? '99+' : counts.yoursUnread}
-              </span>
+          {/* Logo + pin */}
+          <div className="h-9 mb-2 flex items-center gap-3 shrink-0">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Samosa">
+              <Globe className="w-[18px] h-[18px]" />
+            </div>
+            {railExpanded && (
+              <>
+                <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-ink">{workspaceName}</span>
+                <button
+                  onClick={toggleRailPinned}
+                  className="ic-icon-btn-ghost shrink-0"
+                  title={railPinned ? 'Unpin — collapse to icons' : 'Pin — keep the menu open'}
+                >
+                  {railPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+                </button>
+              </>
             )}
-          </span>
-        </button>
-        {mainTabs.map(item => (
-          <button
-            key={item.id}
-            onClick={() => setActiveTab(item.id)}
-            className={`ic-rail-btn ${activeTab === item.id ? 'ic-rail-btn-active' : ''}`}
-            title={item.label}
-          >
-            {item.icon}
-          </button>
-        ))}
+          </div>
 
-        <div className="flex-1" />
+          {railItem({
+            key: 'inbox',
+            label: 'Inbox',
+            active: isChatTab,
+            onClick: () => setActiveTab(lastQueue),
+            title: counts?.yoursUnread ? `Inbox (${counts.yoursUnread} unread in your inbox)` : 'Inbox',
+            icon: <InboxIcon className="w-[19px] h-[19px]" />,
+            badge: counts?.yoursUnread || 0,
+          })}
+          {mainTabs.map(item => railItem({
+            key: item.id, label: item.label, active: activeTab === item.id, onClick: () => setActiveTab(item.id), title: item.label, icon: item.icon,
+          }))}
 
-        <button
-          onClick={handleSoundButton}
-          className={`ic-rail-btn relative ${soundReady ? '' : 'text-accent bg-accent/10 hover:bg-accent/20'}`}
-          title={soundReady ? 'Sound alerts are on — click to play a test chime' : 'Sound alerts are blocked by the browser — click to turn them on'}
-        >
-          {soundReady ? <Bell className="w-[19px] h-[19px]" /> : <BellOff className="w-[19px] h-[19px]" />}
-          {!soundReady && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-accent animate-pulse" />}
-        </button>
-        <button
-          onClick={toggleDarkMode}
-          className="ic-rail-btn"
-          title="Toggle Dark Mode"
-        >
-          {darkMode ? <Sun className="w-[19px] h-[19px]" /> : <Moon className="w-[19px] h-[19px]" />}
-        </button>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`ic-rail-btn ${activeTab === 'settings' ? 'ic-rail-btn-active' : ''}`}
-          title="Settings"
-        >
-          <SettingsIcon className="w-[19px] h-[19px]" />
-        </button>
+          <div className="flex-1" />
 
-        {/* Profile + sign out */}
-        <div className="relative mt-1">
-          <button
-            onClick={() => setProfileMenuOpen(o => !o)}
-            className="relative w-9 h-9 flex items-center justify-center rounded-full hover:bg-ink/[0.06]"
-            title={agent.name}
-          >
-            <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
-            <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-canvas" />
-          </button>
+          {railItem({
+            key: 'sound',
+            label: soundReady ? 'Sound alerts on' : 'Turn on sound alerts',
+            onClick: handleSoundButton,
+            title: soundReady ? 'Sound alerts are on — click to play a test chime' : 'Sound alerts are blocked by the browser — click to turn them on',
+            icon: soundReady ? <Bell className="w-[19px] h-[19px]" /> : <BellOff className="w-[19px] h-[19px]" />,
+            className: soundReady ? '' : 'text-accent bg-accent/10 hover:bg-accent/20',
+            dot: !soundReady,
+          })}
+          {railItem({
+            key: 'theme', label: darkMode ? 'Light mode' : 'Dark mode', onClick: toggleDarkMode, title: 'Toggle Dark Mode',
+            icon: darkMode ? <Sun className="w-[19px] h-[19px]" /> : <Moon className="w-[19px] h-[19px]" />,
+          })}
+          {railItem({
+            key: 'settings', label: 'Settings', active: activeTab === 'settings', onClick: () => setActiveTab('settings'), title: 'Settings',
+            icon: <SettingsIcon className="w-[19px] h-[19px]" />,
+          })}
 
-          {profileMenuOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
-              <div className="ic-menu absolute left-11 bottom-0 w-60 animate-fade-in">
-                <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-line mb-1">
-                  <AgentAvatar agent={agent} className="w-8 h-8 text-[12px]" />
-                  <div className="flex flex-col min-w-0">
-                    <span className="text-[14px] font-semibold text-ink truncate">{agent.name}</span>
-                    <span className="text-[12px] text-muted truncate capitalize">{agent.role.replace('_', ' ')}</span>
+          {/* Profile + sign out */}
+          <div className="relative mt-1 shrink-0">
+            <button
+              onClick={() => setProfileMenuOpen(o => !o)}
+              className={`relative h-9 flex items-center gap-3 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-9 justify-center'}`}
+              title={agent.name}
+            >
+              <span className="relative w-9 h-9 shrink-0 flex items-center justify-center">
+                <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
+                <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-canvas" />
+              </span>
+              {railExpanded && <span className="truncate text-[14px] font-medium text-ink">{agent.name}</span>}
+            </button>
+
+            {profileMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
+                <div className={`ic-menu absolute bottom-0 w-60 animate-fade-in ${railExpanded ? 'left-full ml-3' : 'left-11'}`}>
+                  <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-line mb-1">
+                    <AgentAvatar agent={agent} className="w-8 h-8 text-[12px]" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-[14px] font-semibold text-ink truncate">{agent.name}</span>
+                      <span className="text-[12px] text-muted truncate capitalize">{agent.role.replace('_', ' ')}</span>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => { setProfileMenuOpen(false); toggleDarkMode(); }}
+                    className="ic-menu-item"
+                  >
+                    {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                    {darkMode ? 'Light mode' : 'Dark mode'}
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="ic-menu-item text-red-600"
+                    title="Sign Out"
+                  >
+                    <LogOut className="w-4 h-4" /> Sign Out
+                  </button>
                 </div>
-                <button
-                  onClick={() => { setProfileMenuOpen(false); toggleDarkMode(); }}
-                  className="ic-menu-item"
-                >
-                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                  {darkMode ? 'Light mode' : 'Dark mode'}
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="ic-menu-item text-red-600"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-4 h-4" /> Sign Out
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      </nav>
+              </>
+            )}
+          </div>
+        </nav>
+      </div>
 
       {/* Main Workspace content area */}
       <div className="flex-1 h-full min-w-0 flex gap-2 overflow-hidden animate-fade-in">

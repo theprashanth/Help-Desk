@@ -3,6 +3,7 @@ import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
 import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { RichText } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -91,24 +92,15 @@ function getStoredChatTheme(): 'sky-blue' | 'classic' {
   return (localStorage.getItem('chat_color_theme') as any) || 'sky-blue';
 }
 
-/** Simple markdown bold/italic/inline-code renderer */
-const formatMarkdown = (text: string) => {
-  if (!text) return null;
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-  html = html.replace(/`(.*?)`/g, '<code style="background:rgba(0,0,0,0.1);padding:1px 4px;border-radius:4px;font-size:0.8em">$1</code>');
-  html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" style="text-decoration:underline;opacity:0.85">$1</a>');
-  return (
-    <div
-      className="leading-relaxed whitespace-pre-wrap"
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  );
-};
+/** Message body: **bold**, *italic*, `code`, safe links */
+const formatMarkdown = (text: string) => (
+  <RichText
+    text={text}
+    className="leading-relaxed whitespace-pre-wrap"
+    codeClass="bg-black/10 px-1 rounded text-[0.85em]"
+    linkClass="underline opacity-90"
+  />
+);
 
 export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }> = ({ appId = 'default_workspace', mode = 'demo' }) => {
   const embedded = mode === 'embedded';

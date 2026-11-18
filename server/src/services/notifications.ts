@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { RepositoryFactory } from '../repositories/factory';
+import { plainText } from './conversationView';
 import {
   Conversation, Message, IntegrationEvent, Workspace, SlackIntegration, WebhookIntegration,
 } from '../../../shared/src/types';
@@ -58,7 +59,7 @@ async function postJson(url: string, body: string, headers: Record<string, strin
 // ─── Payload builders ────────────────────────────────────────────────────────
 
 function firstText(data: { conversation: Conversation; message?: Message }): string {
-  return (data.message?.content || data.conversation.description || data.conversation.customerSnippet || data.conversation.title || '').trim();
+  return plainText(data.message?.content || data.conversation.description || data.conversation.customerSnippet || data.conversation.title || '').trim();
 }
 
 export function buildSlackPayload(event: IntegrationEvent, data: { conversation: Conversation; message?: Message }) {

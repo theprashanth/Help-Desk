@@ -5,7 +5,7 @@ import { SocketService } from '../services/socket';
 import { Message, Attachment } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
-import { refreshConversationSnippets } from '../services/conversationView';
+import { refreshConversationSnippets, plainText } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
@@ -86,7 +86,7 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     }
 
     // Refresh conversation snippet
-    let snippet = content;
+    let snippet = plainText(content || '');
     if (attachments && attachments.length > 0) {
       snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
     }

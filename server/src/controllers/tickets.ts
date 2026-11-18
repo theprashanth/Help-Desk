@@ -4,7 +4,7 @@ import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { Conversation, Customer, Tag, SavedReply } from '../../../shared/src/types';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
-import { toCustomerView, isCustomerVisible, computeCustomerSnippet } from '../services/conversationView';
+import { toCustomerView, isCustomerVisible, computeCustomerSnippet, plainText } from '../services/conversationView';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
 import { resolveCustomerId } from '../services/customerIdentity';
@@ -670,7 +670,7 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
         delivered: true,
         reactions: []
       });
-      if (!isNote) await convRepo.update(created.id, { unreadCountCustomer: 1, customerSnippet: String(message.content) });
+      if (!isNote) await convRepo.update(created.id, { unreadCountCustomer: 1, customerSnippet: plainText(String(message.content)) });
       SocketService.broadcastMessageNew(msg);
     }
 

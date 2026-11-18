@@ -70,7 +70,8 @@ export default {
       animation: {
         'slide-up': 'slideUp 0.2s ease-out',
         'slide-left': 'slideLeft 0.2s ease-out',
-        'fade-in': 'fadeIn 0.15s ease-out'
+        'fade-in': 'fadeIn 0.15s ease-out',
+        'nav-slide': 'navSlide 0.16s ease-out'
       },
       keyframes: {
         slideUp: {
@@ -79,6 +80,10 @@ export default {
         },
         slideLeft: {
           '0%': { transform: 'translateX(8px)', opacity: '0' },
+          '100%': { transform: 'translateX(0)', opacity: '1' }
+        },
+        navSlide: {
+          '0%': { transform: 'translateX(-10px)', opacity: '0' },
           '100%': { transform: 'translateX(0)', opacity: '1' }
         },
         fadeIn: {

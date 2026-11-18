@@ -16,6 +16,8 @@ import { getDeviceInfo, DeviceIcon } from '../../lib/device';
 import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
+import { RichText, handleFormattedPaste } from '../../lib/richText';
+import RichComposer, { RichComposerHandle } from './RichComposer';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
 const TICKET_STATES: {
@@ -204,21 +206,11 @@ export const ChatWindow: React.FC = () => {
   const socket = useSocket();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<RichComposerHandle>(null);
   const typingTimeoutRef = useRef<any>(null);
 
   // Derived state
   const isStarred = ticket?.starred || false;
-
-  // Auto-grow textarea viewport based on text length
-  useEffect(() => {
-    const textarea = composerRef.current;
-    if (textarea) {
-      textarea.style.height = 'auto';
-      const newHeight = Math.max(45, Math.min(textarea.scrollHeight, 180));
-      textarea.style.height = `${newHeight}px`;
-    }
-  }, [inputText]);
 
   // Sync ticket details
   useEffect(() => {
@@ -341,8 +333,7 @@ export const ChatWindow: React.FC = () => {
   }, [messages, customerTyping]);
 
   // Input changes & saved replies triggers
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const val = e.target.value;
+  const handleInputChange = (val: string) => {
     setInputText(val);
 
     // Emit typing indicator
@@ -490,14 +481,6 @@ export const ChatWindow: React.FC = () => {
   };
 
   // Paste a screenshot straight into the composer
-  const handleComposerPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'));
-    if (files.length > 0) {
-      e.preventDefault();
-      stageFiles(files);
-    }
-  };
-
   const handleEmojiSelect = (emoji: string) => {
     setInputText(prev => prev + emoji);
     setShowEmoji(false);
@@ -712,20 +695,13 @@ export const ChatWindow: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket?.id, ticket?.status]);
 
-  const formatMarkdown = (text: string) => {
-    if (!text) return '';
-    let html = text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
-    html = html.replace(/`(.*?)`/g, '<code class="bg-ink/[0.06] px-1 py-0.5 rounded text-[13px] text-ink font-mono">$1</code>');
-    html = html.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="text-link underline underline-offset-2">$1</a>');
-    
-    return <div dangerouslySetInnerHTML={{ __html: html }} />;
-  };
+  const formatMarkdown = (text: string) => (
+    <RichText
+      text={text}
+      codeClass="bg-ink/[0.06] px-1 py-0.5 rounded text-[13px] text-ink font-mono"
+      linkClass="text-link underline underline-offset-2"
+    />
+  );
 
   if (!ticket) {
     return (
@@ -1008,7 +984,7 @@ export const ChatWindow: React.FC = () => {
               </div>
               <div>
                 <label className="ic-label">Content</label>
-                <textarea rows={5} className="ic-textarea" value={macroDraft.content} onChange={(e) => setMacroDraft({ ...macroDraft, content: e.target.value })} />
+                <textarea rows={5} className="ic-textarea" value={macroDraft.content} onChange={(e) => setMacroDraft({ ...macroDraft, content: e.target.value })} onPaste={(e) => handleFormattedPaste(e, v => setMacroDraft(d => d && { ...d, content: v }))} />
               </div>
               {macroError && <p className="text-[13px] text-red-600 dark:text-red-400">{macroError}</p>}
             </div>
@@ -1286,7 +1262,7 @@ export const ChatWindow: React.FC = () => {
             return (
               <div
                 key={m.id}
-                className="flex items-end gap-3 self-start max-w-[80%] xl:max-w-[65%] min-w-0 group/msg relative pl-10"
+                className="flex items-end gap-3 self-start max-w-[90%] xl:max-w-[80%] min-w-0 group/msg relative pl-10"
               >
                 {/* Platform Avatar Icon on the Left */}
                 <div className="absolute left-0 bottom-0 w-7 h-7 flex items-center justify-center">
@@ -1306,7 +1282,7 @@ export const ChatWindow: React.FC = () => {
                 <div className="flex flex-col min-w-0">
                   {/* Bubble */}
                   <div
-                    className={`px-5 py-3 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap break-words text-ink ${
+                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.55] whitespace-pre-wrap break-words text-ink ${
                       chatColorTheme === 'classic'
                         ? 'bg-surface border border-line'
                         : 'bg-bubble-customer'
@@ -1405,12 +1381,12 @@ export const ChatWindow: React.FC = () => {
             <div
               key={m.id}
               id={`msg-${m.id}`}
-              className={`flex items-end gap-2.5 self-end max-w-[85%] xl:max-w-[70%] min-w-0 group relative ${menuOpenHere ? 'z-30' : ''}`}
+              className={`flex items-end gap-2.5 self-end max-w-[94%] xl:max-w-[85%] min-w-0 group relative ${menuOpenHere ? 'z-30' : ''}`}
             >
               <div className="flex flex-col items-end min-w-0 relative">
                 {/* Message box */}
                 <div
-                  className={`px-5 py-3 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap break-words text-ink transition-shadow ${
+                  className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.55] whitespace-pre-wrap break-words text-ink transition-shadow ${
                     m.isInternalNote
                       ? 'bg-note border border-note-line'
                       : chatColorTheme === 'classic'
@@ -1735,14 +1711,13 @@ export const ChatWindow: React.FC = () => {
           </div>
 
           {/* Text Area Input */}
-          <textarea
+          <RichComposer
             ref={composerRef}
-            rows={2}
             value={inputText}
             onChange={handleInputChange}
-            onPaste={handleComposerPaste}
+            onPasteFiles={stageFiles}
             placeholder={isInternal ? 'Add an internal note — only teammates can see this' : 'Write a reply…'}
-            className="block w-full bg-transparent px-4 pt-2 pb-1 text-[15px] leading-relaxed text-ink placeholder:text-faint focus:outline-none resize-none"
+            className="block w-full bg-transparent px-4 pt-2 pb-1 min-h-[52px] max-h-[180px] text-[15px] leading-relaxed text-ink focus:outline-none"
           />
 
           {/* Staged attachments (sent together with the text) */}
