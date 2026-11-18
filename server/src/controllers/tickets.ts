@@ -33,7 +33,8 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       unread,
       tag,
       kind,
-      createdByAgentId
+      createdByAgentId,
+      bot: req.query.bot === 'handled' ? 'handled' : undefined,
     });
     
     return res.json(list);

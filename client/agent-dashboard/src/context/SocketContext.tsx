@@ -99,7 +99,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Loud alert for every incoming customer message while you're on the agent dashboard.
       // (Earlier this was skipped when the sender matched a guest id stored in this browser,
       //  which silenced alerts whenever the widget had ever been used in the same browser.)
-      const isCustomerMessage = msg.sender.type === 'customer' && !msg.isInternalNote;
+      // Taps inside the chat-flow bot are silent; asking for a person (handoff) alerts like a new message
+      const botTap = msg.metadata?.type === 'bot_choice' && !msg.metadata?.handoff;
+      const isCustomerMessage = msg.sender.type === 'customer' && !msg.isInternalNote && !botTap;
 
       if (agent && isCustomerMessage && onAgentPage()) {
         if (soundEnabledRef.current) playChime();
@@ -129,7 +131,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       addConversation(conv);
 
       // New conversation started by a customer (not one a teammate created manually)
-      if (agent && !conv.createdByAgentId && onAgentPage()) {
+      if (agent && !conv.createdByAgentId && !conv.bot && onAgentPage()) {
         if (soundEnabledRef.current) playChime();
 
         // Show new ticket ID/number in tab title

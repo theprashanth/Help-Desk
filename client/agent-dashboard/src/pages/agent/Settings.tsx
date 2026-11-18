@@ -7,7 +7,7 @@ import {
   MessageSquare, Puzzle, Globe, ChevronRight,
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import ProfileSettings from '../../components/settings/ProfileSettings';
@@ -15,14 +15,15 @@ import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import GeneralSettings from '../../components/settings/GeneralSettings';
 import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
 import MessengerSettings, { MessengerTab } from '../../components/settings/MessengerSettings';
+import ChatFlowSettings from '../../components/settings/ChatFlowSettings';
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'integrations' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger'];
+const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -304,6 +305,7 @@ export const Settings: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[
             { icon: MessageSquare, label: 'Messenger Live Chat', desc: 'Install and customize your Messenger', onClick: () => { setMessengerTab('overview'); setSection('messenger'); } },
+            { icon: Workflow, label: 'Chat flow', desc: 'Greet visitors, collect details and answer common questions', onClick: () => setSection('chatFlow') },
             { icon: Mail, label: 'Email', desc: 'Forwarding, domains, and routing', onClick: () => setSection('profile') },
             { icon: Phone, label: 'Phone', desc: 'Set up phone and SMS support', onClick: () => setSection('profile') },
           ].map(item => (
@@ -810,6 +812,7 @@ export const Settings: React.FC = () => {
     teammates: 'Teammates',
     officeHours: 'Office hours',
     messenger: 'Messenger Live Chat',
+    chatFlow: 'Chat flow',
     integrations: 'Integrations',
     macros: 'Macros',
   };
@@ -836,6 +839,7 @@ export const Settings: React.FC = () => {
 
             <SettingsNavGroup label="Channels" open={openGroups.channels} onToggle={() => toggleGroup('channels')}>
               <SettingsNavItem icon={MessageSquare} label="Messenger Live Chat" active={section === 'messenger'} onClick={() => { setMessengerTab('overview'); setSection('messenger'); }} />
+              <SettingsNavItem icon={Workflow} label="Chat flow" active={section === 'chatFlow'} onClick={() => setSection('chatFlow')} />
               <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => setSection('profile')} />
               <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => setSection('profile')} />
             </SettingsNavGroup>
@@ -859,6 +863,7 @@ export const Settings: React.FC = () => {
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
         {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
         {section === 'messenger' && <MessengerSettings onBack={() => setSection('home')} tab={messengerTab} onTabChange={setMessengerTab} />}
+        {section === 'chatFlow' && <ChatFlowSettings onBack={() => setSection('home')} />}
         {section === 'profile' && <ProfileSettings onBack={() => setSection('home')} onOpenNotifications={() => setSection('notifications')} />}
         {!SELF_CONTAINED.includes(section) && (<>
         <div className="ic-panel-header">

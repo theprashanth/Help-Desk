@@ -1,0 +1,272 @@
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../middleware/auth';
+import { RepositoryFactory } from '../repositories/factory';
+import { SocketService } from '../services/socket';
+import { recordEvent } from '../services/events';
+import { notifyIntegrations } from '../services/notifications';
+import { sendReplyTimeNotice } from '../services/autoReply';
+import { resolveCustomerId } from '../services/customerIdentity';
+import { verifyUserHash } from '../services/messenger';
+import { toCustomerView } from '../services/conversationView';
+import {
+  chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, fillName, validPhone, validEmail,
+} from '../services/chatFlow';
+import { ChatFlow, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
+
+const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
+const isAdmin = (req: AuthenticatedRequest, res: Response) => {
+  if (!req.user) { res.status(401).json({ error: 'Unauthenticated' }); return false; }
+  if (req.user.role !== 'admin') { res.status(403).json({ error: 'Only admins can change the chat flow' }); return false; }
+  return true;
+};
+
+// ── Settings (dashboard) ────────────────────────────────────────────────────
+
+/** GET /api/chat-flow — draft + live version (any teammate can view). */
+export async function getChatFlow(req: AuthenticatedRequest, res: Response) {
+  const ws = await RepositoryFactory.getWorkspaceRepository().findById(wsIdOf(req));
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+  return res.json(chatFlowSettingsOf(ws));
+}
+
+/** PUT /api/chat-flow { draft } — save edits (not live until published). */
+export async function saveChatFlowDraft(req: AuthenticatedRequest, res: Response) {
+  if (!isAdmin(req, res)) return;
+  const repo = RepositoryFactory.getWorkspaceRepository();
+  const ws = await repo.findById(wsIdOf(req));
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+  let draft: ChatFlow;
+  try { draft = validateChatFlow(req.body?.draft); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+  const current = chatFlowSettingsOf(ws);
+  const next = { ...current, draft, updatedAt: new Date().toISOString() };
+  await repo.update(ws.id, { chatFlow: next });
+  return res.json(next);
+}
+
+/** POST /api/chat-flow/publish — make the draft live in the Messenger. */
+export async function publishChatFlow(req: AuthenticatedRequest, res: Response) {
+  if (!isAdmin(req, res)) return;
+  const repo = RepositoryFactory.getWorkspaceRepository();
+  const ws = await repo.findById(wsIdOf(req));
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+  const current = chatFlowSettingsOf(ws);
+  let live: ChatFlow;
+  try { live = validateChatFlow(current.draft); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+  const now = new Date().toISOString();
+  const next = { ...current, draft: live, published: live, version: (current.version || 0) + 1, publishedAt: now, updatedAt: now };
+  await repo.update(ws.id, { chatFlow: next });
+  try { SocketService.getIO().emit('chatflow:updated', { workspaceId: ws.id, version: next.version }); } catch { /* sockets not ready */ }
+  return res.json(next);
+}
+
+/** POST /api/chat-flow/discard — throw away draft edits (back to the live version, or the starting template). */
+export async function discardChatFlowDraft(req: AuthenticatedRequest, res: Response) {
+  if (!isAdmin(req, res)) return;
+  const repo = RepositoryFactory.getWorkspaceRepository();
+  const ws = await repo.findById(wsIdOf(req));
+  if (!ws) return res.status(404).json({ error: 'Workspace not found' });
+  const current = chatFlowSettingsOf(ws);
+  const next = { ...current, draft: current.published || defaultChatFlow(), updatedAt: new Date().toISOString() };
+  await repo.update(ws.id, { chatFlow: next });
+  return res.json(next);
+}
+
+// ── Messenger (public) ──────────────────────────────────────────────────────
+
+const BOT = (flow: ChatFlow) => ({ type: 'agent' as const, id: 'bot', name: flow.botName });
+
+async function say(conversationId: string, flow: ChatFlow, content: string, broadcast: boolean): Promise<Message> {
+  const msg = await RepositoryFactory.getMessageRepository().create({
+    conversationId, sender: BOT(flow), content, attachments: [], isInternalNote: false,
+    seen: false, delivered: true, reactions: [], metadata: { type: 'bot' },
+  });
+  if (broadcast) SocketService.broadcastMessageNew(msg);
+  return msg;
+}
+
+async function customerSays(conv: Conversation, content: string, broadcast: boolean, extra: Record<string, any> = {}): Promise<Message> {
+  const msg = await RepositoryFactory.getMessageRepository().create({
+    conversationId: conv.id, sender: { type: 'customer', id: conv.customer.id, name: conv.customer.name }, content,
+    attachments: [], isInternalNote: false, seen: true, delivered: true, reactions: [], metadata: { type: 'bot_choice', ...extra },
+  });
+  if (broadcast) SocketService.broadcastMessageNew(msg);
+  return msg;
+}
+
+/**
+ * POST /api/chat-flow/start — the visitor finished the details form.
+ * Body: { customerId?, externalUserId?, userHash?, answers: { [questionId]: string | null }, session?, messageMetadata? }
+ * Creates the customer + a bot-handled conversation with the transcript so far, ending at the main menu.
+ */
+export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
+  try {
+    const wsId = wsIdOf(req);
+    const ws = await RepositoryFactory.getWorkspaceRepository().findById(wsId);
+    const live = liveChatFlow(ws);
+    if (!ws || !live) return res.status(409).json({ error: 'The chat flow is turned off' });
+    const { flow, version } = live;
+    const { customerId: requestedId, externalUserId, userHash, session } = req.body || {};
+    const answers = (req.body?.answers && typeof req.body.answers === 'object') ? req.body.answers : {};
+
+    if (typeof externalUserId === 'string' && externalUserId.trim() && ws.identityEnforced && !verifyUserHash(ws.identitySecret, externalUserId.trim(), userHash)) {
+      return res.status(401).json({ error: 'Identity verification failed', code: 'identity_verification_failed' });
+    }
+
+    // Validate every answer against the live questions
+    const given: { label: string; value: string | null }[] = [];
+    const profile: { name?: string; phone?: string; email?: string } = {};
+    if (flow.askDetails) {
+      for (const q of flow.questions) {
+        const raw = answers[q.id];
+        const value = typeof raw === 'string' ? raw.trim().slice(0, 200) : '';
+        if (!value) {
+          if (q.required) return res.status(400).json({ error: `"${q.label}" is required`, questionId: q.id });
+          given.push({ label: q.label, value: null });
+          continue;
+        }
+        if (q.type === 'phone' && !validPhone(value)) return res.status(400).json({ error: 'Enter a valid mobile number with country code', questionId: q.id });
+        if (q.type === 'email' && !validEmail(value)) return res.status(400).json({ error: 'Enter a valid email address', questionId: q.id });
+        if (q.type === 'name') profile.name = value;
+        if (q.type === 'phone') profile.phone = value.replace(/[\s()-]/g, '');
+        if (q.type === 'email') profile.email = value.toLowerCase();
+        given.push({ label: q.label, value: q.type === 'phone' ? value.replace(/[\s()-]/g, '') : value });
+      }
+    }
+
+    const custRepo = RepositoryFactory.getCustomerRepository();
+    const { id: customerId, externalId } = await resolveCustomerId(requestedId, externalUserId);
+    const now = new Date().toISOString();
+    const existing = await custRepo.findOrCreate(customerId, {
+      externalId,
+      name: profile.name || `Guest #${customerId.slice(-4)}`,
+      email: profile.email || '', phone: profile.phone || '',
+      session: session || { firstSeen: now, lastSeen: now, totalConversations: 0 },
+      tags: [], notes: [],
+    });
+    const customer = await custRepo.update(customerId, {
+      ...(profile.name ? { name: profile.name } : {}),
+      ...(profile.email ? { email: profile.email } : {}),
+      ...(profile.phone ? { phone: profile.phone } : {}),
+      session: { ...existing.session, ...(session || {}), totalConversations: (existing.session?.totalConversations || 0) + 1, lastSeen: now },
+    }) || existing;
+
+    const bot: ConversationBotState = { state: 'menu', node: null, path: [], version };
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.create({
+      customer, status: 'resolved', priority: 'medium', category: 'general',
+      unreadCountAgent: 0, unreadCountCustomer: 0, bot,
+    });
+
+    // Transcript: welcome, each question + answer, then the main menu
+    await say(conv.id, flow, flow.welcome, false);
+    for (const g of given) {
+      await say(conv.id, flow, g.label, false);
+      await customerSays(conv, g.value ?? 'Skipped', false, { field: true });
+    }
+    await say(conv.id, flow, fillName(flow.menuPrompt, customer.name !== `Guest #${customerId.slice(-4)}` ? customer.name : ''), false);
+    await recordEvent(conv.id, 'status', `${flow.botName} (chat flow) started this conversation`, undefined, { bot: true });
+
+    const fresh = (await convRepo.findById(conv.id)) || conv;
+    SocketService.broadcastConversationNew(fresh);
+    return res.status(201).json(toCustomerView(fresh));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/**
+ * POST /api/chat-flow/action — a button tap in the flow.
+ * Body: { conversationId, action: 'choose' | 'yes' | 'no' | 'back' | 'restart', optionId? }
+ * The customer must own the conversation (X-Customer-Id). The server writes both sides of the exchange.
+ */
+export async function chatFlowAction(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { conversationId, action, optionId } = req.body || {};
+    if (typeof conversationId !== 'string') return res.status(400).json({ error: 'conversationId is required' });
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.findById(conversationId);
+    if (!conv || req.headers['x-customer-id'] !== conv.customer.id) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conv.bot) return res.status(409).json({ error: 'This conversation isn\'t handled by the chat flow' });
+    if (conv.bot.state === 'handoff') return res.status(409).json({ error: 'You\'re already connected to our team' });
+
+    const wsId = wsIdOf(req);
+    const ws = await RepositoryFactory.getWorkspaceRepository().findById(wsId);
+    const live = liveChatFlow(ws);
+    if (!live) return res.status(409).json({ error: 'The chat flow is turned off' });
+    const { flow } = live;
+    let bot: ConversationBotState = { ...conv.bot };
+    let convUpdate: Partial<Conversation> = {};
+
+    const toMenu = async (customerText: string, botTexts: string[]) => {
+      await customerSays(conv, customerText, true);
+      for (const t of botTexts) await say(conv.id, flow, t, true);
+      bot = { ...bot, state: 'menu', node: null, path: [] };
+    };
+
+    switch (action) {
+      case 'choose': {
+        if (bot.state !== 'menu') return res.status(409).json({ error: 'Pick Yes or No first' });
+        const showing = optionsAt(flow, bot.node);
+        const opt = showing.find(o => o.id === optionId) || null;
+        if (!opt) return res.status(400).json({ error: 'That option is no longer available', resync: true });
+        await customerSays(conv, opt.label, true);
+        if (opt.kind === 'menu') {
+          await say(conv.id, flow, opt.prompt || opt.label, true);
+          bot = { ...bot, node: opt.id, path: [...bot.path, opt.label] };
+        } else {
+          await say(conv.id, flow, opt.answer || '', true);
+          bot = { ...bot, path: [...bot.path, opt.label] };
+          if (flow.askResolved) {
+            await say(conv.id, flow, flow.resolvedQuestion, true);
+            bot = { ...bot, state: 'confirm' };
+          }
+        }
+        break;
+      }
+      case 'yes': {
+        if (bot.state !== 'confirm') return res.status(409).json({ error: 'Nothing to confirm' });
+        await customerSays(conv, flow.yesLabel, true);
+        await say(conv.id, flow, flow.yesReply, true);
+        bot = { ...bot, state: 'done' };
+        convUpdate.status = 'resolved';
+        await recordEvent(conv.id, 'status', `Resolved by ${flow.botName}: ${bot.path.join(' › ') || 'chat flow'}`, undefined, { bot: true });
+        break;
+      }
+      case 'no': {
+        if (bot.state !== 'confirm' && bot.state !== 'done') return res.status(409).json({ error: 'Nothing to confirm' });
+        await customerSays(conv, flow.noLabel, true, { handoff: true });
+        await say(conv.id, flow, flow.noReply, true);
+        bot = { ...bot, state: 'handoff' };
+        convUpdate = { status: 'open', unreadCountAgent: (conv.unreadCountAgent || 0) + 1, assignedAgentId: conv.assignedAgentId };
+        await recordEvent(conv.id, 'status', `Customer asked for a person after: ${bot.path.join(' › ') || 'chat flow'}`, undefined,
+          { bot: true, field: 'status', from: conv.status, to: 'open' });
+        break;
+      }
+      case 'back':
+        if (!flow.showBack) return res.status(400).json({ error: 'Not available' });
+        await toMenu(flow.backLabel, [fillName(flow.menuPrompt, conv.customer.name)]);
+        break;
+      case 'restart':
+        if (!flow.showRestart) return res.status(400).json({ error: 'Not available' });
+        await toMenu(flow.restartLabel, [flow.restartMessage, flow.restartPrompt]);
+        break;
+      default:
+        return res.status(400).json({ error: 'Unknown action' });
+    }
+
+    // A conversation that finished ("done") and is restarted goes back to being bot-handled
+    if (action === 'back' || action === 'restart') convUpdate.status = 'resolved';
+    const updated = await convRepo.update(conv.id, { ...convUpdate, bot });
+    if (updated) {
+      SocketService.broadcastConversationUpdate(updated);
+      if (action === 'no') {
+        notifyIntegrations(wsId, 'conversation.created', { conversation: updated });
+        await sendReplyTimeNotice(updated, wsId);
+      }
+    }
+    return res.json(toCustomerView(updated || conv));
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+

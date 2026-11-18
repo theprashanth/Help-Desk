@@ -1,3 +1,4 @@
+import { liveChatFlow } from '../services/chatFlow';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
@@ -105,6 +106,7 @@ export async function getPublicWorkspace(req: AuthenticatedRequest, res: Respons
       showAttribution: ws.showAttribution !== false,
       attributionText: (ws.attributionText || '').trim() || DEFAULT_ATTRIBUTION,
       messenger: appearanceOf(ws),
+      chatFlow: (() => { const live = liveChatFlow(ws); return live ? { ...live.flow, version: live.version } : null; })(),
       replyTime: ws.replyTime || null,
       replyTimeNotice: ws.replyTimeNotice !== false,
       officeHours: ws.officeHours || null,

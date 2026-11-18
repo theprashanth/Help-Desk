@@ -42,6 +42,7 @@ export interface IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
+    bot?: 'handled';   // conversations the chat-flow bot handled (not handed to a person)
   }): Promise<Conversation[]>;
   delete(id: string): Promise<boolean>;
 }

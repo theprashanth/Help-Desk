@@ -4,6 +4,7 @@ import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance
 import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
+import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -69,6 +70,7 @@ type Availability = {
   name?: string; showAttribution?: boolean; attributionText?: string;
   onlineAgents?: { id: string; name: string; avatar?: string }[];
   messenger?: Partial<MessengerAppearance>;
+  chatFlow?: LiveChatFlow | null;   // Settings › Chat flow (published), null when off
 };
 
 /** "in 25 minutes", "at 9:00 AM", "tomorrow at 9:00 AM", "on Monday at 9:00 AM" */
@@ -141,6 +143,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   // True when the user clicked "Start New Chat" but hasn't sent a first message yet.
   // The actual ticket is created lazily on first send to avoid empty tickets.
   const [isPendingNewConv, setIsPendingNewConv] = useState(false);
+  // Chat flow: the details form runs locally until it's complete, then the server takes over
+  const [flowIntake, setFlowIntake] = useState<{ step: number; answers: Record<string, string | null> } | null>(null);
+  const [flowBusy, setFlowBusy] = useState(false);
+  const [flowError, setFlowError] = useState<string | null>(null);
   // Real geo-IP data fetched once and cached
   const [geoInfo, setGeoInfo] = useState<{
     country: string; city: string; ip: string; countryCode: string; timezone?: string;
@@ -310,14 +316,16 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             name: data.name, showAttribution: data.showAttribution !== false, attributionText: data.attributionText,
             onlineAgents: Array.isArray(data.onlineAgents) ? data.onlineAgents : [],
             messenger: data.messenger || undefined,
+            chatFlow: data.chatFlow || null,
           });
         })
         .catch(() => {});
     };
     load();
     const interval = isOpen ? setInterval(load, 5 * 60 * 1000) : undefined;
-    return () => { cancelled = true; if (interval) clearInterval(interval); };
-  }, [isOpen, api]);
+    socket?.on('chatflow:updated', load); // an admin published a new version of the chat flow
+    return () => { cancelled = true; if (interval) clearInterval(interval); socket?.off('chatflow:updated', load); };
+  }, [isOpen, api, socket]);
 
   // Appearance from Settings > Messenger Live Chat (server); local dashboard settings only as a fallback
   const look = {
@@ -425,6 +433,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   }, [socket, guestId]);
 
   const isAway = availability ? !availability.isOpenNow : false;
+  const inFlowChat = activeTab === 'chat' && (!!flowIntake || (!!activeConv?.bot && activeConv.bot.state !== 'handoff'));
+  const flowLocked = !!availability?.chatFlow && inFlowChat;
   const headerSubtitle = isAway
     ? `We're away right now — back ${describeBack(availability?.nextOpenAt)}`
     : (availability?.replyTime && REPLY_TIME_TEXT[availability.replyTime]) || look.greeting;
@@ -566,11 +576,135 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
   // Navigate to the chat view but do NOT create the ticket yet.
   // The ticket is created lazily when the customer sends their first message.
+  const liveFlow = availability?.chatFlow || null;
+
+  /** The server decides the canonical User id; adopt it and remember this conversation in this browser. */
+  const adoptConversation = (conv: Conversation) => {
+    const userId = conv.customer?.id || guestId;
+    if (userId !== guestId) {
+      const previous: string[] = JSON.parse(store.get(`guest_conv_ids_${guestId}`) || '[]');
+      const merged: string[] = JSON.parse(store.get(`guest_conv_ids_${userId}`) || '[]');
+      store.set(`guest_conv_ids_${userId}`, JSON.stringify([...new Set([...merged, ...previous])]));
+      store.set('customer_guest_id', userId);
+      guestIdRef.current = userId;
+      setGuestId(userId);
+    }
+    const storageKey = `guest_conv_ids_${userId}`;
+    const existing: string[] = JSON.parse(store.get(storageKey) || '[]');
+    if (!existing.includes(conv.id)) store.set(storageKey, JSON.stringify([conv.id, ...existing]));
+  };
+
+  const sessionInfo = () => ({
+    browser: parseBrowser(),
+    os: parseOS(),
+    currentPage: window.location.href,
+    firstSeen: new Date().toISOString(),
+    lastSeen: new Date().toISOString(),
+    country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
+    ip: geoInfo?.ip || undefined,
+    timezone: geoInfo?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+  } as CustomerSession & { timezone?: string });
+
+  /** Questions this visitor still has to answer (logged-in users skip what the site already told us). */
+  const flowQuestions = (flow: LiveChatFlow) => (flow.askDetails ? flow.questions : []).filter(q =>
+    !(q.type === 'name' && identity.name) && !(q.type === 'email' && identity.email) && !(q.type === 'phone' && identity.phone));
+
+  /** Details form complete: create the bot-handled conversation (the server writes the transcript). */
+  const finishFlowIntake = async (answers: Record<string, string | null>) => {
+    if (!liveFlow) return;
+    const known: Record<string, string> = {};
+    for (const q of liveFlow.askDetails ? liveFlow.questions : []) {
+      if (q.type === 'name' && identity.name) known[q.id] = identity.name;
+      if (q.type === 'email' && identity.email) known[q.id] = identity.email;
+      if (q.type === 'phone' && identity.phone) known[q.id] = identity.phone;
+    }
+    setFlowBusy(true); setFlowError(null);
+    try {
+      const res = await api('/api/chat-flow/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customerId: guestId, externalUserId: identity.userId, userHash: identity.userHash, answers: { ...known, ...answers }, session: sessionInfo() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFlowError(data.error || 'Something went wrong — please try again');
+        // Jump back to the question the server rejected
+        const qs = flowQuestions(liveFlow);
+        const at = qs.findIndex(q => q.id === data.questionId);
+        if (at >= 0) setFlowIntake({ step: at, answers });
+        else if (res.status === 409) { setFlowIntake(null); }
+        return;
+      }
+      const conv: Conversation = data;
+      adoptConversation(conv);
+      const name = (answers && Object.entries(answers).find(([id]) => liveFlow.questions.find(q => q.id === id)?.type === 'name')?.[1]) || '';
+      if (name) { store.set('customer_guest_name', name); setGuestName(name); }
+      setLocalConversations(prev => [conv, ...prev.filter(c => c.id !== conv.id)]);
+      setActiveConv(conv);
+      setIsPendingNewConv(false);
+      setFlowIntake(null);
+      const msgRes = await api(`/api/messages/${conv.id}`);
+      if (msgRes.ok) setChatMessages(await msgRes.json());
+    } catch {
+      setFlowError('Couldn’t connect — please try again');
+    } finally {
+      setFlowBusy(false);
+    }
+  };
+
+  const answerFlowQuestion = (value: string | null) => {
+    if (!flowIntake || !liveFlow) return;
+    const qs = flowQuestions(liveFlow);
+    const q = qs[flowIntake.step];
+    if (!q) return;
+    const answers = { ...flowIntake.answers, [q.id]: value };
+    setFlowError(null);
+    if (flowIntake.step + 1 >= qs.length) { setFlowIntake({ step: qs.length, answers }); finishFlowIntake(answers); }
+    else setFlowIntake({ step: flowIntake.step + 1, answers });
+  };
+
+  /** A button in the flow (option, Yes/No, Back, Restart). */
+  const runFlowAction = async (b: FlowAction) => {
+    if (!activeConv || flowBusy) return;
+    setFlowBusy(true); setFlowError(null);
+    try {
+      const res = await api('/api/chat-flow/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversationId: activeConv.id, action: b.action, optionId: b.optionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFlowError(data.error || 'Something went wrong — please try again');
+        if (data.resync || res.status === 409) setAvailability(a => (a ? { ...a } : a)); // re-render with latest
+        return;
+      }
+      setActiveConv(data);
+      setLocalConversations(prev => prev.map(c => (c.id === data.id ? data : c)));
+      const msgRes = await api(`/api/messages/${activeConv.id}`);
+      if (msgRes.ok) {
+        const list: Message[] = await msgRes.json();
+        setChatMessages(list.filter(m => !m.isInternalNote && m.sender?.type !== 'system'));
+      }
+    } catch {
+      setFlowError('Couldn’t connect — please try again');
+    } finally {
+      setFlowBusy(false);
+    }
+  };
+
   const startNewConversation = () => {
     setActiveConv(null);
     setChatMessages([]);
     setIsPendingNewConv(true);
+    setFlowError(null);
+    setFlowIntake(null);
     setActiveTab('chat');
+    if (liveFlow) {
+      // Chat flow: greet, ask the details one by one, then show the menu
+      if (flowQuestions(liveFlow).length) setFlowIntake({ step: 0, answers: {} });
+      else finishFlowIntake({});
+    }
   };
 
   const handleSendMessage = async (text?: string, attachmentsArg?: Attachment[]) => {
@@ -615,26 +749,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
         if (res.ok || res.status === 210) {
           const conv: Conversation = await res.json();
-
-          // The server decides the canonical User id (UUID). Adopt it if it differs from ours,
-          // carrying over the list of this browser's conversations.
-          const userId = conv.customer?.id || guestId;
-          if (userId !== guestId) {
-            const previous: string[] = JSON.parse(store.get(`guest_conv_ids_${guestId}`) || '[]');
-            const merged: string[] = JSON.parse(store.get(`guest_conv_ids_${userId}`) || '[]');
-            store.set(`guest_conv_ids_${userId}`, JSON.stringify([...new Set([...merged, ...previous])]));
-            store.set('customer_guest_id', userId);
-            guestIdRef.current = userId;
-            setGuestId(userId);
-          }
-
-          // Persist conv ID so it survives page refresh (guest has no auth)
-          const storageKey = `guest_conv_ids_${userId}`;
-          const existing: string[] = JSON.parse(store.get(storageKey) || '[]');
-          if (!existing.includes(conv.id)) {
-            store.set(storageKey, JSON.stringify([conv.id, ...existing]));
-          }
-
+          adoptConversation(conv);
           setLocalConversations(prev => [conv, ...prev]);
           setActiveConv(conv);
           setIsPendingNewConv(false);
@@ -782,17 +897,17 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
               <div className="flex items-center gap-3">
                 {activeTab === 'chat' && (
                   <button
-                    onClick={() => { setActiveTab('home'); setIsPendingNewConv(false); }}
+                    onClick={() => { setActiveTab('home'); setIsPendingNewConv(false); setFlowIntake(null); setFlowError(null); }}
                     className="p-1 rounded-full hover:bg-white/10 mr-1 transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5" />
                   </button>
                 )}
                 <div>
-                  <h3 className="font-bold text-lg tracking-wide">{look.brandName}</h3>
+                  <h3 className="font-bold text-lg tracking-wide">{inFlowChat && liveFlow ? liveFlow.botName : look.brandName}</h3>
                   <p className="text-xs text-white/80 flex items-center gap-1.5 mt-0.5">
                     <span className={`w-2 h-2 rounded-full ${isAway ? 'bg-slate-300' : 'bg-emerald-400 animate-pulse'}`} />
-                    {headerSubtitle}
+                    {inFlowChat && liveFlow?.botSubtitle ? liveFlow.botSubtitle : headerSubtitle}
                   </p>
                 </div>
               </div>
@@ -886,9 +1001,45 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                 <div className="flex flex-col flex-1 h-full overflow-hidden">
                   {/* Message feed */}
                   <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
-                    {chatMessages.length === 0 && (
+                    {chatMessages.length === 0 && !flowIntake && (
                       <p className="text-xs text-slate-400 text-center my-6">Beginning of secure chat session.</p>
                     )}
+
+                    {/* Chat flow details form (local until complete) */}
+                    {flowIntake && liveFlow && (() => {
+                      const qs = flowQuestions(liveFlow);
+                      const botBubble = (key: string, text: string) => (
+                        <div key={key} className="flex flex-col max-w-[85%] self-start items-start">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 px-1">{liveFlow.botName}</span>
+                          <div className={`p-3 rounded-2xl rounded-tl-none text-sm ${recipientBubbleClass}`}>{formatMarkdown(text)}</div>
+                        </div>
+                      );
+                      return (
+                        <>
+                          {botBubble('welcome', liveFlow.welcome)}
+                          {qs.slice(0, flowIntake.step).map(q => (
+                            <React.Fragment key={q.id}>
+                              {botBubble(`q-${q.id}`, q.label)}
+                              <div className="flex flex-col max-w-[75%] self-end items-end">
+                                <div className="p-3 rounded-2xl rounded-tr-none text-sm" style={senderBubbleStyle}>{flowIntake.answers[q.id] ?? 'Skipped'}</div>
+                              </div>
+                            </React.Fragment>
+                          ))}
+                          {qs[flowIntake.step] ? (
+                            <FlowQuestionCard
+                              question={qs[flowIntake.step]}
+                              defaultCountry={liveFlow.defaultCountry}
+                              themeColor={themeColor}
+                              busy={flowBusy}
+                              error={flowError}
+                              onSubmit={answerFlowQuestion}
+                            />
+                          ) : (
+                            <p className="text-xs text-slate-400 self-center">{flowBusy ? 'One moment…' : flowError}</p>
+                          )}
+                        </>
+                      );
+                    })()}
 
                     {chatMessages.map(m => {
                       const isMe = m.sender.type === 'customer';
@@ -952,6 +1103,14 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       );
                     })}
 
+                    {/* Chat flow buttons under the bot's latest message */}
+                    {liveFlow && activeConv?.bot && activeConv.bot.state !== 'handoff' && (
+                      <>
+                        <FlowChips buttons={flowButtons(liveFlow, activeConv.bot)} themeColor={themeColor} busy={flowBusy} onPick={runFlowAction} />
+                        {flowError && <p className="text-xs text-red-500 self-end">{flowError}</p>}
+                      </>
+                    )}
+
                     {/* Agent typing */}
                     {agentTyping && (
                       <div className="self-start flex flex-col items-start max-w-[70%]">
@@ -967,7 +1126,14 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Typing Composer Panel */}
+                  {/* While the chat flow is running, typing is locked (the visitor uses the buttons) */}
+                  {flowLocked ? (
+                    <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
+                      <div className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm px-3 py-2.5 text-slate-400 select-none" aria-disabled="true">
+                        {(flowIntake ? liveFlow?.detailsPlaceholder : liveFlow?.menuPlaceholder) || 'Choose an option above'}
+                      </div>
+                    </div>
+                  ) : (
                   <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 relative">
                     {/* Emoji dropdown picker */}
                     {showEmoji && (
@@ -1058,6 +1224,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       </button>
                     </div>
                   </div>
+                  )}
                 </div>
               )}
             </div>

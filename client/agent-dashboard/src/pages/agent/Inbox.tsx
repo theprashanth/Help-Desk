@@ -199,11 +199,14 @@ export const Inbox: React.FC = () => {
     if (activeTab === 'unassigned') return 'Unassigned';
     if (activeTab.startsWith('agent:')) return agents.find(a => a.id === activeTab.slice(6))?.name || 'Teammate';
     if (activeTab.startsWith('kind:')) return KIND_LABELS[activeTab.slice(5)] || 'Inbox';
+    if (activeTab === 'bot') return 'Handled by bot';
     return 'Inbox';
   })();
 
   const selectView = (view: string) => {
     setComposer(null);
+    // Bot-handled chats are resolved until someone asks for a person, so show every state there
+    if (view === 'bot') useStore.getState().setStateFilter('all');
     setActiveTab(view);
   };
 

@@ -291,6 +291,7 @@ export class JsonConversationRepository implements IConversationRepository {
       createdByAgentId: conv.createdByAgentId,
       attributes: conv.attributes || {},
       sharing: conv.sharing || 'shared',
+      bot: conv.bot,
       createdAt: now,
       updatedAt: now
     };
@@ -369,6 +370,7 @@ export class JsonConversationRepository implements IConversationRepository {
         createdByAgentId: raw.createdByAgentId,
         attributes: raw.attributes || {},
         sharing: raw.sharing || 'shared',
+        bot: raw.bot || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -397,8 +399,10 @@ export class JsonConversationRepository implements IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
+    bot?: 'handled';
   }): Promise<Conversation[]> {
     let list = await this.findAll();
+    if (filters.bot === 'handled') list = list.filter(c => c.bot && c.bot.state !== 'handoff');
 
     if (filters.kind && filters.kind.length > 0) {
       list = list.filter(c => filters.kind!.includes(c.kind || 'conversation'));

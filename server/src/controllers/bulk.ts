@@ -23,6 +23,7 @@ function viewFilters(req: AuthenticatedRequest) {
     tag: q.tag ? String(q.tag) : undefined,
     kind: list(q.kind),
     createdByAgentId: createdBy === 'me' ? req.user?.id : createdBy,
+    bot: q.bot === 'handled' ? 'handled' as const : undefined,
   };
 }
 

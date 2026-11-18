@@ -1,3 +1,4 @@
+import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction } from '../controllers/chatFlow';
 import { Router } from 'express';
 import { authenticateJWT, optionalJWT } from '../middleware/auth';
 import { upload } from '../middleware/upload';
@@ -76,6 +77,14 @@ router.get('/messenger/identity-secret', authenticateJWT, getIdentitySecret);
 router.post('/messenger/identity-secret/rotate', authenticateJWT, rotateIdentitySecret);
 router.delete('/messenger/installations/:id', authenticateJWT, removeInstallation);
 router.post('/messenger/ping', requireKnownWorkspace, messengerPing);
+
+// Chat flow (Settings › Channels › Chat flow) + the Messenger running it
+router.get('/chat-flow', authenticateJWT, getChatFlow);
+router.put('/chat-flow', authenticateJWT, saveChatFlowDraft);
+router.post('/chat-flow/publish', authenticateJWT, publishChatFlow);
+router.post('/chat-flow/discard', authenticateJWT, discardChatFlowDraft);
+router.post('/chat-flow/start', requireKnownWorkspace, startChatFlow);     // public: visitor finished the details form
+router.post('/chat-flow/action', requireKnownWorkspace, chatFlowAction);   // public: visitor tapped a button
 router.get('/search', authenticateJWT, searchConversations); // full search: messages, notes, tickets, customers, tags
 router.get('/tickets/state-counts', authenticateJWT, getStateCounts); // counts per state for the list's state menu
 router.post('/tickets/bulk', authenticateJWT, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete

@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Plus, Search, PenLine, Users, UserX, BarChart3, ChevronDown, ChevronRight,
-  MessageSquare, Ticket, Wrench
+  MessageSquare, Ticket, Wrench, Bot
 } from 'lucide-react';
 import { Agent } from '../../../../../shared/src/types';
 
@@ -183,6 +183,7 @@ export const InboxNavPanel: React.FC<Props> = ({
             {item('kind:conversation', 'Conversations', <span className="text-[15px] leading-none">💬</span>, counts?.byKind?.conversation ?? 0)}
             {item('kind:ticket', 'Tickets', <span className="text-[15px] leading-none">🎟️</span>, counts?.byKind?.ticket ?? 0)}
             {item('kind:issue', 'Issues', <Wrench className="w-[16px] h-[16px]" />, counts?.byKind?.issue ?? 0)}
+            {item('bot', 'Handled by bot', <Bot className="w-[16px] h-[16px]" />)}
           </>
         )}
       </div>

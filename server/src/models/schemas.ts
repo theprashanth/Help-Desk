@@ -22,6 +22,7 @@ export interface IWorkspaceDoc extends Document {
   identityEnforced?: boolean;
   allowedDomains?: string[];
   installations?: any[];
+  chatFlow?: any;
 }
 
 export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
@@ -41,7 +42,8 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   identitySecret: { type: String },
   identityEnforced: { type: Boolean, default: false },
   allowedDomains: { type: [String], default: [] },
-  installations: { type: [Schema.Types.Mixed], default: [] }
+  installations: { type: [Schema.Types.Mixed], default: [] },
+  chatFlow: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);
@@ -158,6 +160,7 @@ export interface IConversationDoc extends Document {
   createdByAgentId?: string;
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: string;
+  bot?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -180,7 +183,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   description: { type: String },
   createdByAgentId: { type: String, index: true },
   attributes: { type: Schema.Types.Mixed, default: {} },
-  sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' }
+  sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' },
+  bot: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

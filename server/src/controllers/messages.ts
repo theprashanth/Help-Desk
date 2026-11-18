@@ -84,6 +84,12 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     } else if (sender.type === 'agent' && !isInternalNote) {
       updateData.unreadCountCustomer = conv.unreadCountCustomer + 1;
     }
+    // A person stepped into a chat the bot was handling (a teammate replied, or the customer typed
+    // after the chat flow was turned off): the bot steps back and the conversation is open again
+    if (conv.bot && conv.bot.state !== 'handoff' && !isInternalNote && (sender.type === 'agent' || sender.type === 'customer')) {
+      updateData.bot = { ...conv.bot, state: 'handoff' };
+      if (conv.status === 'resolved' || conv.status === 'closed') updateData.status = 'open';
+    }
 
     // Refresh conversation snippet
     let snippet = plainText(content || '');

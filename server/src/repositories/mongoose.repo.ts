@@ -35,6 +35,7 @@ const mapWorkspace = (doc: any): Workspace => ({
   identityEnforced: doc.identityEnforced,
   allowedDomains: doc.allowedDomains,
   installations: doc.installations,
+  chatFlow: doc.chatFlow,
 });
 
 export class MongooseWorkspaceRepository implements IWorkspaceRepository {
@@ -298,6 +299,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       createdByAgentId: doc.createdByAgentId,
       attributes: doc.attributes || {},
       sharing: (doc.sharing as any) || 'shared',
+      bot: doc.bot || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -338,6 +340,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       createdByAgentId: conv.createdByAgentId,
       attributes: conv.attributes || {},
       sharing: conv.sharing || 'shared',
+      bot: conv.bot,
     });
     await doc.save();
     return this.buildConversationObject(doc);
@@ -382,8 +385,10 @@ export class MongooseConversationRepository implements IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
+    bot?: 'handled';
   }): Promise<Conversation[]> {
     const query: any = {};
+    if (filters.bot === 'handled') query['bot.state'] = { $in: ['menu', 'confirm', 'done'] };
 
     if (filters.kind && filters.kind.length > 0) {
       // legacy documents have no kind => treat as 'conversation'

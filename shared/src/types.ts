@@ -45,6 +45,7 @@ export interface Workspace {
   identityEnforced?: boolean;       // reject logged-in users without a valid user_hash
   allowedDomains?: string[];        // empty = the Messenger may load on any site
   installations?: MessengerInstallation[];
+  chatFlow?: ChatFlowSettings;
 }
 
 /** How the Messenger looks for customers (saved on the server, applied everywhere it's installed). */
@@ -202,8 +203,73 @@ export interface Conversation {
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   tags?: string[];                 // conversation tags (separate from the customer's tags)
+  bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   createdAt: string;
   updatedAt: string;
+}
+
+/** Where a customer is in the chat-flow bot. menu = choosing; confirm = "Did this solve your issue?"; done = solved; handoff = asked for a person. */
+export interface ConversationBotState {
+  state: 'menu' | 'confirm' | 'done' | 'handoff';
+  node: string | null;   // option id whose sub-menu is showing (null = main menu)
+  path: string[];        // labels clicked, e.g. ["My Account Information", "OTP Not Received"]
+  version: number;       // flow version this chat started on
+}
+
+// ── Chat flow (Settings › Channels › Chat flow) ─────────────────────────────
+
+export type ChatFlowQuestionType = 'name' | 'phone' | 'email' | 'text';
+export interface ChatFlowQuestion {
+  id: string;
+  type: ChatFlowQuestionType;
+  label: string;          // "Your mobile number (choose your country code)"
+  placeholder: string;
+  required: boolean;      // optional questions show "Skip"
+}
+
+/** A button in a menu: opens a sub-menu (children) or shows an answer. */
+export interface ChatFlowOption {
+  id: string;
+  label: string;
+  kind: 'menu' | 'answer';
+  prompt?: string;            // menu: message shown above its sub-options
+  answer?: string;            // answer: markdown (**bold**, emoji, lists)
+  children?: ChatFlowOption[];
+}
+
+export interface ChatFlow {
+  enabled: boolean;
+  botName: string;            // "Chai Shots Support"
+  botSubtitle: string;        // "Here to help, anytime."
+  welcome: string;            // first message
+  askDetails: boolean;        // ask the questions below before the menu
+  questions: ChatFlowQuestion[];
+  defaultCountry: string;     // ISO code for the phone picker, e.g. "IN"
+  detailsPlaceholder: string; // composer text while answering ("Enter details in the input field")
+  menuPrompt: string;         // "Thanks, {name}! How can we help you today? Please select an option below."
+  options: ChatFlowOption[];  // main categories
+  askResolved: boolean;       // after an answer: "Did this solve your issue?"
+  resolvedQuestion: string;
+  yesLabel: string;
+  noLabel: string;
+  yesReply: string;
+  noReply: string;
+  showBack: boolean;
+  backLabel: string;
+  showRestart: boolean;
+  restartLabel: string;
+  restartMessage: string;     // "Let's start again!"
+  restartPrompt: string;      // "Please select a support category."
+  menuPlaceholder: string;    // composer text while in the menus ("We are here to help you")
+}
+
+/** Stored on the workspace: edits go to the draft; Publish copies it live. */
+export interface ChatFlowSettings {
+  draft: ChatFlow;
+  published: ChatFlow | null;
+  version: number;            // bumps on every publish
+  publishedAt?: string;
+  updatedAt?: string;
 }
 
 export interface SavedReply {
