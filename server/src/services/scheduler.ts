@@ -2,9 +2,11 @@ import { RepositoryFactory } from '../repositories/factory';
 import { tenantStorage } from '../context/tenant.context';
 import { SocketService, AGENTS_ROOM } from './socket';
 import { recordUpdateEvents } from './events';
+import { checkSlas } from './sla';
 
 /**
- * Background jobs. Every minute: conversations whose snooze has ended wake up — the snooze is
+ * Background jobs, every 30 seconds. SLA clocks are refreshed and breaches recorded (services/sla.ts).
+ * Conversations whose snooze has ended wake up — the snooze is
  * cleared, an "unsnoozed" event is recorded, and agents get `conversation:unsnoozed` so the
  * dashboard can alert the assignee and refresh counts.
  */
@@ -32,8 +34,9 @@ export function startScheduler() {
     if (running) return;
     running = true;
     try { await wakeSnoozed(); } catch (err: any) { console.error('[Scheduler] Snooze wake-up failed:', err.message); }
+    try { await checkSlas(); } catch (err: any) { console.error('[Scheduler] SLA check failed:', err.message); }
     finally { running = false; }
   };
   setTimeout(tick, 5000);
-  setInterval(tick, 60_000).unref?.();
+  setInterval(tick, 30_000).unref?.();
 }

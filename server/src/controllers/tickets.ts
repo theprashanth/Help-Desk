@@ -2,8 +2,9 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
-import { Conversation, Customer, Tag, SavedReply } from '../../../shared/src/types';
+import { Conversation, Customer, Tag, SavedReply, MacroActions } from '../../../shared/src/types';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
+import { refreshSla } from '../services/sla';
 import { toCustomerView, isCustomerVisible, computeCustomerSnippet, plainText } from '../services/conversationView';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
@@ -24,7 +25,7 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
     const createdByAgentId = createdBy === 'me' ? req.user?.id : createdBy;
 
     const convRepo = RepositoryFactory.getConversationRepository();
-    const list = await convRepo.findFiltered({
+    let list = await convRepo.findFiltered({
       status,
       priority,
       assignedAgentId,
@@ -36,6 +37,11 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       createdByAgentId,
       bot: ['handled', 'active', 'resolved'].includes(req.query.bot as string) ? req.query.bot as 'handled' | 'active' | 'resolved' : undefined,
     });
+    // Mentions view: conversations with a note that mentions you
+    if (req.query.mentions === 'me' && req.user) {
+      const ids = await mentionedConversationIds(req.user.id);
+      list = list.filter(c => ids.has(c.id));
+    }
     
     return res.json(list);
   } catch (err: any) {
@@ -185,6 +191,7 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       notifyIntegrations(req.workspaceId || 'default_workspace', 'conversation.created', { conversation: updatedConv || newConv, message: firstMessage });
       // Tell the customer when to expect a reply (Settings > Office hours)
       await sendReplyTimeNotice(newConv, req.workspaceId || 'default_workspace');
+      await refreshSla(newConv.id);
       if (assignedAgentId) {
         const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
         await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}`, undefined,
@@ -215,6 +222,10 @@ export async function updateTicket(req: AuthenticatedRequest, res: Response) {
     }
     SocketService.broadcastConversationUpdate(updated);
     if (before) await recordUpdateEvents(before, updated, await getActor(req));
+    // State or priority changes start, stop or move the SLA clock
+    if (before && (before.status !== updated.status || before.priority !== updated.priority || before.snoozedUntil !== updated.snoozedUntil)) {
+      await refreshSla(id);
+    }
     return res.json(updated);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -257,6 +268,7 @@ export async function assignTicket(req: AuthenticatedRequest, res: Response) {
         ? `${who} assigned themselves`
         : `${who} assigned ${agentName}`;
     await recordEvent(id, 'assignment', text, actor, { targetId: agentId || null, targetName: agentName });
+    await refreshSla(id); // assigning reopens the conversation
     
     return res.json(updated);
   } catch (err: any) {
@@ -334,10 +346,27 @@ export async function getSavedReplies(req: AuthenticatedRequest, res: Response) 
   }
 }
 
+/** Keep only well-formed macro actions; returns undefined when there are none. */
+function cleanMacroActions(raw: any): MacroActions | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: MacroActions = {};
+  if (['open', 'waiting', 'resolved', 'closed'].includes(raw.status)) out.status = raw.status;
+  if (['none', 'low', 'medium', 'high', 'critical'].includes(raw.priority)) out.priority = raw.priority;
+  if (typeof raw.assignTo === 'string' && raw.assignTo.trim()) out.assignTo = raw.assignTo.trim().slice(0, 100);
+  if (Array.isArray(raw.addTags)) {
+    const tags = Array.from(new Set(raw.addTags.filter((t: unknown) => typeof t === 'string' && t.trim()).map((t: string) => t.trim().slice(0, 60)))).slice(0, 20) as string[];
+    if (tags.length) out.addTags = tags;
+  }
+  const mins = Number(raw.snoozeMinutes);
+  if (Number.isFinite(mins) && mins >= 1 && mins <= 60 * 24 * 90) out.snoozeMinutes = Math.round(mins);
+  return Object.keys(out).length ? out : undefined;
+}
+
 export async function createSavedReply(req: AuthenticatedRequest, res: Response) {
   const { trigger, title, content, availableFor, availableWhen } = req.body;
-  if (!trigger || !title || !content) {
-    return res.status(400).json({ error: 'trigger, title, and content are required' });
+  const actions = cleanMacroActions(req.body.actions);
+  if (!trigger || !title || (!content && !actions)) {
+    return res.status(400).json({ error: 'trigger, title, and a message or at least one action are required' });
   }
   try {
     const userRepo = RepositoryFactory.getUserRepository();
@@ -352,7 +381,8 @@ export async function createSavedReply(req: AuthenticatedRequest, res: Response)
     const created = await replyRepo.create({
       trigger,
       title,
-      content,
+      content: content || '',
+      actions,
       availableFor: availableFor || 'everyone',
       availableWhen: availableWhen || ['starting_conversations', 'replying', 'adding_notes'],
       creator
@@ -367,7 +397,13 @@ export async function updateSavedReply(req: AuthenticatedRequest, res: Response)
   const { id } = req.params;
   try {
     const replyRepo = RepositoryFactory.getSavedReplyRepository();
-    const updated = await replyRepo.update(id, req.body);
+    const patch: Partial<SavedReply> = {};
+    for (const k of ['trigger', 'title', 'content', 'availableFor', 'availableWhen'] as const) {
+      if (req.body[k] !== undefined) (patch as any)[k] = req.body[k];
+    }
+    if ('actions' in req.body) patch.actions = cleanMacroActions(req.body.actions);
+    if (patch.title === '' || patch.trigger === '') return res.status(400).json({ error: 'trigger and title are required' });
+    const updated = await replyRepo.update(id, patch);
     if (!updated) return res.status(404).json({ error: 'Saved reply not found' });
     return res.json(updated);
   } catch (err: any) {
@@ -716,7 +752,19 @@ export async function getInboxCounts(req: AuthenticatedRequest, res: Response) {
       if (c.assignedAgentId) byAgent[c.assignedAgentId] = (byAgent[c.assignedAgentId] || 0) + 1;
       byKind[c.kind || 'conversation'] = (byKind[c.kind || 'conversation'] || 0) + 1;
     }
+    // Mentions: conversations mentioning you, and how many mentions arrived since you last looked
+    let mentions = { unread: 0, conversationIds: [] as string[] };
+    if (me) {
+      const user = await RepositoryFactory.getUserRepository().findById(me);
+      const mine = (await RepositoryFactory.getMessageRepository().findAll())
+        .filter(m => m.isInternalNote && Array.isArray(m.metadata?.mentions) && m.metadata!.mentions.includes(me));
+      mentions = {
+        unread: mine.filter(m => !user?.mentionsSeenAt || m.createdAt > user.mentionsSeenAt).length,
+        conversationIds: Array.from(new Set(mine.map(m => m.conversationId))),
+      };
+    }
     return res.json({
+      mentions,
       yours: open.filter(c => me && c.assignedAgentId === me).length,
       yoursUnread: open.filter(c => me && c.assignedAgentId === me && c.unreadCountAgent > 0).length,
       createdByYou: open.filter(c => me && c.createdByAgentId === me).length,
@@ -753,4 +801,11 @@ export async function searchCustomers(req: AuthenticatedRequest, res: Response) 
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+}
+
+
+/** Conversations with a note that mentions this teammate. */
+async function mentionedConversationIds(agentId: string): Promise<Set<string>> {
+  const msgs = await RepositoryFactory.getMessageRepository().findAll();
+  return new Set(msgs.filter(m => m.isInternalNote && Array.isArray(m.metadata?.mentions) && m.metadata!.mentions.includes(agentId)).map(m => m.conversationId));
 }

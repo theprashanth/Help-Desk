@@ -431,3 +431,11 @@ export async function updateStatus(req: AuthenticatedRequest, res: Response) {
   try { SocketService.getIO().emit('agent:status', { agentId: updated.id, away }); } catch { /* sockets not ready */ }
   return res.json(updated);
 }
+
+
+/** PUT /api/auth/profile/mentions-seen — opening the Mentions view clears its unread count. */
+export async function markMentionsSeen(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+  const updated = await RepositoryFactory.getUserRepository().update(req.user.id, { mentionsSeenAt: new Date().toISOString() });
+  return updated ? res.json({ mentionsSeenAt: updated.mentionsSeenAt }) : res.status(404).json({ error: 'Teammate not found' });
+}

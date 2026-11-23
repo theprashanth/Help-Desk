@@ -11,7 +11,8 @@ export const customerRoom = (customerId: string) => `customer:${customerId}`;
 
 /** Internal notes and conversation events must never reach customer sockets. */
 // Customer-facing state lines ("Ticket resolved") are system messages the customer may see
-const isAgentOnly = (m: Message) => !!m.isInternalNote || (m.sender?.type === 'system' && m.metadata?.type !== 'customer_event');
+export const CUSTOMER_SYSTEM_TYPES = ['customer_event', 'csat_request'];
+const isAgentOnly = (m: Message) => !!m.isInternalNote || (m.sender?.type === 'system' && !CUSTOMER_SYSTEM_TYPES.includes(m.metadata?.type));
 
 export class SocketService {
   private static io: Server | null = null;

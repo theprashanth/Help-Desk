@@ -4,7 +4,7 @@ import { authenticateJWT, optionalJWT } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
-  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus
+  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen
 } from '../controllers/auth';
 import { getAiSettings, saveAiSettings, testAiSettings, askAi } from '../controllers/ai';
 import { previewImport, runDataImport, listImports, downloadExport } from '../controllers/data';
@@ -15,7 +15,7 @@ import {
   createManualTicket, getInboxCounts, searchCustomers
 } from '../controllers/tickets';
 import { 
-  getMessages, createMessage, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
+  getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
 } from '../controllers/messages';
 import { getAnalytics } from '../controllers/analytics';
 import { getOfficeHours, updateOfficeHours, getPublicWorkspace, getWorkspace, updateWorkspace } from '../controllers/workspace';
@@ -47,6 +47,7 @@ router.post('/auth/login', login);
 router.get('/auth/profile', authenticateJWT, getProfile);
 router.put('/auth/profile', authenticateJWT, updateProfile);
 router.put('/auth/profile/status', authenticateJWT, updateStatus);   // { away }
+router.put('/auth/profile/mentions-seen', authenticateJWT, markMentionsSeen);
 // Settings › AI assistant + the Ask AI panel
 router.get('/ai/settings', authenticateJWT, getAiSettings);
 router.put('/ai/settings', authenticateJWT, saveAiSettings);
@@ -128,6 +129,7 @@ router.delete('/tags/:id', authenticateJWT, deleteTag);
 // --- Message Routes ---
 router.get('/messages/:conversationId', optionalJWT, getMessages); // Open for guest testing
 router.post('/messages', requireKnownWorkspace, optionalJWT, createMessage); // Guest & Agent can post messages
+router.post('/conversations/:id/rating', requireKnownWorkspace, optionalJWT, rateConversation); // CSAT from the Messenger
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
 router.put('/messages/:messageId/tags', authenticateJWT, updateMessageTags);
 router.delete('/messages/:messageId', authenticateJWT, deleteMessage);

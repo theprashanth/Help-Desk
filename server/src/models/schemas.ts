@@ -25,6 +25,8 @@ export interface IWorkspaceDoc extends Document {
   chatFlow?: any;
   appId?: string;
   showStateToCustomer?: boolean;
+  csatEnabled?: boolean;
+  sla?: any;
   ai?: any;
   dataImports?: any[];
 }
@@ -51,6 +53,8 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   dataImports: { type: [Schema.Types.Mixed], default: undefined },
   appId: { type: String, unique: true, sparse: true, index: true },
   showStateToCustomer: { type: Boolean },
+  csatEnabled: { type: Boolean },
+  sla: { type: Schema.Types.Mixed },
   ai: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
@@ -70,6 +74,7 @@ export interface IUserDoc extends Document {
   bio?: string;
   calendarLink?: string;
   location?: string;
+  mentionsSeenAt?: string;
   away?: boolean;
   timezone?: string;
   status: 'online' | 'offline';
@@ -91,6 +96,7 @@ export const UserSchema = new Schema<IUserDoc>({
   bio: { type: String },
   calendarLink: { type: String },
   location: { type: String },
+  mentionsSeenAt: { type: String },
   away: { type: Boolean, default: false },
   timezone: { type: String }
 }, { timestamps: true });
@@ -177,6 +183,9 @@ export interface IConversationDoc extends Document {
   bot?: any;
   mergedInto?: any;
   importedFrom?: any;
+  rating?: any;
+  csatRequestedAt?: string;
+  sla?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -202,7 +211,10 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' },
   bot: { type: Schema.Types.Mixed },
   mergedInto: { type: Schema.Types.Mixed },
-  importedFrom: { type: Schema.Types.Mixed }
+  importedFrom: { type: Schema.Types.Mixed },
+  rating: { type: Schema.Types.Mixed },
+  csatRequestedAt: { type: String },
+  sla: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);
@@ -276,6 +288,7 @@ export interface ISavedReplyDoc extends Document {
   content: string;
   availableFor?: 'everyone' | 'myself' | 'teams';
   availableWhen?: ('starting_conversations' | 'replying' | 'adding_notes')[];
+  actions?: Record<string, unknown>;
   creator?: {
     id: string;
     name: string;
@@ -287,7 +300,8 @@ export const SavedReplySchema = new Schema<ISavedReplyDoc>({
   workspaceId: { type: String, required: true, index: true },
   trigger: { type: String, required: true, unique: true, index: true },
   title: { type: String, required: true },
-  content: { type: String, required: true },
+  content: { type: String, default: '' },
+  actions: { type: Schema.Types.Mixed },
   availableFor: { type: String, enum: ['everyone', 'myself', 'teams'], default: 'everyone' },
   availableWhen: { type: [String], default: ['starting_conversations', 'replying', 'adding_notes'] },
   creator: {

@@ -359,7 +359,7 @@ export class JsonConversationRepository implements IConversationRepository {
     });
   }
 
-  async update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null> {
+  async update(id: string, updateData: Partial<Conversation>, opts?: { touch?: boolean }): Promise<Conversation | null> {
     return transaction(async () => {
       const rawConversations = await readJson<any[]>(this.file, []);
       const workspaceId = getActiveWorkspaceId();
@@ -376,7 +376,7 @@ export class JsonConversationRepository implements IConversationRepository {
       rawConversations[idx] = {
         ...current,
         ...cleanUpdates,
-        updatedAt: new Date().toISOString()
+        updatedAt: opts?.touch === false ? current.updatedAt : new Date().toISOString()
       };
     
       await writeJson(this.file, rawConversations);
@@ -426,6 +426,9 @@ export class JsonConversationRepository implements IConversationRepository {
         bot: raw.bot || undefined,
         mergedInto: raw.mergedInto || undefined,
         importedFrom: raw.importedFrom || undefined,
+        rating: raw.rating || undefined,
+        csatRequestedAt: raw.csatRequestedAt || undefined,
+        sla: raw.sla || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -692,6 +695,9 @@ export class JsonSavedReplyRepository implements ISavedReplyRepository {
         trigger: reply.trigger,
         title: reply.title,
         content: reply.content,
+        ...(reply.actions ? { actions: reply.actions } : {}),
+        creator: reply.creator,
+        createdAt: new Date().toISOString(),
         availableFor: reply.availableFor || 'everyone',
         availableWhen: reply.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
       };

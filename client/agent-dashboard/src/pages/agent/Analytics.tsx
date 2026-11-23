@@ -6,7 +6,7 @@ import {
 } from 'recharts';
 import { 
   CheckCircle2, FolderClosed, Clock, ShieldAlert, Users, 
-  UserCheck, RefreshCw, BarChart2
+  UserCheck, RefreshCw, BarChart2, Smile
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 
@@ -42,6 +42,9 @@ interface AnalyticsData {
     medianResolutionSec: number | null;
     avgResolutionSec: number | null;
     resolutionCount: number;
+    csatScore: number | null;
+    csatAverage: number | null;
+    csatCount: number;
   };
   charts: {
     dailyTickets: Array<DayPoint & { count: number }>;
@@ -159,6 +162,12 @@ export const Analytics: React.FC = () => {
     },
     { label: 'Customers', value: summary.activeCustomers, hint: 'All contacts', icon: <Users className="w-4 h-4" /> },
     { label: 'Online agents', value: summary.onlineAgents, hint: 'Connected and not away', icon: <UserCheck className="w-4 h-4" /> },
+    {
+      label: 'CSAT',
+      value: summary.csatScore == null ? '—' : `${summary.csatScore}%`,
+      hint: summary.csatCount ? `Avg ${summary.csatAverage}/5 · ${summary.csatCount} rating${summary.csatCount === 1 ? '' : 's'}` : 'No ratings yet',
+      icon: <Smile className="w-4 h-4" />,
+    },
   ];
 
   const noTickets = charts.dailyTickets.every(d => d.count === 0);
@@ -210,7 +219,7 @@ export const Analytics: React.FC = () => {
         </div>
 
         {/* Metrics Cards Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {cardItems.map((item) => (
             <div key={item.label} className="ic-card p-5 flex flex-col gap-2 min-w-0">
               <div className="flex justify-between items-center gap-2 text-muted">

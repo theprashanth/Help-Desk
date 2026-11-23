@@ -2,10 +2,12 @@ import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
+import { CUSTOMER_SYSTEM_TYPES, AGENTS_ROOM } from '../services/socket';
 import { Message, Attachment } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
-import { refreshConversationSnippets, plainText } from '../services/conversationView';
+import { refreshSla } from '../services/sla';
+import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
@@ -28,7 +30,7 @@ export async function getMessages(req: AuthenticatedRequest, res: Response) {
     const msgRepo = RepositoryFactory.getMessageRepository();
     const list = await msgRepo.findByConversationId(conversationId, limit, skip);
     // Customers (no agent token) never see internal notes or conversation events
-    const visible = req.user ? list : list.filter(m => !m.isInternalNote && (m.sender?.type !== 'system' || m.metadata?.type === 'customer_event'));
+    const visible = req.user ? list : list.filter(m => !m.isInternalNote && (m.sender?.type !== 'system' || CUSTOMER_SYSTEM_TYPES.includes(m.metadata?.type)));
     return res.json(visible);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -66,6 +68,13 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       if (who?.blocked) return res.status(403).json({ error: "You can't send messages to this team right now.", code: 'blocked' });
     }
 
+    // @mentions only live in internal notes, as a short list of teammate ids
+    let metadata = req.body.metadata;
+    if (metadata && typeof metadata === 'object' && 'mentions' in metadata) {
+      const ids = Array.isArray(metadata.mentions) ? metadata.mentions.filter((x: unknown) => typeof x === 'string').slice(0, 20) : [];
+      metadata = { ...metadata, mentions: isInternalNote && req.user ? Array.from(new Set(ids)) : undefined };
+    }
+
     const createdMsg = await msgRepo.create({
       conversationId,
       sender,
@@ -75,8 +84,18 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       seen: false,
       delivered: true,
       reactions: [],
-      metadata: req.body.metadata
+      metadata
     });
+
+    // Tell mentioned teammates (their dashboards alert them and update the Mentions count)
+    const mentions: string[] = createdMsg.metadata?.mentions || [];
+    if (mentions.length) {
+      SocketService.emitToRoom(AGENTS_ROOM, 'mention:new', {
+        conversationId, ticketNumber: conv.ticketNumber, messageId: createdMsg.id,
+        mentions, from: { id: sender.id, name: sender.name },
+        snippet: plainText(content || '').slice(0, 140),
+      });
+    }
 
     // Update unread count based on sender type
     const updateData: any = {};
@@ -141,6 +160,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     if (updatedConv) {
       SocketService.broadcastConversationUpdate(updatedConv);
     }
+    // Customer wrote → their clock may start; a teammate replied → it stops
+    if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);
 
     return res.status(201).json(createdMsg);
   } catch (err: any) {
@@ -314,6 +335,34 @@ export async function markSeen(req: AuthenticatedRequest, res: Response) {
     }
 
     return res.json({ success: true });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+
+/**
+ * POST /api/conversations/:id/rating { score: 1-5, comment? } — the customer rates a resolved
+ * conversation from the Messenger (X-Customer-Id must own it). Teammates see an event and the score.
+ */
+export async function rateConversation(req: AuthenticatedRequest, res: Response) {
+  const { id } = req.params;
+  try {
+    if (!(await customerOwnsConversation(req, id))) return res.status(404).json({ error: 'Conversation not found' });
+    const score = Number(req.body?.score);
+    if (![1, 2, 3, 4, 5].includes(score)) return res.status(400).json({ error: 'score must be 1 to 5' });
+    const comment = typeof req.body?.comment === 'string' ? req.body.comment.trim().slice(0, 1000) : '';
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.findById(id);
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (!conv.csatRequestedAt) return res.status(409).json({ error: 'This conversation has no rating request' });
+    const rating = { score: score as 1 | 2 | 3 | 4 | 5, ...(comment ? { comment } : {}), at: new Date().toISOString() };
+    const updated = await convRepo.update(id, { rating });
+    const label = ['', 'Terrible', 'Bad', 'OK', 'Great', 'Amazing'][score];
+    await recordEvent(id, 'other', `${conv.customer.name} rated the conversation ${score}/5 (${label})${comment ? `: “${comment}”` : ''}`, undefined,
+      { field: 'rating', score });
+    if (updated) SocketService.broadcastConversationUpdate(updated);
+    return res.json(toCustomerView(updated || { ...conv, rating }));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

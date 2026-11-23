@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { recordEvent } from '../services/events';
+import { refreshSla } from '../services/sla';
 import { notifyIntegrations } from '../services/notifications';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { resolveCustomerId } from '../services/customerIdentity';
@@ -287,6 +288,7 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
       if (handedOff) {
         notifyIntegrations(wsId, 'conversation.created', { conversation: updated });
         await sendReplyTimeNotice(updated, wsId);
+        await refreshSla(updated.id); // the customer now waits for a person
       }
     }
     return res.json(toCustomerView(updated || conv));

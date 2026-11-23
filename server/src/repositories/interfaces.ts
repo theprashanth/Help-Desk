@@ -32,7 +32,8 @@ export interface IConversationRepository {
   findById(id: string): Promise<Conversation | null>;
   findByTicketNumber(ticketNumber: string): Promise<Conversation | null>;
   create(conversation: Omit<Conversation, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>): Promise<Conversation>;
-  update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null>;
+  /** `touch: false` leaves updatedAt alone (bookkeeping that isn't conversation activity, e.g. SLA clocks). */
+  update(id: string, updateData: Partial<Conversation>, opts?: { touch?: boolean }): Promise<Conversation | null>;
   findAll(): Promise<Conversation[]>;
   findFiltered(filters: {
     status?: string[];

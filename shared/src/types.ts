@@ -32,7 +32,9 @@ export interface Workspace {
   timezone?: string;               // IANA; office hours use this zone
   showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
   attributionText?: string;        // custom attribution text (default "Powered by Chai Samosa")
-  showStateToCustomer?: boolean;   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
+  showStateToCustomer?: boolean;
+  sla?: SlaPolicy;                 // response-time targets (Settings › SLAs)
+  csatEnabled?: boolean;           // ask customers to rate resolved conversations (default true)   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
   snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
   // Settings > Office hours
   replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
@@ -140,6 +142,7 @@ export interface Agent {
   role: UserRole;
   status: 'online' | 'offline';
   away?: boolean;        // Away mode: not shown as online to customers, skipped by auto-assignment
+  mentionsSeenAt?: string; // last time they opened the Mentions view (newer mentions count as unread)
   lastSeen?: string;
   createdAt?: string;
   // Public profile (Settings > Personal > Details)
@@ -240,8 +243,38 @@ export interface Conversation {
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
   importedFrom?: { source: 'csv'; id: string; url?: string };  // Settings › Data › Imports (e.g. the Intercom conversation id)
+  rating?: ConversationRating;     // CSAT: the customer's rating after it was resolved
+  csatRequestedAt?: string;        // when the Messenger last asked for a rating
+  sla?: ConversationSla;           // the reply the customer is waiting on (Settings › SLAs)
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * SLA clock for the reply the customer is waiting on. "first" = no teammate has replied yet,
+ * "next" = the customer wrote again after a teammate's reply. Cleared once a teammate replies.
+ */
+export interface ConversationSla {
+  kind: 'first' | 'next';
+  startedAt: string;       // when the customer started waiting
+  dueAt: string;           // startedAt + the target for the conversation's priority
+  targetMinutes: number;
+  breachedAt?: string;     // set once when the target is missed
+}
+
+/** Response-time targets per priority, in minutes (Settings › SLAs). */
+export interface SlaPolicy {
+  enabled: boolean;
+  enabledAt?: string;      // only conversations waiting since then are measured
+  firstResponseMinutes: Record<TicketPriority, number>;
+  nextResponseMinutes: Record<TicketPriority, number>;
+}
+
+/** Customer satisfaction (CSAT): 1 = terrible … 5 = amazing. */
+export interface ConversationRating {
+  score: 1 | 2 | 3 | 4 | 5;
+  comment?: string;
+  at: string;
 }
 
 /** Where a customer is in the chat-flow bot. menu = choosing; confirm = "Did this solve your issue?"; done = solved; handoff = asked for a person. */
@@ -308,12 +341,22 @@ export interface ChatFlowSettings {
   updatedAt?: string;
 }
 
+/** What a macro does to the conversation when it's applied (on send, or right away when it has no text). */
+export interface MacroActions {
+  status?: TicketStatus;
+  priority?: TicketPriority;
+  assignTo?: string;          // teammate id, 'me', or 'unassigned'
+  addTags?: string[];         // tag names
+  snoozeMinutes?: number;     // snooze for this long
+}
+
 export interface SavedReply {
   id: string;
   workspaceId?: string;
   trigger: string; // e.g. /refund
   title: string;
-  content: string; // markdown text
+  content: string; // markdown text; may be empty for an action-only macro
+  actions?: MacroActions;
   availableFor?: 'everyone' | 'myself' | 'teams';
   availableWhen?: ('starting_conversations' | 'replying' | 'adding_notes')[];
   creator?: {

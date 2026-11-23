@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { playChime, unlockAudio } from '../lib/sound';
 import { io, Socket } from 'socket.io-client';
 import { useStore, PresenceViewer } from '../store/useStore';
+import { mentionedConversationIds } from '../lib/inboxViews';
 import { Message, Conversation } from '../../../../shared/src/types';
 
 const SocketContext = createContext<Socket | null>(null);
@@ -141,6 +142,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     });
 
+    // Someone @mentioned you in a note
+    newSocket.on('mention:new', (p: { conversationId: string; ticketNumber: string; mentions: string[]; from: { id: string; name: string }; snippet: string }) => {
+      if (!agent || !p?.mentions?.includes(agent.id) || p.from?.id === agent.id) return;
+      mentionedConversationIds.add(p.conversationId);
+      if (!onAgentPage()) return;
+      if (soundEnabledRef.current) playChime();
+      if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || useStore.getState().activeConversationId !== p.conversationId)) {
+        new Notification(`${p.from.name} mentioned you · ${p.ticketNumber}`, { body: p.snippet || 'In an internal note' });
+      }
+      if (document.hidden) document.title = `(@) ${p.from.name} mentioned you | ${useStore.getState().workspaceName}`;
+    });
+
     // A snoozed conversation is back: tell its assignee (or everyone, if unassigned)
     newSocket.on('conversation:unsnoozed', (conv: Conversation) => {
       if (!agent || !onAgentPage()) return;
@@ -148,6 +161,18 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (soundEnabledRef.current) playChime();
       if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || useStore.getState().activeConversationId !== conv.id)) {
         new Notification(`Snooze ended · ${conv.ticketNumber}`, { body: `${conv.customer?.name || 'Conversation'} is back in your inbox` });
+      }
+    });
+
+    // An SLA target was missed: tell the assignee (or everyone, if unassigned)
+    newSocket.on('sla:breach', (p: { conversationId: string; ticketNumber: string; kind: 'first' | 'next'; assignedAgentId: string | null; customerName?: string }) => {
+      if (!agent || !onAgentPage()) return;
+      if (p.assignedAgentId && p.assignedAgentId !== agent.id) return;
+      if (soundEnabledRef.current) playChime();
+      if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(`SLA missed · ${p.ticketNumber}`, {
+          body: `${p.customerName || 'A customer'} is still waiting for a ${p.kind === 'first' ? 'first' : 'next'} response`,
+        });
       }
     });
 

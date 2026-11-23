@@ -172,6 +172,11 @@ export async function getAnalytics(req: Request, res: Response) {
       .map(([id, s]) => ({ agentId: id, name: agentNames.get(id)!, ...s }))
       .sort((a, b) => b.replied + b.resolved + b.assigned - (a.replied + a.resolved + a.assigned));
 
+    // CSAT: ratings given in the range; score = share of 4-5 ratings
+    const ratings = conversations.filter(c => c.rating && inRange(ts(c.rating.at))).map(c => c.rating!.score);
+    const csatScore = ratings.length ? Math.round((ratings.filter(s => s >= 4).length / ratings.length) * 100) : null;
+    const csatAverage = ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null;
+
     const medianFrt = median(firstResponses);
     const avgFrt = average(firstResponses);
     const medianRes = median(resolutions);
@@ -192,6 +197,9 @@ export async function getAnalytics(req: Request, res: Response) {
         medianResolutionSec: secs(medianRes),
         avgResolutionSec: secs(avgRes),
         resolutionCount: resolutions.length,
+        csatScore,               // % of ratings that were 4 or 5; null = no ratings
+        csatAverage,
+        csatCount: ratings.length,
       },
       charts: {
         dailyTickets: buckets.map(b => ({ day: b.label, date: b.date, count: created.get(b.key) || 0 })),
