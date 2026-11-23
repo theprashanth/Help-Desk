@@ -7,6 +7,7 @@ import {
   Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
   Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
 } from 'lucide-react';
+import CloseConversationIcon from '../ui/CloseConversationIcon';
 import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { Conversation } from '../../../../../shared/src/types';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
@@ -405,7 +406,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   const bulkItems: BulkItem[] = (() => {
     switch (bulkView) {
       case 'root': return [
-        { key: 'close', label: `Close ${plural(n)}`, icon: <InboxIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
+        { key: 'close', label: `Close ${plural(n)}`, icon: <CloseConversationIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
         { key: 'state', label: 'Change state', icon: <CircleDot className="w-4 h-4" />, run: () => openBulk('state'), sub: true },
         { key: 'snooze', label: 'Snooze', icon: <AlarmClock className="w-4 h-4" />, run: () => openBulk('snooze'), sub: true },
         { key: 'assign', label: 'Assign to', icon: <UserCheck className="w-4 h-4" />, run: () => openBulk('assign'), sub: true },
@@ -422,7 +423,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
         { key: 'open', label: 'In progress', icon: <CircleDot className="w-4 h-4 text-accent" />, run: () => runBulk('status', 'open', k => `Moved ${plural(k)} to In progress`) },
         { key: 'waiting', label: 'Waiting on customer', icon: <Hourglass className="w-4 h-4 text-red-500" />, run: () => runBulk('status', 'waiting', k => `${plural(k)} waiting on customer`) },
         { key: 'resolved', label: 'Resolved', icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />, run: () => runBulk('status', 'resolved', k => `Resolved ${plural(k)}`) },
-        { key: 'closed', label: 'Close', icon: <InboxIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
+        { key: 'closed', label: 'Close', icon: <CloseConversationIcon className="w-4 h-4" />, run: () => runBulk('status', 'closed', k => `Closed ${plural(k)}`) },
         { key: 'archived', label: 'Archive', icon: <Archive className="w-4 h-4 text-muted" />, run: () => runBulk('status', 'archived', k => `Archived ${plural(k)}`) },
       ];
       case 'snooze': return [
@@ -463,7 +464,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   const searchVisible = showSearch || searchTerm.trim() !== '';
 
   return (
-    <div className="ic-panel-side w-[300px] 2xl:w-[340px] h-full shrink-0 flex flex-col relative">
+    <div className="ic-panel-side w-[340px] 2xl:w-[380px] h-full shrink-0 flex flex-col relative">
       
       {/* Click outside overlay to close card menus and popovers */}
       {(openMenuConvId || openPopover) && (
@@ -805,9 +806,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCloseConversation(c.id); }}
                             title="Close conversation"
-                            className="w-6 h-6 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-ink/[0.06] transition-colors shrink-0 opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+                            className="w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 opacity-0 group-hover/card:opacity-100 focus:opacity-100"
                           >
-                            <InboxIcon className="w-4 h-4" />
+                            <CloseConversationIcon className="w-[17px] h-[17px]" />
                           </button>
                         )}
                         <button
@@ -816,11 +817,11 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                             openRowMenu(c.id, e.currentTarget);
                           }}
                           title="More actions"
-                          className={`w-6 h-6 inline-flex items-center justify-center rounded-full text-muted hover:text-ink hover:bg-ink/[0.06] transition-colors shrink-0 focus:opacity-100 ${
-                            openMenuConvId === c.id ? 'opacity-100 bg-ink/[0.06]' : 'opacity-0 group-hover/card:opacity-100'
+                          className={`w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 focus:opacity-100 ${
+                            openMenuConvId === c.id ? 'opacity-100 bg-ink/[0.08]' : 'opacity-0 group-hover/card:opacity-100'
                           }`}
                         >
-                          <MoreHorizontal className="w-4 h-4" />
+                          <MoreHorizontal className="w-[18px] h-[18px]" strokeWidth={3} />
                         </button>
                         <span className="text-[13px] text-faint tabular-nums">
                           {formatTime(c.updatedAt || c.createdAt)}

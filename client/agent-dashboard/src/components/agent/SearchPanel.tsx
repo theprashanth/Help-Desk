@@ -273,7 +273,7 @@ export const SearchPanel: React.FC<Props> = ({ agents }) => {
 
   return (
     <>
-      <div className={`ic-panel-side h-full flex flex-col relative min-w-0 ${showSplit ? 'w-[380px] 2xl:w-[420px] shrink-0' : 'flex-1'}`}>
+      <div className={`ic-panel-side h-full flex flex-col relative min-w-0 ${showSplit ? 'w-[380px] 2xl:w-[420px] shrink-0' : 'flex-1'} ${showSplit && viewingMergedConversationId ? 'hidden' : ''}`}>
         {openChip && <div className="fixed inset-0 z-20" onClick={() => setOpenChip(null)} />}
 
         {/* Search box */}

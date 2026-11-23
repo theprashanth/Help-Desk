@@ -5,7 +5,7 @@ import { Message, Conversation, Attachment, SavedReply } from '../../../../../sh
 import { 
   Send, Paperclip, Smile, CheckCheck, Check, 
   Lock, Globe, ExternalLink, Star, MoreHorizontal,
-  Clock, GitMerge, Ban, UserPlus, FileText, FileDown,
+  Clock, GitMerge, Ban, Copy, UserPlus, FileText, FileDown,
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Inbox as InboxIcon, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
@@ -18,6 +18,9 @@ import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 import RichComposer, { RichComposerHandle } from './RichComposer';
+import MergeDialog from './MergeDialog';
+import TimeHover, { longTimestamp } from '../ui/TimeHover';
+import { MergedBanner } from './mergeUi';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
 const TICKET_STATES: {
@@ -172,34 +175,6 @@ export const ChatWindow: React.FC = () => {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
-  const [duplicateTickets, setDuplicateTickets] = useState<any[]>([]);
-  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(null);
-  const [mergeConfirmLoading, setMergeConfirmLoading] = useState(false);
-  const [mergeSearchText, setMergeSearchText] = useState('');
-
-  // Load other open duplicate tickets for the same customer
-  useEffect(() => {
-    if (!showMergePanel || !token || !ticket?.customer?.id) return;
-    const fetchDuplicates = async () => {
-      try {
-        const res = await fetch(`${BACKEND_URL}/api/customers/${ticket.customer.id}/tickets`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const openOthers = data.filter((c: any) => 
-            c.id !== ticket.id && 
-            (c.status === 'open' || c.status === 'waiting')
-          );
-          setDuplicateTickets(openOthers);
-        }
-      } catch (e) {
-        console.error('Failed to load duplicate tickets:', e);
-      }
-    };
-    fetchDuplicates();
-  }, [showMergePanel, token, ticket?.id, ticket?.customer?.id]);
-
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -716,6 +691,11 @@ export const ChatWindow: React.FC = () => {
   }
   const ticketSnoozedUntil = isSnoozed(ticket) ? ticket.snoozedUntil || null : null;
   const isEvent = (m: Message) => m.metadata?.type === 'event';
+  // Merged into another conversation? (stored on the ticket; older merges only left the indicator message)
+  const mergedInto = ticket?.mergedInto || (() => {
+    const ind = [...messages].reverse().find(m => m.metadata?.type === 'merged_indicator');
+    return ind?.metadata?.mergedIntoConversationId ? { id: ind.metadata.mergedIntoConversationId as string, ticketNumber: String(ind.metadata.mergedIntoTicketNumber || '') } : null;
+  })();
   const visibleMessages = messages.filter(m => !isEvent(m) || eventFilter.includes(m.metadata?.category || 'other'));
   const ticketTitle = (ticket.kind === 'ticket' || ticket.kind === 'issue') && ticket.title ? ticket.title : ticket.customer.name;
 
@@ -1067,110 +1047,15 @@ export const ChatWindow: React.FC = () => {
         </div>
       )}
 
-      {/* Merge Panel overlay */}
-      {showMergePanel && (
-        <div className="absolute inset-0 bg-ink/20 z-50 flex items-center justify-center select-none">
-          <div className="bg-surface border border-line rounded-2xl shadow-pop p-6 w-[420px] flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-[17px] font-semibold text-ink flex items-center gap-2">
-                <GitMerge className="w-4 h-4 text-muted" /> Merge conversation into…
-              </h3>
-              <button onClick={() => { setShowMergePanel(false); setSelectedTargetId(null); }} className="ic-icon-btn-ghost">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <p className="text-[14px] text-muted leading-relaxed">
-              Consolidate messages from ticket <span className="font-semibold text-ink">{ticket?.ticketNumber}</span> into another active ticket from <span className="font-semibold text-ink">{ticket?.customer.name}</span>.
-            </p>
-
-            <input
-              type="text"
-              value={mergeSearchText}
-              onChange={(e) => setMergeSearchText(e.target.value)}
-              placeholder="Search by ticket # or category…"
-              className="ic-input"
-            />
-
-            <div className="max-h-56 overflow-y-auto flex flex-col gap-1.5">
-              {duplicateTickets
-                .filter(dt => {
-                  const query = mergeSearchText.toLowerCase();
-                  return (
-                    dt.ticketNumber.toLowerCase().includes(query) ||
-                    dt.category.toLowerCase().includes(query)
-                  );
-                })
-                .map(dt => {
-                  const isSelected = selectedTargetId === dt.id;
-                  return (
-                    <button
-                      key={dt.id}
-                      onClick={() => setSelectedTargetId(dt.id)}
-                      className={`w-full flex flex-col gap-1 px-3.5 py-3 rounded-xl border text-left transition-colors ${
-                        isSelected
-                          ? 'border-ink/60 bg-subtle text-ink'
-                          : 'border-line bg-surface hover:bg-subtle text-ink'
-                      }`}
-                    >
-                      <div className="flex justify-between items-center w-full">
-                        <span className="font-semibold text-[14px]">{dt.ticketNumber}</span>
-                        <span className="ic-badge capitalize">{dt.status}</span>
-                      </div>
-                      <span className="text-[12px] text-muted capitalize">{dt.category} • Priority: {dt.priority}</span>
-                      <p className="text-[13px] text-muted truncate">{dt.lastMessageSnippet || 'No messages yet'}</p>
-                    </button>
-                  );
-                })}
-
-              {duplicateTickets.length === 0 && (
-                <div className="text-[14px] text-muted text-center py-8 rounded-xl border border-dashed border-line">No other open tickets found for this user.</div>
-              )}
-            </div>
-
-            <div className="flex gap-2 justify-end mt-1">
-              <button 
-                onClick={() => { setShowMergePanel(false); setSelectedTargetId(null); }} 
-                className="ic-btn-ghost"
-              >
-                Cancel
-              </button>
-              <button 
-                disabled={!selectedTargetId || mergeConfirmLoading}
-                onClick={async () => {
-                  if (!ticket || !selectedTargetId) return;
-                  setMergeConfirmLoading(true);
-                  try {
-                    const res = await fetch(`${BACKEND_URL}/api/tickets/${selectedTargetId}/merge`, {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
-                      },
-                      body: JSON.stringify({ sourceId: ticket.id })
-                    });
-                    if (res.ok) {
-                      // Transition active view to the target ticket!
-                      useStore.getState().setActiveConversationId(selectedTargetId);
-                      setShowMergePanel(false);
-                      setSelectedTargetId(null);
-                    } else {
-                      const err = await res.json();
-                      alert('Merge failed: ' + err.error);
-                    }
-                  } catch (e) {
-                    console.error(e);
-                  } finally {
-                    setMergeConfirmLoading(false);
-                  }
-                }}
-                className="ic-btn-primary"
-              >
-                {mergeConfirmLoading ? 'Merging…' : 'Merge'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Merge: pick the primary, then confirm side by side */}
+      {showMergePanel && ticket && token && (
+        <MergeDialog
+          conversation={ticket}
+          token={token}
+          meId={agent?.id}
+          onClose={() => setShowMergePanel(false)}
+          onMerged={primaryId => { setShowMergePanel(false); useStore.getState().setActiveConversationId(primaryId); }}
+        />
       )}
 
       {/* Message feed */}
@@ -1181,11 +1066,31 @@ export const ChatWindow: React.FC = () => {
             const cat = EVENT_CATEGORIES.find(c => c.key === m.metadata?.category) || EVENT_CATEGORIES[EVENT_CATEGORIES.length - 1];
             return (
               <div key={m.id} id={`msg-${m.id}`} className="flex items-start gap-3 text-[13px] text-muted py-0.5 -mx-1">
-                <span className="w-9 shrink-0 text-right tabular-nums text-faint" title={new Date(m.createdAt).toLocaleString()}>
+                <TimeHover iso={m.createdAt} className="w-9 shrink-0 text-right tabular-nums text-faint">
                   {formatRelativeTime(m.createdAt)}
-                </span>
+                </TimeHover>
                 <cat.icon className="w-4 h-4 shrink-0 mt-px" />
                 <span className="min-w-0 break-words">{renderEventText(m)}</span>
+              </div>
+            );
+          }
+
+          // This ticket was merged into another: "You merged this ticket into #123"
+          if (m.metadata?.type === 'merged_indicator') {
+            const by = m.sender.id === agent?.id ? 'You' : m.sender.name;
+            const targetId = m.metadata.mergedIntoConversationId;
+            return (
+              <div key={m.id} id={`msg-${m.id}`} className="flex items-center gap-3 text-[13px] text-muted py-0.5 -mx-1">
+                <TimeHover iso={m.createdAt} className="w-9 shrink-0 text-right tabular-nums text-faint">
+                  {formatRelativeTime(m.createdAt)}
+                </TimeHover>
+                <GitMerge className="w-4 h-4 shrink-0" />
+                <span className="min-w-0 break-words">
+                  {by} merged this ticket into{' '}
+                  <button onClick={() => targetId && useStore.getState().setActiveConversationId(targetId)} className="text-blue-600 dark:text-blue-400 hover:underline">
+                    #{String(m.metadata.mergedIntoTicketNumber || '').replace(/^#/, '')}
+                  </button>
+                </span>
               </div>
             );
           }
@@ -1201,7 +1106,7 @@ export const ChatWindow: React.FC = () => {
                 <div className="ic-card p-5 max-w-xl w-full flex flex-col gap-3.5">
                   <div className="flex flex-col gap-0.5">
                     <span className="font-semibold text-ink text-[14px] leading-snug">
-                      {mergeDetails.mergedBy} merged #{mergeDetails.sourceTicketNumber} into this conversation
+                      {mergeDetails.mergedBy} merged #{String(mergeDetails.sourceTicketNumber || '').replace(/^#/, '')} into this conversation
                     </span>
                     <span className="text-muted text-[14px]">
                       chat with {mergeDetails.customerName} from {mergeDetails.customerLocation}
@@ -1238,9 +1143,9 @@ export const ChatWindow: React.FC = () => {
                     >
                       View conversation
                     </button>
-                    <span className="text-[12px] text-faint">
+                    <TimeHover iso={m.createdAt} className="text-[12px] text-faint">
                       {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
+                    </TimeHover>
                   </div>
                 </div>
               </div>
@@ -1327,6 +1232,16 @@ export const ChatWindow: React.FC = () => {
                         {/* Hover Tooltip Details */}
                         <div className="absolute left-0 top-[16px] pt-2.5 hidden group-hover/tooltip:block z-50">
                           <div className="bg-surface border border-line p-3.5 rounded-xl shadow-pop text-[13px] text-ink min-w-[260px] text-left">
+                            <div className="flex items-center justify-between gap-3 mb-2.5 pb-2.5 border-b border-line">
+                              <span className="text-[14px] font-medium text-ink whitespace-nowrap">{longTimestamp(m.createdAt)}</span>
+                              <button
+                                onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(longTimestamp(m.createdAt)).catch(() => {}); }}
+                                className="ic-icon-btn-ghost w-7 h-7 shrink-0"
+                                title="Copy date and time"
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                             <div className="text-[12px] text-muted font-medium mb-1">Source URL</div>
                             {device.sourceUrl ? (
                               <a 
@@ -1449,13 +1364,14 @@ export const ChatWindow: React.FC = () => {
                       </span>
                     )}
                     <span className="text-faint">•</span>
-                    <span title={new Date(m.createdAt).toLocaleString()}>
+                    <TimeHover iso={m.createdAt}>
                       {(() => { const r = formatRelativeTime(m.createdAt); return r === 'now' ? 'Now' : r; })()}
-                    </span>
+                    </TimeHover>
                   </div>
 
-                  {/* Hover toolbar: … / save as macro / tag (Intercom style) */}
-                  <div className={`absolute -bottom-3.5 right-4 flex items-center gap-0.5 bg-surface border border-line rounded-full shadow-card p-0.5 transition-opacity z-10 ${
+                  {/* Hover toolbar: … / save as macro / tag. Hangs off the bottom-left edge (Intercom style) so the
+                      "Seen • Now" time on the right stays visible and hoverable */}
+                  <div className={`absolute -bottom-5 -left-5 flex items-center gap-0.5 bg-surface border border-line rounded-full shadow-card p-0.5 transition-opacity z-10 ${
                     menuOpenHere ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
                   }`}>
                     <button onClick={() => openMsgMenu(m.id, 'actions')} className={`w-7 h-7 inline-flex items-center justify-center rounded-full hover:bg-subtle ${msgMenu?.id === m.id && msgMenu.kind === 'actions' ? 'bg-subtle' : ''}`} title="More actions">
@@ -1636,7 +1552,13 @@ export const ChatWindow: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Composer Panel */}
+      {/* A merged ticket is read-only: continue in the primary */}
+      {mergedInto ? (
+        <div className="shrink-0 px-4 pb-4 pt-1">
+          <MergedBanner onGo={() => useStore.getState().setActiveConversationId(mergedInto.id)} />
+        </div>
+      ) : (
+      /* Composer Panel */
       <div className="shrink-0 px-4 pb-4 pt-1 relative">
         {/* Saved replies trigger selector popup */}
         {showReplies && (
@@ -1790,6 +1712,7 @@ export const ChatWindow: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 };

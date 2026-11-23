@@ -34,7 +34,7 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       tag,
       kind,
       createdByAgentId,
-      bot: req.query.bot === 'handled' ? 'handled' : undefined,
+      bot: ['handled', 'active', 'resolved'].includes(req.query.bot as string) ? req.query.bot as 'handled' | 'active' | 'resolved' : undefined,
     });
     
     return res.json(list);
@@ -453,6 +453,8 @@ export async function mergeTickets(req: AuthenticatedRequest, res: Response) {
     const source = await convRepo.findById(sourceId);
     if (!target) return res.status(404).json({ error: 'Target ticket not found' });
     if (!source) return res.status(404).json({ error: 'Source ticket not found' });
+    if (source.mergedInto) return res.status(409).json({ error: `${source.ticketNumber} was already merged into ${source.mergedInto.ticketNumber}` });
+    if (target.mergedInto) return res.status(409).json({ error: `${target.ticketNumber} was merged into ${target.mergedInto.ticketNumber}; merge into that one instead` });
 
     // Build smart summaries for the merge event card
     const summaryBullets: string[] = [];
@@ -542,7 +544,7 @@ export async function mergeTickets(req: AuthenticatedRequest, res: Response) {
         id: req.user?.id || 'system',
         name: mergedBy
       },
-      content: `↳ ${mergedBy} merged this conversation into #${target.ticketNumber}`,
+      content: `↳ ${mergedBy} merged this conversation into ${target.ticketNumber}`,
       isInternalNote: false,
       seen: true,
       delivered: true,
@@ -556,7 +558,8 @@ export async function mergeTickets(req: AuthenticatedRequest, res: Response) {
     // Update the source conversation status to 'closed' instead of deleting it
     const updatedSource = await convRepo.update(sourceId, {
       status: 'closed',
-      lastMessageSnippet: `[Merged into ${target.ticketNumber}]`
+      lastMessageSnippet: `[Merged into ${target.ticketNumber}]`,
+      mergedInto: { id: targetId, ticketNumber: target.ticketNumber, at: new Date().toISOString(), by: req.user?.id },
     });
 
     // Broadcast update events for both conversations
@@ -709,7 +712,12 @@ export async function getInboxCounts(req: AuthenticatedRequest, res: Response) {
       all: open.length,
       unassigned: open.filter(c => !c.assignedAgentId).length,
       byAgent,
-      byKind
+      byKind,
+      // Chat-flow bot chats that never reached a person (they don't show in the views above)
+      bot: {
+        active: all.filter(c => c.bot && (c.bot.state === 'menu' || c.bot.state === 'confirm')).length,
+        resolved: all.filter(c => c.bot?.state === 'done').length,
+      },
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

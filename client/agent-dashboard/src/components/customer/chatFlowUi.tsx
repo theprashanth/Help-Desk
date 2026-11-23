@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronRight, ChevronsRight } from 'lucide-react';
+import { ArrowLeft, ChevronRight, ChevronsRight, Headset, RotateCcw } from 'lucide-react';
 import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ConversationBotState } from '../../../../../shared/src/types';
 
 /** The live flow as the public workspace endpoint returns it. */
@@ -127,12 +127,12 @@ export const FlowQuestionCard: React.FC<{
 
 // ── Buttons under the bot's message (options, Yes/No, Back, Restart) ────────
 
-export type FlowAction = { action: 'choose' | 'yes' | 'no' | 'back' | 'restart'; optionId?: string; label: string };
+export type FlowAction = { action: 'choose' | 'yes' | 'no' | 'back' | 'restart'; optionId?: string; label: string; kind?: ChatFlowOption['kind'] };
 
 export function flowButtons(flow: ChatFlow, bot: ConversationBotState): FlowAction[] {
   const out: FlowAction[] = [];
   if (bot.state === 'menu') {
-    for (const o of optionsAt(flow, bot.node)) out.push({ action: 'choose', optionId: o.id, label: o.label });
+    for (const o of optionsAt(flow, bot.node)) out.push({ action: 'choose', optionId: o.id, label: o.label, kind: o.kind });
     if (bot.node && flow.showBack) out.push({ action: 'back', label: flow.backLabel });
   } else if (bot.state === 'confirm') {
     out.push({ action: 'yes', label: flow.yesLabel }, { action: 'no', label: flow.noLabel });
@@ -144,18 +144,45 @@ export function flowButtons(flow: ChatFlow, bot: ConversationBotState): FlowActi
   return out;
 }
 
-export const FlowChips: React.FC<{ buttons: FlowAction[]; themeColor: string; busy: boolean; onPick: (b: FlowAction) => void }> = ({ buttons, themeColor, busy, onPick }) => (
-  <div className="flex flex-wrap justify-end gap-2 pl-6">
-    {buttons.map(b => (
-      <button
-        key={`${b.action}-${b.optionId || ''}`}
-        onClick={() => onPick(b)}
-        disabled={busy}
-        className="px-3.5 py-1.5 rounded-full border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-slate-700 dark:text-slate-200 transition-colors hover:text-[var(--flow-color)] hover:border-[var(--flow-color)] disabled:opacity-50"
-        style={{ ['--flow-color' as any]: themeColor }}
-      >
-        {b.label}
-      </button>
-    ))}
-  </div>
-);
+const isNav = (b: FlowAction) => b.action === 'back' || b.action === 'restart';
+
+/** The flow's choices as one tidy list, with Back / Restart as small links underneath. */
+export const FlowChips: React.FC<{ buttons: FlowAction[]; themeColor: string; busy: boolean; onPick: (b: FlowAction) => void }> = ({ buttons, themeColor, busy, onPick }) => {
+  const choices = buttons.filter(b => !isNav(b));
+  const nav = buttons.filter(isNav);
+  return (
+    <div className="self-stretch flex flex-col gap-2 mt-1" style={{ ['--flow-color' as any]: themeColor }}>
+      {choices.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800 shadow-sm">
+          {choices.map(b => (
+            <button
+              key={`${b.action}-${b.optionId || ''}`}
+              onClick={() => onPick(b)}
+              disabled={busy}
+              className="group w-full flex items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 dark:text-slate-200 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-[var(--flow-color)] disabled:opacity-50"
+            >
+              {b.kind === 'agent' && <Headset className="w-4 h-4 shrink-0 text-[var(--flow-color)]" />}
+              <span className="flex-1 min-w-0 leading-snug">{b.label}</span>
+              <ChevronRight className="w-4 h-4 shrink-0 text-slate-300 dark:text-slate-600 transition-transform group-hover:translate-x-0.5 group-hover:text-[var(--flow-color)]" />
+            </button>
+          ))}
+        </div>
+      )}
+      {nav.length > 0 && (
+        <div className="flex items-center gap-1 px-1">
+          {nav.map(b => (
+            <button
+              key={b.action}
+              onClick={() => onPick(b)}
+              disabled={busy}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-slate-500 dark:text-slate-400 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-[var(--flow-color)] disabled:opacity-50"
+            >
+              {b.action === 'back' ? <ArrowLeft className="w-3.5 h-3.5" /> : <RotateCcw className="w-3.5 h-3.5" />}
+              {b.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};

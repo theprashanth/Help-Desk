@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
-import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck } from 'lucide-react';
+import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck, ChevronRight } from 'lucide-react';
+import { shortAgo } from '../../lib/timeAgo';
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
 import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
@@ -114,7 +115,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [resetNonce, setResetNonce] = useState(0);           // bumps on shutdown (logout)
   const parentOriginRef = useRef<string | null>(null);
   const [isOpen, setIsOpen] = useState(fullscreen);
-  const [activeTab, setActiveTab] = useState<'home' | 'chat'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'all'>('home');
   const [guestId, setGuestId] = useState('');
   // Every request names the app (workspace) and, once known, this visitor's User id — the server only
   // returns a conversation to the customer it belongs to.
@@ -179,6 +180,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const socket = useSocket();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<any>(null);
 
   /** Preview text a customer may see: the last public message, never an internal note */
@@ -340,6 +342,32 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     showLauncher: fullscreen ? false : availability?.messenger?.showLauncher !== false,
   };
   const themeColor = look.themeColor;
+  const renderConvRow = (c: Conversation) => (
+    <button
+      key={c.id}
+      onClick={() => { setActiveConv(c); setActiveTab('chat'); }}
+      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+    >
+      <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${themeColor}18`, color: themeColor }}>
+        <MessageSquare className="w-4 h-4" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className={`block text-sm truncate ${c.unreadCountCustomer > 0 ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'}`}>
+          {customerPreview(c) || 'Open ticket'}
+        </span>
+        <span className="block text-xs text-slate-400 truncate">
+          {c.ticketNumber} · {shortAgo(c.updatedAt || c.createdAt)}{c.status === 'resolved' || c.status === 'closed' ? ' · Resolved' : ''}
+        </span>
+      </span>
+      {c.unreadCountCustomer > 0 ? (
+        <span className="text-white font-bold text-[10px] min-w-5 h-5 px-1 rounded-full flex items-center justify-center shrink-0" style={{ background: themeColor }}>
+          {c.unreadCountCustomer}
+        </span>
+      ) : (
+        <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+      )}
+    </button>
+  );
 
   // ── Host page <-> Messenger (embedded in an iframe by messenger.js) ─────
   const postToHost = useCallback((msg: any) => {
@@ -436,6 +464,12 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   }, [socket, guestId]);
 
   const isAway = availability ? !availability.isOpenNow : false;
+  // Newest first, for the home screen ("Recent conversations") and the All conversations screen
+  const sortedConversations = useMemo(
+    () => [...localConversations].sort((x, y) => new Date(y.updatedAt || y.createdAt).getTime() - new Date(x.updatedAt || x.createdAt).getTime()),
+    [localConversations],
+  );
+
   const inFlowChat = activeTab === 'chat' && (!!flowIntake || (!!activeConv?.bot && activeConv.bot.state !== 'handoff'));
   const flowLocked = !!availability?.chatFlow && inFlowChat;
   const headerSubtitle = isAway
@@ -576,10 +610,20 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     };
   }, [activeConv, socket]);
 
-  // Auto-scroll to latest message
+  // Auto-scroll. While the bot's menus run, put the visitor's latest tap at the top so the reply and its
+  // options are read from the start (not jumped past to the last option); otherwise follow the newest message.
+  const botRunning = !!activeConv?.bot && activeConv.bot.state !== 'handoff';
   useEffect(() => {
+    const box = messagesScrollRef.current;
+    const taps = box?.querySelectorAll<HTMLElement>('[data-from="customer"]');
+    const lastTap = taps?.length ? taps[taps.length - 1] : null;
+    if (box && botRunning && lastTap) {
+      const top = lastTap.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop - 12;
+      box.scrollTo({ top, behavior: 'smooth' });
+      return;
+    }
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, agentTyping]);
+  }, [chatMessages, agentTyping, botRunning]);
 
   // Navigate to the chat view but do NOT create the ticket yet.
   // The ticket is created lazily when the customer sends their first message.
@@ -910,8 +954,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
               )}
 
               <div className="flex items-center gap-3">
-                {activeTab === 'chat' && (
+                {activeTab !== 'home' && (
                   <button
+                    title="Back"
                     onClick={() => { setActiveTab('home'); setIsPendingNewConv(false); setFlowIntake(null); setFlowError(null); }}
                     className="p-1 rounded-full hover:bg-white/10 mr-1 transition-colors"
                   >
@@ -955,7 +1000,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             <div className="flex-1 overflow-y-auto bg-slate-50 dark:bg-slate-950 flex flex-col">
               {activeTab === 'home' ? (
                 /* Home View: Create / Join existing conversations */
-                <div className="p-6 flex flex-col gap-6 flex-1 justify-center text-center">
+                <div className="p-6 flex flex-col flex-1 text-center">
+                <div className="my-auto flex flex-col gap-6">
                   <div className="flex flex-col items-center gap-3">
                     <div
                       className="p-4 rounded-full mb-2"
@@ -977,45 +1023,44 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                     Start a New Chat
                   </button>
 
-                  {/* Previous Conversations */}
-                  {localConversations.length > 0 && (
-                    <div className="flex flex-col gap-3 text-left mt-4 border-t border-slate-100 dark:border-slate-800/80 pt-4">
-                      <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        Recent Conversations
-                      </span>
-                      <div className="flex flex-col gap-2 max-h-40 overflow-y-auto">
-                        {localConversations.map(c => (
-                          <button
-                            key={c.id}
-                            onClick={() => {
-                              setActiveConv(c);
-                              setActiveTab('chat');
-                            }}
-                            className="w-full p-3 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-slate-200/50 dark:border-slate-800 rounded-xl transition-all flex justify-between items-center"
-                          >
-                            <div className="flex flex-col gap-1 pr-4 truncate">
-                              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">{c.ticketNumber}</span>
-                              <span className="text-sm text-slate-800 dark:text-slate-200 truncate">{customerPreview(c) || 'Open ticket'}</span>
-                            </div>
-                            {c.unreadCountCustomer > 0 && (
-                              <span
-                                className="text-white font-bold text-[10px] w-5 h-5 rounded-full flex items-center justify-center shrink-0"
-                                style={{ background: themeColor }}
-                              >
-                                {c.unreadCountCustomer}
-                              </span>
-                            )}
+                  {/* Recent conversations: the latest two; the rest under "See all" */}
+                  {sortedConversations.length > 0 && (
+                    <div className="flex flex-col gap-2.5 text-left mt-2 border-t border-slate-100 dark:border-slate-800/80 pt-5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recent conversations</span>
+                        {sortedConversations.length > 2 && (
+                          <button onClick={() => setActiveTab('all')} className="text-xs font-semibold hover:underline" style={{ color: themeColor }}>
+                            See all ({sortedConversations.length})
                           </button>
-                        ))}
+                        )}
+                      </div>
+                      <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+                        {sortedConversations.slice(0, 2).map(c => renderConvRow(c))}
                       </div>
                     </div>
                   )}
+                </div>
+                </div>
+              ) : activeTab === 'all' ? (
+                /* All conversations */
+                <div className="p-4 flex flex-col gap-3">
+                  <h4 className="px-1 text-sm font-bold text-slate-700 dark:text-slate-200">All conversations</h4>
+                  <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+                    {sortedConversations.map(c => renderConvRow(c))}
+                  </div>
+                  <button
+                    onClick={startNewConversation}
+                    className="mt-1 w-full text-white font-semibold py-2.5 px-4 rounded-xl active:scale-[0.98] transition-all text-sm"
+                    style={{ background: themeColor }}
+                  >
+                    Start a New Chat
+                  </button>
                 </div>
               ) : (
                 /* Chat view */
                 <div className="flex flex-col flex-1 h-full overflow-hidden">
                   {/* Message feed */}
-                  <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                  <div ref={messagesScrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
                     {chatMessages.length === 0 && !flowIntake && (
                       <p className="text-xs text-slate-400 text-center my-6">Beginning of secure chat session.</p>
                     )}
@@ -1061,6 +1106,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       return (
                         <div
                           key={m.id}
+                          data-from={m.sender.type}
                           className={`flex flex-col max-w-[75%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`}
                         >
                           <span className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 px-1">

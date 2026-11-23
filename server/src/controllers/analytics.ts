@@ -1,3 +1,4 @@
+import { ticketSeq } from '../services/ticketNumbers';
 import { Request, Response } from 'express';
 import { RepositoryFactory } from '../repositories/factory';
 
@@ -34,7 +35,7 @@ export async function getAnalytics(req: Request, res: Response) {
       const updatedTime = new Date(c.updatedAt).getTime();
 
       // Mock response time (usually between 2 and 45 minutes)
-      const ticketNumCode = parseInt(c.ticketNumber.replace('TICKET-', '')) || 1000;
+      const ticketNumCode = ticketSeq(c.ticketNumber) || 1000;
       const respTime = 2 + (ticketNumCode % 43); // deterministic pseudo-random response time
       totalResponseTimeMin += respTime;
       responseTimeCount++;

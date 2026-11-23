@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, FolderOpen, Plus, RotateCcw, Search, Trash2, X,
+  AlertCircle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, FolderOpen, Headset, Plus, RotateCcw, Search, Trash2, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ChatFlowQuestionType, ChatFlowSettings as ChatFlowSettingsData } from '../../../../../shared/src/types';
@@ -122,7 +122,7 @@ function updateOption(list: ChatFlowOption[], id: string, fn: (o: ChatFlowOption
 function cloneWithNewIds(o: ChatFlowOption): ChatFlowOption {
   return o.kind === 'menu'
     ? { id: newId(), label: o.label, kind: 'menu', prompt: o.prompt || '', children: (o.children || []).map(cloneWithNewIds) }
-    : { id: newId(), label: o.label, kind: 'answer', answer: o.answer || '' };
+    : { id: newId(), label: o.label, kind: o.kind, answer: o.answer || '' };
 }
 
 /** Light theme colors (e.g. yellow) need dark text on top to stay readable. */
@@ -185,6 +185,8 @@ function validate(f: ChatFlow): Issue[] {
       if (kids.length > LIMITS.options) issues.push({ tab: 'menu', message: `${name} has more than ${LIMITS.options} options`, ...at });
       text('menu', o.prompt, `${name} message`, LIMITS.text, true, at);
       walk(kids, depth + 1, name);
+    } else if (o.kind === 'agent') {
+      text('menu', o.answer, `${name} message`, LIMITS.text, true, at);
     } else {
       text('menu', o.answer, `${name} answer`, LIMITS.answer, false, at);
     }
@@ -340,7 +342,7 @@ type TreeCtx = {
 };
 
 const optionMatches = (o: ChatFlowOption, q: string): boolean =>
-  o.label.toLowerCase().includes(q) || (o.kind === 'answer' && (o.answer || '').toLowerCase().includes(q));
+  o.label.toLowerCase().includes(q) || (o.kind !== 'menu' && (o.answer || '').toLowerCase().includes(q));
 const subtreeMatches = (o: ChatFlowOption, q: string): boolean =>
   optionMatches(o, q) || (o.kind === 'menu' && (o.children || []).some(c => subtreeMatches(c, q)));
 
@@ -380,7 +382,8 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
   const own = ctx.issues.get(o.id) || [];
   const nestedIssue = !own.length && !open && o.kind === 'menu' && hasNestedIssue(kids, ctx.issues);
   const hit = !!ctx.query && optionMatches(o, ctx.query);
-  const Icon = o.kind === 'menu' ? FolderOpen : FileText;
+  const Icon = o.kind === 'menu' ? FolderOpen : o.kind === 'agent' ? Headset : FileText;
+  const iconColor = o.kind === 'menu' ? 'text-violet-600 dark:text-violet-300' : o.kind === 'agent' ? 'text-emerald-600 dark:text-emerald-300' : 'text-sky-600 dark:text-sky-300';
 
   return (
     <div className={`rounded-lg border bg-surface ${own.length ? 'border-red-300 dark:border-red-500/50' : 'border-line'}`} data-option-id={o.id}>
@@ -392,12 +395,12 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
           aria-expanded={open}
         >
           <ChevronRight className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
-          <Icon className={`w-4 h-4 shrink-0 ${o.kind === 'menu' ? 'text-violet-600 dark:text-violet-300' : 'text-sky-600 dark:text-sky-300'}`} />
+          <Icon className={`w-4 h-4 shrink-0 ${iconColor}`} />
           <span className={`truncate text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
             {o.label.trim() || 'Untitled option'}
           </span>
           <span className="ic-badge shrink-0">
-            {o.kind === 'menu' ? `Opens menu · ${kids.length}` : 'Shows answer'}
+            {o.kind === 'menu' ? `Opens menu · ${kids.length}` : o.kind === 'agent' ? 'Connects to agent' : 'Shows answer'}
           </span>
           {(own.length > 0 || nestedIssue) && <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" aria-label="Needs attention" />}
         </button>
@@ -442,6 +445,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
                 options={[
                   { id: 'menu', label: 'Opens menu', disabled: depth >= LIMITS.depth, title: depth >= LIMITS.depth ? `Menus can be nested at most ${LIMITS.depth} levels deep` : undefined },
                   { id: 'answer', label: 'Shows answer' },
+                  { id: 'agent', label: 'Connects to agent' },
                 ]}
                 value={o.kind}
                 disabled={readOnly}
@@ -450,7 +454,21 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
             </div>
           </div>
 
-          {o.kind === 'answer' ? (
+          {o.kind === 'agent' ? (
+            <div>
+              <p className="ic-label">Message before connecting</p>
+              <MarkdownField
+                key={o.id}
+                value={o.answer || ''}
+                onChange={v => actions.update(o.id, { answer: v })}
+                readOnly={readOnly}
+                placeholder={`Optional. If empty, the bot sends your "Reply to No" message from After an answer.`}
+                minH="min-h-[72px]"
+                maxH="max-h-[200px]"
+              />
+              <p className="ic-help">Tapping this skips the bot: the conversation opens in your Inbox and the visitor can type to your team right away.</p>
+            </div>
+          ) : o.kind === 'answer' ? (
             <div>
               <p className="ic-label">Answer</p>
               <MarkdownField
@@ -521,16 +539,27 @@ function startPreview(flow: ChatFlow): PState {
   return { msgs: [...msgs, bot(fillName(flow.menuPrompt, ''))], phase: 'menu', q: 0, node: null, name: '' };
 }
 
-function Chip({ onClick, color, children, subtle }: { onClick: () => void; color: string; children: React.ReactNode; subtle?: boolean }) {
-  const text = isLightColor(color) ? '#0f172a' : color;
+/** Back / Restart under the preview's options: small links, like the Messenger. */
+function Chip({ onClick, children }: { onClick: () => void; color?: string; subtle?: boolean; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} className="px-2 py-1 rounded-full text-[11.5px] font-medium text-[#64748b] hover:bg-[#f1f5f9] hover:text-[#0f172a]">
+      {children}
+    </button>
+  );
+}
+
+/** A row in the preview's option list (matches the Messenger's list). */
+function OptionRow({ onClick, color, agent, children }: { onClick: () => void; color: string; agent?: boolean; children: React.ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="px-3 py-1.5 rounded-full border text-[12px] font-medium bg-white hover:bg-[#f8fafc] text-left leading-snug max-w-full"
-      style={subtle ? { borderColor: '#e2e8f0', color: '#475569' } : { borderColor: color, color: text }}
+      className="group w-full flex items-center gap-2 px-3 py-2 text-left text-[12.5px] text-[#334155] hover:bg-[#f8fafc] hover:text-[var(--flow-color)] leading-snug"
+      style={{ ['--flow-color' as any]: isLightColor(color) ? '#0f172a' : color }}
     >
-      {children}
+      {agent && <Headset className="w-3.5 h-3.5 shrink-0 text-[var(--flow-color)]" />}
+      <span className="flex-1 min-w-0">{children}</span>
+      <ChevronRight className="w-3.5 h-3.5 shrink-0 text-[#cbd5e1] group-hover:text-[var(--flow-color)]" />
     </button>
   );
 }
@@ -581,6 +610,7 @@ function FlowPreview({ flow, themeColor }: { flow: ChatFlow; themeColor: string 
   const choose = (o: ChatFlowOption) => {
     const msgs = [...s.msgs, user(o.label)];
     if (o.kind === 'menu') { setS({ ...s, msgs: [...msgs, bot(o.prompt || o.label)], node: o.id }); return; }
+    if (o.kind === 'agent') { setS({ ...s, msgs: [...msgs, bot(o.answer?.trim() || flow.noReply)], phase: 'handoff' }); return; }
     msgs.push(bot(o.answer || ''));
     if (flow.askResolved) { msgs.push(bot(flow.resolvedQuestion)); setS({ ...s, msgs, phase: 'confirm' }); }
     else setS({ ...s, msgs });
@@ -673,17 +703,21 @@ function FlowPreview({ flow, themeColor }: { flow: ChatFlow; themeColor: string 
         </div>
 
         {(s.phase === 'menu' || s.phase === 'confirm' || s.phase === 'done') && (
-          <div className="px-3 pb-2 pt-1 flex flex-wrap gap-1.5 max-h-[45%] overflow-y-auto shrink-0">
-            {s.phase === 'menu' && optionsAt(flow, s.node).map(o => (
-              <Chip key={o.id} color={themeColor} onClick={() => choose(o)}>{o.label || 'Untitled option'}</Chip>
-            ))}
-            {s.phase === 'confirm' && (
-              <>
-                <Chip color={themeColor} onClick={yes}>{flow.yesLabel}</Chip>
-                <Chip color={themeColor} onClick={no}>{flow.noLabel}</Chip>
-              </>
+          <div className="px-3 pb-2 pt-1 flex flex-col gap-1.5 max-h-[45%] overflow-y-auto shrink-0">
+            {(s.phase === 'menu' || s.phase === 'confirm') && (
+              <div className="rounded-xl border border-[#e2e8f0] bg-white overflow-hidden divide-y divide-[#f1f5f9] shrink-0">
+                {s.phase === 'menu' && optionsAt(flow, s.node).map(o => (
+                  <OptionRow key={o.id} color={themeColor} agent={o.kind === 'agent'} onClick={() => choose(o)}>{o.label || 'Untitled option'}</OptionRow>
+                ))}
+                {s.phase === 'confirm' && (
+                  <>
+                    <OptionRow color={themeColor} onClick={yes}>{flow.yesLabel}</OptionRow>
+                    <OptionRow color={themeColor} onClick={no}>{flow.noLabel}</OptionRow>
+                  </>
+                )}
+              </div>
             )}
-            {navChips}
+            <div className="flex flex-wrap gap-1">{navChips}</div>
           </div>
         )}
 
@@ -903,16 +937,19 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
       const o = findOption(draft.options, id);
       if (!o || o.kind === kind) return;
       if (kind === 'menu' && depthOf(draft.options, id) >= LIMITS.depth) return;
+      // Switching between "Shows answer" and "Connects to agent" keeps the text; leaving a menu drops its options
+      const keepText = o.kind !== 'menu' && kind !== 'menu';
       const apply = () => setOptions(list => updateOption(list, id, cur => (kind === 'menu'
         ? { id: cur.id, label: cur.label, kind: 'menu', prompt: '', children: [] }
-        : { id: cur.id, label: cur.label, kind: 'answer', answer: '' })));
+        : { id: cur.id, label: cur.label, kind, answer: keepText ? cur.answer || '' : '' })));
       const n = o.kind === 'menu' ? countAll(o.children || []) : 0;
-      const hasAnswer = o.kind === 'answer' && !!(o.answer || '').trim();
-      if (!n && !hasAnswer && !(o.prompt || '').trim()) { apply(); return; }
+      const hasAnswer = o.kind !== 'menu' && !!(o.answer || '').trim();
+      if (keepText || (!n && !hasAnswer && !(o.prompt || '').trim())) { apply(); return; }
+      const kindName = { menu: 'Opens menu', answer: 'Shows answer', agent: 'Connects to agent' }[kind];
       setConfirm({
-        title: kind === 'menu' ? 'Change to “Opens menu”?' : 'Change to “Shows answer”?',
+        title: `Change to “${kindName}”?`,
         body: kind === 'menu'
-          ? 'The answer text of this option will be removed. You’ll add the options of its menu next.'
+          ? 'The text of this option will be removed. You’ll add the options of its menu next.'
           : `The ${n ? `${n} option${n === 1 ? '' : 's'} inside this menu` : 'message of this menu'} will be removed.`,
         confirmLabel: 'Change', danger: true, action: apply,
       });

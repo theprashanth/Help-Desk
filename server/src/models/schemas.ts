@@ -161,6 +161,7 @@ export interface IConversationDoc extends Document {
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: string;
   bot?: any;
+  mergedInto?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -184,7 +185,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   createdByAgentId: { type: String, index: true },
   attributes: { type: Schema.Types.Mixed, default: {} },
   sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' },
-  bot: { type: Schema.Types.Mixed }
+  bot: { type: Schema.Types.Mixed },
+  mergedInto: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

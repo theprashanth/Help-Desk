@@ -6,6 +6,7 @@ import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ChatFlowSettings, Workspace
 const id = () => crypto.randomBytes(5).toString('hex');
 const answer = (label: string, text: string): ChatFlowOption => ({ id: id(), label, kind: 'answer', answer: text });
 const menu = (label: string, prompt: string, children: ChatFlowOption[]): ChatFlowOption => ({ id: id(), label, kind: 'menu', prompt, children });
+const agent = (label: string, text = ''): ChatFlowOption => ({ id: id(), label, kind: 'agent', answer: text });
 const SUB_PROMPT = (title: string) => `${title}\n\nWhat specific issue are you facing? I’ll help you get it sorted in just a few minutes!`;
 const CONTACT = '\n\nNeed help? Contact support - we’re here!';
 
@@ -80,6 +81,7 @@ export function defaultChatFlow(): ChatFlow {
         answer('Request a Show or Movie', 'Want something we don\'t have yet? 🎬\n\nWe\'d love to hear it! Tap **No — Still need help** below and tell us:\n- The title name\n- The language\n\nOur content team reviews every request.'),
         answer('Age Rating & Kids Content', '✅ **Keep viewing family-friendly:**\n1. Create a **Kids profile** (My Chai Shots → Add Profile → Kids)\n2. Kids profiles only show age-appropriate titles\n3. Add a **Profile Lock PIN** to other profiles so kids can\'t switch' + CONTACT),
       ]),
+      agent('Other — talk to our team', 'Sure — connecting you to our support team. Please describe your issue and we’ll reply shortly.'),
     ],
     askResolved: true,
     resolvedQuestion: 'Did this solve your issue?',
@@ -142,6 +144,9 @@ export function validateChatFlow(input: any): ChatFlow {
         prompt: str(o.prompt ?? '', `"${label}" message`, LIMITS.text, true),
         children: kids.map((k: any, i: number) => option(k, depth + 1, `"${label}" option ${i + 1}`)),
       };
+    }
+    if (o.kind === 'agent') {
+      return { id: oid, label, kind: 'agent', answer: str(o.answer ?? '', `"${label}" message`, LIMITS.text, true) };
     }
     return { id: oid, label, kind: 'answer', answer: str(o.answer, `"${label}" answer`, LIMITS.answer) };
   };

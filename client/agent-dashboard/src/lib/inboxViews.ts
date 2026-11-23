@@ -5,6 +5,7 @@ import { isSnoozed } from './snooze';
  * Inbox views (left panel) decide WHICH conversations; the state filter (the "N Open" chip)
  * decides WHAT STATE they're in. View ids:
  *   yours | created | all | unassigned | agent:<agentId> | kind:conversation | kind:ticket | kind:issue
+ *   bot (every bot chat) | bot:active (still in the menus) | bot:resolved (solved by the bot)
  */
 export type StateFilter = 'open' | 'waiting' | 'snoozed' | 'resolved' | 'closed' | 'archived' | 'all';
 
@@ -19,7 +20,9 @@ export const STATE_FILTERS: { key: StateFilter; label: string }[] = [
 ];
 
 export const isInboxView = (id: string) =>
-  ['yours', 'created', 'all', 'unassigned', 'bot'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:');
+  ['yours', 'created', 'all', 'unassigned', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:');
+
+export const isBotView = (id: string) => id === 'bot' || id.startsWith('bot:');
 
 /** Statuses to request from the server for a state filter (snooze is applied client-side). */
 export function statusesFor(state: StateFilter): string[] {
@@ -42,6 +45,8 @@ export function viewParams(view: string, myId?: string): string {
   if (view.startsWith('agent:')) return `assignedAgentId=${encodeURIComponent(view.slice(6))}`;
   if (view.startsWith('kind:')) return `kind=${encodeURIComponent(view.slice(5))}`;
   if (view === 'bot') return 'bot=handled';
+  if (view === 'bot:active') return 'bot=active';
+  if (view === 'bot:resolved') return 'bot=resolved';
   return '';
 }
 
@@ -53,6 +58,8 @@ export function matchesView(c: Conversation, view: string, myId?: string): boole
   if (view.startsWith('agent:')) return c.assignedAgentId === view.slice(6);
   if (view.startsWith('kind:')) return (c.kind || 'conversation') === view.slice(5);
   if (view === 'bot') return !!c.bot && c.bot.state !== 'handoff';
+  if (view === 'bot:active') return c.bot?.state === 'menu' || c.bot?.state === 'confirm';
+  if (view === 'bot:resolved') return c.bot?.state === 'done';
   return true;
 }
 

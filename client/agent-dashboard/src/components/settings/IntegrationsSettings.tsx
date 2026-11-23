@@ -32,7 +32,7 @@ const PAYLOAD_EXAMPLE = `{
   "createdAt": "2026-01-01T10:00:00.000Z",
   "conversation": {
     "id": "conv_123",
-    "ticketNumber": "TICKET-1042",
+    "ticketNumber": "#41042",
     "status": "open",
     "priority": "none",
     "category": "general",

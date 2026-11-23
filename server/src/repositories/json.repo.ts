@@ -12,8 +12,28 @@ import {
 } from './interfaces';
 
 import { getActiveWorkspaceId } from '../context/tenant.context';
+import { nextTicketNumber, migrateLegacyText, hasLegacyTicketText } from '../services/ticketNumbers';
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
+
+/**
+ * One-time rename of legacy "TICKET-1130" ids to "#41130" across conversations and messages
+ * (ticket numbers, merge references, snippets). Safe to run on every start: it only touches legacy text.
+ */
+export async function migrateJsonTicketNumbers(): Promise<number> {
+  return transaction(async () => {
+    let changed = 0;
+    for (const file of ['conversations.json', 'messages.json']) {
+      const data = await readJson<any[]>(file, []);
+      const text = JSON.stringify(data);
+      if (!hasLegacyTicketText(text)) continue;
+      await writeJson(file, JSON.parse(migrateLegacyText(text)));
+      changed++;
+    }
+    if (changed) console.log('[Migration] Renamed TICKET-xxxx ids to #number style in local JSON storage');
+    return changed;
+  });
+}
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 async function ensureDataDir() {
@@ -293,7 +313,7 @@ export class JsonConversationRepository implements IConversationRepository {
   async create(conv: Omit<Conversation, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>): Promise<Conversation> {
     return transaction(async () => {
       const rawConversations = await readJson<any[]>(this.file, []);
-      const ticketNumber = `TICKET-${1000 + rawConversations.length + 1}`;
+      const ticketNumber = nextTicketNumber(rawConversations.map(c => c.ticketNumber));
       const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const now = new Date().toISOString();
       const workspaceId = getActiveWorkspaceId();
@@ -403,6 +423,7 @@ export class JsonConversationRepository implements IConversationRepository {
         attributes: raw.attributes || {},
         sharing: raw.sharing || 'shared',
         bot: raw.bot || undefined,
+        mergedInto: raw.mergedInto || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -433,10 +454,13 @@ export class JsonConversationRepository implements IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
-    bot?: 'handled';
+    bot?: 'handled' | 'active' | 'resolved';
   }): Promise<Conversation[]> {
     let list = await this.findAll();
-    if (filters.bot === 'handled') list = list.filter(c => c.bot && c.bot.state !== 'handoff');
+    if (filters.bot) {
+      const states = filters.bot === 'active' ? ['menu', 'confirm'] : filters.bot === 'resolved' ? ['done'] : ['menu', 'confirm', 'done'];
+      list = list.filter(c => !!c.bot && states.includes(c.bot.state));
+    }
 
     if (filters.kind && filters.kind.length > 0) {
       list = list.filter(c => filters.kind!.includes(c.kind || 'conversation'));

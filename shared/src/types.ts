@@ -204,6 +204,7 @@ export interface Conversation {
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
+  mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
   createdAt: string;
   updatedAt: string;
 }
@@ -227,13 +228,13 @@ export interface ChatFlowQuestion {
   required: boolean;      // optional questions show "Skip"
 }
 
-/** A button in a menu: opens a sub-menu (children) or shows an answer. */
+/** A button in a menu: opens a sub-menu (children), shows an answer, or connects the visitor to an agent. */
 export interface ChatFlowOption {
   id: string;
   label: string;
-  kind: 'menu' | 'answer';
+  kind: 'menu' | 'answer' | 'agent';
   prompt?: string;            // menu: message shown above its sub-options
-  answer?: string;            // answer: markdown (**bold**, emoji, lists)
+  answer?: string;            // answer: markdown (**bold**, emoji, lists); agent: optional message before connecting (empty = the "Reply to No" text)
   children?: ChatFlowOption[];
 }
 

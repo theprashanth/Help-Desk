@@ -1,188 +1,122 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { Message, Conversation } from '../../../../../shared/src/types';
-import { ArrowLeft, Lock, ExternalLink } from 'lucide-react';
+import { Conversation } from '../../../../../shared/src/types';
+import { ChevronLeft, ExternalLink, MessageSquareReply } from 'lucide-react';
+import { BACKEND_URL, TicketHeaderCard, MiniTranscript, MergedBanner, useConversationMessages, statusOf, StatusPill } from './mergeUi';
+import CustomerProfilePanel from './CustomerProfilePanel';
 
-const BACKEND_URL = 'http://localhost:3000';
-
+/**
+ * Another conversation opened beside the current one (from "Recent conversations" or a merge card).
+ * It takes half the workspace — the inbox list hides while it's open — with Activity / Details tabs.
+ * A merged ticket shows "Ticket merged · Go to primary"; anything else offers Reply (opens it in the main view).
+ */
 export const MergedConversationPanel: React.FC = () => {
   const token = useStore((state) => state.token);
-  const viewingMergedConversationId = useStore((state) => state.viewingMergedConversationId);
-  const setViewingMergedConversationId = useStore((state) => state.setViewingMergedConversationId);
+  const me = useStore((state) => state.agent);
+  const viewingId = useStore((state) => state.viewingMergedConversationId);
+  const setViewingId = useStore((state) => state.setViewingMergedConversationId);
+  const openConversation = (id: string) => useStore.getState().setActiveConversationId(id);
 
-  const [mergedConv, setMergedConv] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'activity' | 'details'>('activity');
+  const [conv, setConv] = useState<Conversation | null>(null);
+  const [tab, setTab] = useState<'activity' | 'details'>('activity');
+  const messages = useConversationMessages(viewingId, token);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Fetch conversation metadata & message logs
   useEffect(() => {
-    if (!viewingMergedConversationId || !token) return;
+    if (!viewingId || !token) return;
+    let live = true;
+    setConv(null);
+    setTab('activity');
+    fetch(`${BACKEND_URL}/api/tickets/${viewingId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(c => { if (live) setConv(c); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [viewingId, token]);
 
-    const fetchMergedData = async () => {
-      setLoading(true);
-      try {
-        // Fetch conversation details
-        const convRes = await fetch(`${BACKEND_URL}/api/tickets/${viewingMergedConversationId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (convRes.ok) {
-          const convData = await convRes.json();
-          setMergedConv(convData);
-        }
+  useEffect(() => { if (tab === 'activity') endRef.current?.scrollIntoView({ block: 'end' }); }, [messages, tab]);
 
-        // Fetch messages log
-        const msgRes = await fetch(`${BACKEND_URL}/api/messages/${viewingMergedConversationId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (msgRes.ok) {
-          const msgData = await msgRes.json();
-          setMessages(msgData);
-        }
-      } catch (err) {
-        console.error('Failed to load merged conversation:', err);
-      } finally {
-        setLoading(false);
-      }
+  // Esc closes it (unless you're typing somewhere)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (e.key === 'Escape' && !(t && (t.isContentEditable || /INPUT|TEXTAREA|SELECT/.test(t.tagName)))) setViewingId(null);
     };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [setViewingId]);
 
-    fetchMergedData();
-  }, [viewingMergedConversationId, token]);
+  if (!viewingId) return null;
 
-  // Scroll to bottom on load
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
-
-  if (!viewingMergedConversationId) return null;
-
-  const customerName = mergedConv?.customer?.name || 'Customer';
-  const customerLocation = mergedConv?.customer?.session?.country || 'Hyderabad - India';
-  const ticketNumber = mergedConv?.ticketNumber || 'Ticket';
+  // Older merges only left an indicator message, so fall back to it
+  const indicator = messages?.slice().reverse().find(m => m.metadata?.type === 'merged_indicator');
+  const mergedIntoId: string | undefined = conv?.mergedInto?.id || indicator?.metadata?.mergedIntoConversationId;
+  const title = conv?.title?.trim() || (conv ? `Conversation with ${conv.customer?.name || 'customer'}` : 'Loading…');
 
   return (
-    <div className="ic-panel w-[320px] 2xl:w-[360px] h-full flex flex-col shrink-0 animate-slide-left z-20">
-      {/* Header with back button */}
-      <div className="ic-panel-header gap-2 pl-3 pr-3">
-        <button
-          onClick={() => setViewingMergedConversationId(null)}
-          className="flex items-center gap-2 min-w-0 flex-1 h-9 pl-2 pr-3 rounded-full text-ink hover:bg-ink/[0.05] transition-colors text-left"
-        >
-          <ArrowLeft className="w-[18px] h-[18px] text-muted shrink-0" />
-          <span className="truncate text-[15px] font-semibold">{customerName} from {customerLocation}</span>
+    <div className="ic-panel flex-1 min-w-0 h-full flex flex-col relative animate-slide-left z-20 overflow-hidden">
+      {/* Header: back, title, open, status */}
+      <div className="ic-panel-header gap-2 pl-3 pr-4">
+        <button onClick={() => setViewingId(null)} className="ic-icon-btn-ghost shrink-0" title="Close (Esc)">
+          <ChevronLeft className="w-5 h-5" />
         </button>
-        <button 
-          onClick={() => setViewingMergedConversationId(null)}
-          title="Return to details"
-          className="ic-icon-btn-ghost"
-        >
+        <h3 className="flex-1 min-w-0 truncate text-[17px] font-semibold text-ink border-b border-dashed border-line pb-0.5" title={title}>{title}</h3>
+        <button onClick={() => openConversation(viewingId)} className="ic-icon-btn-ghost shrink-0" title="Open in the main view">
           <ExternalLink className="w-4 h-4" />
         </button>
+        {conv && <StatusPill status={statusOf(conv)} className="h-8 px-3.5 text-[13px]" />}
       </div>
 
-      {/* Tabs Menu */}
-      <div className="ic-tabs pt-3">
-        <button
-          onClick={() => setActiveTab('activity')}
-          className={`ic-tab ${activeTab === 'activity' ? 'ic-tab-active' : ''}`}
-        >
-          Activity
-        </button>
-        <button
-          onClick={() => setActiveTab('details')}
-          className={`ic-tab ${activeTab === 'details' ? 'ic-tab-active' : ''}`}
-        >
-          Details
-        </button>
+      {/* Tabs */}
+      <div className="ic-tabs px-5 pt-2 shrink-0">
+        <button onClick={() => setTab('activity')} className={`ic-tab ${tab === 'activity' ? 'ic-tab-active' : ''}`}>Activity</button>
+        <button onClick={() => setTab('details')} className={`ic-tab ${tab === 'details' ? 'ic-tab-active' : ''}`}>Details</button>
       </div>
 
-      {/* Pane Content */}
-      <div className="flex-1 overflow-y-auto bg-surface">
-        {loading ? (
-          <div className="h-full flex items-center justify-center text-[14px] text-muted">
-            Loading merged conversation…
+      {tab === 'activity' ? (
+        <>
+          {conv && (
+            <div className="px-6 py-5 border-b border-line shrink-0">
+              <TicketHeaderCard conv={conv} summary={conv.description || ''} />
+              {!conv.description && <p className="mt-3 text-[14px] text-faint">{conv.title ? 'No description' : 'Add description…'}</p>}
+            </div>
+          )}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 flex flex-col">
+            <MiniTranscript
+              messages={messages}
+              meId={me?.id}
+              large
+              onOpenConversation={openConversation}
+              onViewMerged={id => setViewingId(id)}
+            />
+            <div ref={endRef} />
           </div>
-        ) : activeTab === 'activity' ? (
-          <div className="px-4 py-5 flex flex-col gap-4">
-            {messages.map((m) => {
-              const isCustomer = m.sender.type === 'customer';
-              // Check if it is a merge indicator
-              const isMergeIndicator = m.metadata?.type === 'merged_indicator';
-
-              if (isMergeIndicator) {
-                return (
-                  <div key={m.id} className="flex items-start gap-2 text-[13px] text-muted bg-subtle px-3.5 py-2.5 rounded-xl">
-                    <span className="text-faint">↳</span>
-                    <span>{m.content}</span>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={m.id}
-                  className={`flex flex-col max-w-[85%] ${
-                    isCustomer ? 'self-start items-start' : 'self-end items-end'
-                  }`}
-                >
-                  <div
-                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed text-ink ${
-                      m.isInternalNote
-                        ? 'bg-note border border-note-line'
-                        : isCustomer
-                        ? 'bg-bubble-customer'
-                        : 'bg-bubble-agent'
-                    }`}
-                  >
-                    {m.isInternalNote && (
-                      <div className="flex items-center gap-1 text-[12px] font-medium text-muted mb-1">
-                        <Lock className="w-3 h-3" /> Note
-                      </div>
-                    )}
-                    <p className="whitespace-pre-line">{m.content}</p>
-                    <div className="flex items-center gap-1.5 mt-1 text-[12px] text-muted">
-                      <span className="font-medium">{m.sender.name}</span>
-                      <span className="text-faint">·</span>
-                      <span>
-                        {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            <div ref={messagesEndRef} />
+          <div className="px-5 pb-5 pt-2 shrink-0">
+            {mergedIntoId ? (
+              <MergedBanner onGo={() => openConversation(mergedIntoId)} />
+            ) : (
+              <button onClick={() => openConversation(viewingId)} className="inline-flex items-center gap-2 h-11 px-4 rounded-xl border border-line bg-surface shadow-sm text-[14px] font-semibold text-ink hover:bg-subtle">
+                <MessageSquareReply className="w-4 h-4" /> Reply
+              </button>
+            )}
           </div>
-        ) : (
-          /* Render simple details card */
-          <div className="px-5 py-3 flex flex-col">
-            <div className="ic-detail-row">
-              <span className="ic-detail-label">Ticket number</span>
-              <span className="ic-detail-value font-medium">{ticketNumber}</span>
+        </>
+      ) : (
+        <div className="flex-1 min-h-0 flex flex-col">
+          {mergedIntoId && (
+            <div className="mx-5 mt-4 px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-[13.5px] text-ink flex items-center gap-2 shrink-0">
+              Merged into
+              <button onClick={() => openConversation(mergedIntoId)} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                #{(conv?.mergedInto?.ticketNumber || indicator?.metadata?.mergedIntoTicketNumber || '').toString().replace(/^#/, '')}
+              </button>
             </div>
-            <div className="ic-detail-row">
-              <span className="ic-detail-label">Category</span>
-              <span className="ic-detail-value capitalize">{mergedConv?.category || 'general'}</span>
-            </div>
-            <div className="ic-detail-row">
-              <span className="ic-detail-label">Priority</span>
-              <span className="ic-detail-value capitalize">{mergedConv?.priority || 'medium'}</span>
-            </div>
-            <div className="ic-detail-row">
-              <span className="ic-detail-label">Status</span>
-              <span className="ic-detail-value">
-                <span className="inline-flex items-center h-6 px-2.5 rounded-full text-[12px] font-medium capitalize bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-                  {mergedConv?.status || 'merged'}
-                </span>
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+          {/* The full details sidebar for this conversation: assignee, attributes, links, user data, recent conversations… */}
+          <CustomerProfilePanel conversationId={viewingId} embedded />
+        </div>
+      )}
     </div>
   );
 };
+
+export default MergedConversationPanel;
