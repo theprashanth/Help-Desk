@@ -4,9 +4,12 @@ import { Customer } from '../../../../../shared/src/types';
 import { 
   Mail, Phone, Globe, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
   FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
-  Sidebar, Link2, ShieldAlert, Sparkles, Clock, GitMerge, MessageSquare, Copy, Eye, Layers
+  Sidebar, Link2, ShieldAlert, Sparkles, Clock, MessageSquare, Copy, Eye, Layers, UserRound
 } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
+import { timeAgo, shortAgo } from '../../lib/timeAgo';
+import TimeHover from '../ui/TimeHover';
+import { StatusPill, statusOf, aboutText } from './mergeUi';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -23,13 +26,36 @@ const InstantTooltip: React.FC<{ children: React.ReactNode; text: string }> = ({
   );
 };
 
-export const CustomerProfilePanel: React.FC = () => {
-  const activeConversationId = useStore((state) => state.activeConversationId);
+/**
+ * Details sidebar for a conversation. By default it follows the active conversation; with `conversationId`
+ * it shows another one, and `embedded` drops its own frame and tabs (used inside the side conversation view).
+ */
+export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?: boolean }> = ({ conversationId, embedded }) => {
+  const storeActiveId = useStore((state) => state.activeConversationId);
+  const activeConversationId = conversationId ?? storeActiveId;
   const conversations = useStore((state) => state.conversations);
   const token = useStore((state) => state.token);
   const tags = useStore((state) => state.tags);
   const setTags = useStore((state) => state.setTags);
-  const updateConversation = useStore((state) => state.updateConversation);
+  const storeUpdateConversation = useStore((state) => state.updateConversation);
+
+  // A conversation outside the loaded inbox list (e.g. an older or merged one) is fetched on its own
+  const [fetchedConv, setFetchedConv] = useState<Conversation | null>(null);
+  const inList = useStore((state) => state.conversations.some(c => c.id === activeConversationId));
+  useEffect(() => {
+    setFetchedConv(null);
+    if (!activeConversationId || !token || inList) return;
+    let live = true;
+    fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(c => { if (live && c) setFetchedConv(c); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [activeConversationId, token, inList]);
+  const updateConversation = (u: Conversation) => {
+    storeUpdateConversation(u);
+    setFetchedConv(prev => (prev && prev.id === u.id ? u : prev));
+  };
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
@@ -98,8 +124,6 @@ export const CustomerProfilePanel: React.FC = () => {
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setClock(Date.now()), 60_000); return () => clearInterval(t); }, []);
   const [recentOpen, setRecentOpen] = useState(true);
-  const [mergeConfirm, setMergeConfirm] = useState<string | null>(null);
-  const [mergeLoading, setMergeLoading] = useState(false);
   const handleCategoryChange = async (newCategory: string) => {
     if (!activeConversationId || !token) return;
     try {
@@ -202,7 +226,7 @@ export const CustomerProfilePanel: React.FC = () => {
   };
 
   // Retrieve current active conversation
-  const conv = conversations.find(c => c.id === activeConversationId);
+  const conv = conversations.find(c => c.id === activeConversationId) || (fetchedConv?.id === activeConversationId ? fetchedConv : undefined);
 
   // Retrieve current active conversation's customer
   useEffect(() => {
@@ -358,6 +382,7 @@ export const CustomerProfilePanel: React.FC = () => {
   };
 
   if (!customer || !conv) {
+    if (embedded) return <p className="px-6 py-6 text-[14px] text-muted">Loading details…</p>;
     return (
       <div className="ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col items-center justify-center p-8 text-center">
         <Sidebar className="w-10 h-10 mb-3 text-faint" />
@@ -382,9 +407,10 @@ export const CustomerProfilePanel: React.FC = () => {
   })();
 
   return (
-    <div className="ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col overflow-hidden">
+    <div className={embedded ? 'flex-1 min-h-0 flex flex-col overflow-hidden' : 'ic-panel w-[320px] 2xl:w-[360px] h-full shrink-0 flex flex-col overflow-hidden'}>
       
       {/* ═══ TABS HEADER ════════════════════════════════════════════════════ */}
+      {!embedded && (
       <div className="ic-tabs pt-4 pr-3 justify-between shrink-0">
         <div className="flex items-end gap-7">
           <button
@@ -409,11 +435,12 @@ export const CustomerProfilePanel: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
 
       {/* ═══ SCROLLABLE CONTENT ═════════════════════════════════════════════ */}
       <div className="flex-1 overflow-y-auto">
         
-        {activeTab === 'details' ? (
+        {(embedded || activeTab === 'details') ? (
           <>
             {/* SECTION 1: ASSIGNEE & TEAM DETAILS */}
             <div className="ic-detail-section py-3">
@@ -924,112 +951,49 @@ export const CustomerProfilePanel: React.FC = () => {
               >
                 <span className="ic-detail-section-title">
                   <MessageSquare className="w-[18px] h-[18px]" /> Recent conversations
-                  {recentConvs.length > 1 && (
-                    <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-accent/10 text-accent text-[12px] font-semibold inline-flex items-center justify-center">
-                      {recentConvs.length - 1}
+                  {recentConvs.some(rc => rc.id !== activeConversationId) && (
+                    <span className="min-w-[24px] h-6 px-1.5 rounded-full bg-subtle text-accent text-[12px] font-semibold inline-flex items-center justify-center">
+                      {recentConvs.filter(rc => rc.id !== activeConversationId).length}
                     </span>
                   )}
                 </span>
                 {recentOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronUp className="w-4 h-4 text-muted" />}
               </button>
 
-              {recentOpen && (
-                <div className="mt-3 flex flex-col gap-2">
-                  {recentConvs.length <= 1 ? (
-                    <span className="text-[14px] text-faint">No other conversations found for this customer.</span>
-                  ) : (
-                    recentConvs
-                      .filter(rc => rc.id !== activeConversationId)
-                      .map(rc => {
-                        const isMergeTarget = mergeConfirm === rc.id;
-                        const statusColors: Record<string, string> = {
-                          open: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300',
-                          waiting: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-                          resolved: 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
-                          closed: 'bg-subtle text-muted',
-                          merged: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-                        };
-                        const statusClass = statusColors[rc.status] || statusColors.closed;
-                        return (
-                          <div
-                            key={rc.id}
-                            className="ic-card flex flex-col gap-1 px-3.5 py-3"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-[14px] font-medium text-ink truncate">{rc.ticketNumber}</span>
-                              <span className={`text-[12px] font-medium capitalize px-2 h-5 inline-flex items-center rounded-full ${statusClass}`}>{rc.status}</span>
-                            </div>
-                            <p className="text-[13px] text-muted truncate leading-snug">
-                              {rc.lastMessageSnippet || 'No messages'}
-                            </p>
-                            <div className="flex items-center justify-between mt-1">
-                              <span className="text-[12px] text-faint capitalize">{rc.category}</span>
-                              {!isMergeTarget ? (
-                                <div className="flex gap-3 items-center">
-                                  <button
-                                    onClick={() => useStore.getState().setViewingMergedConversationId(rc.id)}
-                                    className="text-[13px] font-medium text-muted hover:text-ink transition-colors"
-                                  >
-                                    View
-                                  </button>
-                                  {rc.status === 'open' && (
-                                    <button
-                                      onClick={() => setMergeConfirm(rc.id)}
-                                      className="flex items-center gap-1 text-[13px] font-medium text-accent hover:text-accent/80 transition-colors"
-                                    >
-                                      <GitMerge className="w-3.5 h-3.5" /> Merge
-                                    </button>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-[13px] text-muted">Confirm?</span>
-                                  <button
-                                    disabled={mergeLoading}
-                                    onClick={async () => {
-                                      if (!activeConversationId) return;
-                                      setMergeLoading(true);
-                                      try {
-                                        const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}/merge`, {
-                                          method: 'POST',
-                                          headers: {
-                                            'Content-Type': 'application/json',
-                                            'Authorization': `Bearer ${token}`
-                                          },
-                                          body: JSON.stringify({ sourceId: rc.id })
-                                        });
-                                        if (res.ok) {
-                                          await fetchRecentConvs();
-                                        } else {
-                                          const err = await res.json();
-                                          alert('Merge failed: ' + err.error);
-                                        }
-                                      } catch (e) {
-                                        console.error(e);
-                                      } finally {
-                                        setMergeLoading(false);
-                                        setMergeConfirm(null);
-                                      }
-                                    }}
-                                    className="ic-btn-primary ic-btn-sm disabled:opacity-50"
-                                  >
-                                    {mergeLoading ? '…' : 'Yes'}
-                                  </button>
-                                  <button
-                                    onClick={() => setMergeConfirm(null)}
-                                    className="ic-btn-ghost ic-btn-sm text-muted"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })
-                  )}
-                </div>
-              )}
+              {recentOpen && (() => {
+                const others = recentConvs
+                  .filter(rc => rc.id !== activeConversationId)
+                  .sort((x, y) => new Date(y.updatedAt || y.createdAt).getTime() - new Date(x.updatedAt || x.createdAt).getTime());
+                if (!others.length) return <p className="mt-3 text-[14px] text-faint">No other conversations found for this customer.</p>;
+                return (
+                  <div className="mt-2 -mx-2 flex flex-col">
+                    {others.map(rc => {
+                      const started = timeAgo(rc.createdAt);
+                      const about = rc.title || aboutText(rc) || 'No messages yet';
+                      return (
+                        <button
+                          key={rc.id}
+                          onClick={() => useStore.getState().setViewingMergedConversationId(rc.id)}
+                          className="w-full flex items-start gap-3 px-2 py-2.5 rounded-xl text-left hover:bg-ink/[0.04] transition-colors"
+                          title={`#${String(rc.ticketNumber).replace(/^#/, '')}`}
+                        >
+                          <span className="w-9 h-9 rounded-full bg-subtle text-faint flex items-center justify-center shrink-0 overflow-hidden">
+                            <UserRound className="w-6 h-6 translate-y-1" />
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[14px] font-semibold text-ink truncate"><TimeHover iso={rc.createdAt}>Started {started}</TimeHover></span>
+                            <span className="block text-[13px] text-muted truncate">{about}</span>
+                          </span>
+                          <span className="flex flex-col items-end gap-1 shrink-0">
+                            <StatusPill status={statusOf(rc)} />
+                            <TimeHover iso={rc.updatedAt} className="text-[12.5px] text-muted">{shortAgo(rc.updatedAt)}</TimeHover>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* SECTION: RECENT PAGE VIEWS */}

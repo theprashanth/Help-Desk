@@ -220,7 +220,7 @@ function sampleConversation(ws: Workspace): Conversation {
   return {
     id: 'test_conversation',
     workspaceId: ws.id,
-    ticketNumber: 'TICKET-TEST',
+    ticketNumber: '#40000',
     customer: { id: 'test_customer', name: 'Test Customer', email: 'customer@example.com', session: {} as any, tags: [], notes: [] },
     status: 'open',
     priority: 'none',

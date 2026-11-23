@@ -42,7 +42,7 @@ export async function exportAsText(convs: Conversation[], token: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = convs.length === 1 ? `${convs[0].ticketNumber}.txt` : `chai-samosa-conversations-${fileStamp()}.txt`;
+  a.download = convs.length === 1 ? `ticket-${convs[0].ticketNumber.replace(/^#/, "")}.txt` : `chai-samosa-conversations-${fileStamp()}.txt`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -11,7 +11,7 @@ import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
 import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
 import { SearchPanel } from '../../components/agent/SearchPanel';
-import { isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
+import { isBotView, isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
 import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
@@ -199,14 +199,16 @@ export const Inbox: React.FC = () => {
     if (activeTab === 'unassigned') return 'Unassigned';
     if (activeTab.startsWith('agent:')) return agents.find(a => a.id === activeTab.slice(6))?.name || 'Teammate';
     if (activeTab.startsWith('kind:')) return KIND_LABELS[activeTab.slice(5)] || 'Inbox';
-    if (activeTab === 'bot') return 'Handled by bot';
+    if (activeTab === 'bot') return 'All bot chats';
+    if (activeTab === 'bot:active') return 'Bot chats in progress';
+    if (activeTab === 'bot:resolved') return 'Resolved by bot';
     return 'Inbox';
   })();
 
   const selectView = (view: string) => {
     setComposer(null);
     // Bot-handled chats are resolved until someone asks for a person, so show every state there
-    if (view === 'bot') useStore.getState().setStateFilter('all');
+    if (isBotView(view)) useStore.getState().setStateFilter('all');
     setActiveTab(view);
   };
 
@@ -391,8 +393,10 @@ export const Inbox: React.FC = () => {
               <SearchPanel agents={agents} />
             ) : (
             <>
-            {/* List column */}
-            <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
+            {/* List column (hidden while another conversation is open beside the chat) */}
+            {!(viewingMergedConversationId && activeConversationId && !composer) && (
+              <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
+            )}
 
             {composer ? (
               /* Manual create screen replaces the conversation + details panels */

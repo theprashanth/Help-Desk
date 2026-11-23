@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Plus, Search, PenLine, Users, UserX, BarChart3, ChevronDown, ChevronRight,
-  MessageSquare, Ticket, Wrench, Bot
+  MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare
 } from 'lucide-react';
 import { Agent } from '../../../../../shared/src/types';
 
@@ -13,6 +13,7 @@ export interface InboxCounts {
   unassigned: number;
   byAgent: Record<string, number>;
   byKind: Record<string, number>;
+  bot?: { active: number; resolved: number };
 }
 
 interface Props {
@@ -50,6 +51,7 @@ export const InboxNavPanel: React.FC<Props> = ({
   const [typeQuery, setTypeQuery] = useState('');
   const [teammatesOpen, setTeammatesOpen] = useState(true);
   const [viewsOpen, setViewsOpen] = useState(true);
+  const [botOpen, setBotOpen] = useState(true);
 
   const closeMenus = () => { setCreateOpen(false); setTicketMenuOpen(false); setTypeQuery(''); };
   const create = (kind: 'conversation' | 'ticket' | 'issue') => { closeMenus(); onCreate(kind); };
@@ -60,7 +62,7 @@ export const InboxNavPanel: React.FC<Props> = ({
       onClick={() => onSelect(id)}
       className={`ic-nav-item ${activeView === id ? 'ic-nav-item-active' : ''}`}
     >
-      <span className="w-[18px] flex justify-center text-ink/80 shrink-0">{icon}</span>
+      <span className="w-[18px] flex justify-center text-ink shrink-0 [&_svg]:stroke-[2.25]">{icon}</span>
       <span className="truncate">{label}</span>
       <Count n={count} />
     </button>
@@ -70,7 +72,7 @@ export const InboxNavPanel: React.FC<Props> = ({
   const teammates = agents.filter(a => a.id !== me.id);
 
   return (
-    <aside className="ic-panel-side w-[232px] h-full shrink-0 flex flex-col animate-fade-in">
+    <aside className="ic-panel-side w-[208px] h-full shrink-0 flex flex-col animate-fade-in">
       {/* Header + create menu */}
       <div className="h-16 shrink-0 flex items-center justify-between px-5 relative">
         <h1 className="ic-title">Inbox</h1>
@@ -183,7 +185,19 @@ export const InboxNavPanel: React.FC<Props> = ({
             {item('kind:conversation', 'Conversations', <span className="text-[15px] leading-none">💬</span>, counts?.byKind?.conversation ?? 0)}
             {item('kind:ticket', 'Tickets', <span className="text-[15px] leading-none">🎟️</span>, counts?.byKind?.ticket ?? 0)}
             {item('kind:issue', 'Issues', <Wrench className="w-[16px] h-[16px]" />, counts?.byKind?.issue ?? 0)}
-            {item('bot', 'Handled by bot', <Bot className="w-[16px] h-[16px]" />)}
+          </>
+        )}
+
+        {/* Chat-flow bot: chats that never reached a person, kept for reference */}
+        <button onClick={() => setBotOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+          <span>Bot chats</span>
+          {botOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
+        </button>
+        {botOpen && (
+          <>
+            {item('bot:resolved', 'Resolved by bot', <CheckCircle2 className="w-[16px] h-[16px]" />, counts?.bot?.resolved)}
+            {item('bot:active', 'In progress', <MessagesSquare className="w-[16px] h-[16px]" />, counts?.bot?.active)}
+            {item('bot', 'All bot chats', <Bot className="w-[16px] h-[16px]" />, counts?.bot ? counts.bot.active + counts.bot.resolved : undefined)}
           </>
         )}
       </div>

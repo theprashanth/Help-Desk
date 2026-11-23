@@ -11,6 +11,32 @@ import {
   UserModel, CustomerModel, ConversationModel, MessageModel, 
   SavedReplyModel, TagModel, SettingsModel, WorkspaceModel 
 } from '../models/schemas';
+import { nextTicketNumber, migrateLegacyText, hasLegacyTicketText } from '../services/ticketNumbers';
+
+/** One-time rename of legacy "TICKET-1130" ids to "#41130" in MongoDB (see migrateJsonTicketNumbers). */
+export async function migrateMongoTicketNumbers(): Promise<number> {
+  let changed = 0;
+  const convs = await ConversationModel.find({ $or: [{ ticketNumber: /TICKET-\d+/ }, { lastMessageSnippet: /TICKET-\d+/ }, { 'mergedInto.ticketNumber': /TICKET-\d+/ }] }).lean();
+  for (const c of convs as any[]) {
+    const fix = (v: any) => (typeof v === 'string' ? migrateLegacyText(v) : v);
+    await ConversationModel.updateOne({ _id: c._id }, { $set: {
+      ticketNumber: fix(c.ticketNumber),
+      lastMessageSnippet: fix(c.lastMessageSnippet),
+      ...(c.customerSnippet ? { customerSnippet: fix(c.customerSnippet) } : {}),
+      ...(c.mergedInto ? { mergedInto: JSON.parse(migrateLegacyText(JSON.stringify(c.mergedInto))) } : {}),
+    } });
+    changed++;
+  }
+  const msgs = await MessageModel.find({ $or: [{ content: /TICKET-\d+/ }, { 'metadata.mergeDetails.sourceTicketNumber': /TICKET-\d+/ }, { 'metadata.mergedIntoTicketNumber': /TICKET-\d+/ }] }).lean();
+  for (const m of msgs as any[]) {
+    const text = JSON.stringify({ content: m.content, metadata: m.metadata });
+    if (!hasLegacyTicketText(text)) continue;
+    await MessageModel.updateOne({ _id: m._id }, { $set: JSON.parse(migrateLegacyText(text)) });
+    changed++;
+  }
+  if (changed) console.log(`[Migration] Renamed TICKET-xxxx ids to #number style in MongoDB (${changed} records)`);
+  return changed;
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
@@ -300,6 +326,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       attributes: doc.attributes || {},
       sharing: (doc.sharing as any) || 'shared',
       bot: doc.bot || undefined,
+      mergedInto: doc.mergedInto || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -317,8 +344,8 @@ export class MongooseConversationRepository implements IConversationRepository {
 
   async create(conv: Omit<Conversation, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>): Promise<Conversation> {
     // Generate Ticket number
-    const count = await ConversationModel.countDocuments();
-    const ticketNumber = `TICKET-${1000 + count + 1}`;
+    const existing = await ConversationModel.find({}, { ticketNumber: 1 }).lean();
+    const ticketNumber = nextTicketNumber(existing.map((d: any) => d.ticketNumber));
     
     const doc = new ConversationModel({
       ticketNumber,
@@ -385,10 +412,12 @@ export class MongooseConversationRepository implements IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
-    bot?: 'handled';
+    bot?: 'handled' | 'active' | 'resolved';
   }): Promise<Conversation[]> {
     const query: any = {};
-    if (filters.bot === 'handled') query['bot.state'] = { $in: ['menu', 'confirm', 'done'] };
+    if (filters.bot) {
+      query['bot.state'] = { $in: filters.bot === 'active' ? ['menu', 'confirm'] : filters.bot === 'resolved' ? ['done'] : ['menu', 'confirm', 'done'] };
+    }
 
     if (filters.kind && filters.kind.length > 0) {
       // legacy documents have no kind => treat as 'conversation'

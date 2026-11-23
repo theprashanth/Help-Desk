@@ -42,7 +42,7 @@ export interface IConversationRepository {
     tag?: string;
     kind?: string[];
     createdByAgentId?: string;
-    bot?: 'handled';   // conversations the chat-flow bot handled (not handed to a person)
+    bot?: 'handled' | 'active' | 'resolved';   // chat-flow bot chats not handed to a person: all, still in the menus, or resolved by the bot
   }): Promise<Conversation[]>;
   delete(id: string): Promise<boolean>;
 }

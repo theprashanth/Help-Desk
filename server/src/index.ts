@@ -7,6 +7,8 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
+import { migrateJsonTicketNumbers } from './repositories/json.repo';
+import { migrateMongoTicketNumbers } from './repositories/mongoose.repo';
 import { SocketService, AGENTS_ROOM, customerRoom } from './services/socket';
 
 const customerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -60,6 +62,14 @@ async function startServer() {
       console.warn('[Database Fallback] Falling back to local JSON file storage inside \'.data/\' folder.');
       RepositoryFactory.setUseMongoose(false);
     }
+  }
+
+  // Rename legacy TICKET-xxxx ids to the #number style (no-op once done)
+  try {
+    if (isMongoConnected) await migrateMongoTicketNumbers();
+    else await migrateJsonTicketNumbers();
+  } catch (err: any) {
+    console.warn(`[Migration] Ticket number rename skipped: ${err.message}`);
   }
 
   // Ensure default workspace exists

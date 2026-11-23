@@ -208,6 +208,18 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
     const { flow } = live;
     let bot: ConversationBotState = { ...conv.bot };
     let convUpdate: Partial<Conversation> = {};
+    let handedOff = false;
+
+    // Hand the conversation to the team: it opens in the Inbox and the visitor can type
+    const handOff = async (customerText: string, botText: string, why: string) => {
+      await customerSays(conv, customerText, true, { handoff: true });
+      await say(conv.id, flow, botText, true);
+      bot = { ...bot, state: 'handoff' };
+      convUpdate = { status: 'open', unreadCountAgent: (conv.unreadCountAgent || 0) + 1, assignedAgentId: conv.assignedAgentId };
+      handedOff = true;
+      await recordEvent(conv.id, 'status', `${why}: ${bot.path.join(' › ') || 'chat flow'}`, undefined,
+        { bot: true, field: 'status', from: conv.status, to: 'open' });
+    };
 
     const toMenu = async (customerText: string, botTexts: string[]) => {
       await customerSays(conv, customerText, true);
@@ -221,6 +233,11 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
         const showing = optionsAt(flow, bot.node);
         const opt = showing.find(o => o.id === optionId) || null;
         if (!opt) return res.status(400).json({ error: 'That option is no longer available', resync: true });
+        if (opt.kind === 'agent') {
+          bot = { ...bot, path: [...bot.path, opt.label] };
+          await handOff(opt.label, opt.answer?.trim() || flow.noReply, 'Customer asked for a person via');
+          break;
+        }
         await customerSays(conv, opt.label, true);
         if (opt.kind === 'menu') {
           await say(conv.id, flow, opt.prompt || opt.label, true);
@@ -246,12 +263,7 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
       }
       case 'no': {
         if (bot.state !== 'confirm' && bot.state !== 'done') return res.status(409).json({ error: 'Nothing to confirm' });
-        await customerSays(conv, flow.noLabel, true, { handoff: true });
-        await say(conv.id, flow, flow.noReply, true);
-        bot = { ...bot, state: 'handoff' };
-        convUpdate = { status: 'open', unreadCountAgent: (conv.unreadCountAgent || 0) + 1, assignedAgentId: conv.assignedAgentId };
-        await recordEvent(conv.id, 'status', `Customer asked for a person after: ${bot.path.join(' › ') || 'chat flow'}`, undefined,
-          { bot: true, field: 'status', from: conv.status, to: 'open' });
+        await handOff(flow.noLabel, flow.noReply, 'Customer asked for a person after');
         break;
       }
       case 'back':
@@ -271,7 +283,7 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
     const updated = await convRepo.update(conv.id, { ...convUpdate, bot });
     if (updated) {
       SocketService.broadcastConversationUpdate(updated);
-      if (action === 'no') {
+      if (handedOff) {
         notifyIntegrations(wsId, 'conversation.created', { conversation: updated });
         await sendReplyTimeNotice(updated, wsId);
       }
