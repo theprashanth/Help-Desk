@@ -99,6 +99,8 @@ export const UserModel = mongoose.model<IUserDoc>('User', UserSchema);
 
 // Customer Schema (Guest Users)
 export interface ICustomerDoc extends Document {
+  blocked?: boolean;
+  blockedAt?: string;
   workspaceId: string;
   id: string; // User id: UUID for every new customer (legacy: guest_..., cust_...)
   externalId?: string; // your system's user id for logged-in users
@@ -125,6 +127,8 @@ export interface ICustomerDoc extends Document {
 export const CustomerSchema = new Schema<ICustomerDoc>({
   workspaceId: { type: String, required: true, index: true },
   id: { type: String, required: true, unique: true, index: true },
+  blocked: { type: Boolean, default: false },
+  blockedAt: { type: String },
   externalId: { type: String, index: true, sparse: true },
   name: { type: String, required: true },
   email: { type: String },

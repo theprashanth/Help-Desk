@@ -9,6 +9,8 @@ import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
 import { migrateJsonTicketNumbers } from './repositories/json.repo';
 import { ensureWorkspaceAppIds } from './services/appId';
+import { Presence } from './services/presence';
+import { startScheduler } from './services/scheduler';
 import { migrateMongoTicketNumbers } from './repositories/mongoose.repo';
 import { SocketService, AGENTS_ROOM, customerRoom } from './services/socket';
 
@@ -180,6 +182,8 @@ async function startServer() {
 
   // Real-time WebSockets
   SocketService.init(io);
+  Presence.startSweeper();
+  startScheduler(); // snoozed conversations wake up when their time comes
 
 
 
@@ -190,12 +194,14 @@ async function startServer() {
     socket.on('join', (room: string) => {
       if (typeof room !== 'string' || room === AGENTS_ROOM || room.startsWith('customer:')) return; // protected rooms
       socket.join(room);
+      Presence.join(socket.id, room); // collision detection: "Sarah is viewing"
       console.log(`[Socket.IO] Socket ${socket.id} joined room ${room}`);
     });
 
     // Leave conversation room
     socket.on('leave', (room: string) => {
       socket.leave(room);
+      if (typeof room === 'string') Presence.leave(socket.id, room);
       console.log(`[Socket.IO] Socket ${socket.id} left room ${room}`);
     });
 
@@ -205,6 +211,10 @@ async function startServer() {
       const verified = verifyAgentToken(payload.token);
       if (verified && verified.id === payload.agentId) {
         socket.join(AGENTS_ROOM);
+        Presence.registerAgent(socket.id, payload.agentId, payload.name);
+        // Conversations this socket opened before its login was verified
+        for (const r of socket.rooms) if (r !== socket.id && r !== AGENTS_ROOM && !r.startsWith('customer:')) Presence.join(socket.id, r);
+        socket.emit('presence:all', Presence.all()); // who is viewing what, right now
       }
       SocketService.onlineAgents.set(payload.agentId, { socketId: socket.id, name: payload.name });
       SocketService.broadcastAgentOnline(payload.agentId, payload.name);
@@ -231,6 +241,9 @@ async function startServer() {
 
     socket.on('typing', (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => {
       if (!socket.rooms.has(AGENTS_ROOM)) return; // only verified agents send this event
+      if (payload?.senderType === 'agent' && typeof payload.conversationId === 'string') {
+        Presence.typing(socket.id, payload.conversationId, !!payload.isTyping); // "Sarah is replying…"
+      }
       // Broadcast typing event to others in the same room
       socket.to(payload.conversationId).emit('message:typing', payload);
       // ...and tell the customer's Messenger ("Rishi is typing…")
@@ -253,6 +266,7 @@ async function startServer() {
     // Handle Disconnection
     socket.on('disconnect', () => {
       console.log(`[Socket.IO] Disconnected: ${socket.id}`);
+      Presence.disconnect(socket.id);
       
       // Check if disconnected socket belongs to an agent
       for (const [agentId, value] of SocketService.onlineAgents.entries()) {

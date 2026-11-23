@@ -135,6 +135,7 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
 
     const custRepo = RepositoryFactory.getCustomerRepository();
     const { id: customerId, externalId } = await resolveCustomerId(requestedId, externalUserId);
+    if ((await custRepo.findById(customerId))?.blocked) return res.status(403).json({ error: "You can't send messages to this team right now.", code: 'blocked' });
     const now = new Date().toISOString();
     const existing = await custRepo.findOrCreate(customerId, {
       externalId,

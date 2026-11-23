@@ -139,8 +139,10 @@ router.put('/messages/seen/:conversationId', optionalJWT, markSeen); // Mark con
 router.get('/analytics', authenticateJWT, getAnalytics);
 
 // --- Seeding & Simulation Routes ---
-router.post('/simulation/reset', resetDatabase);
-router.post('/simulation/seed', seedData);
-router.post('/simulation/activity', authenticateJWT, simulateActivity);
+// Testing panel: admins only (reset wipes the workspace's data)
+const adminOnly = (req: any, res: any, next: any) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only admins can use the testing tools' }));
+router.post('/simulation/reset', authenticateJWT, adminOnly, resetDatabase);
+router.post('/simulation/seed', authenticateJWT, adminOnly, seedData);
+router.post('/simulation/activity', authenticateJWT, adminOnly, simulateActivity);
 
 export default router;

@@ -92,6 +92,8 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     // Every new customer gets a UUID User id (logged-in users keep their own id as externalId).
     // The response's conversation.customer.id tells the Messenger which id to use from now on.
     const { id: customerId, externalId } = await resolveCustomerId(requestedId, externalUserId);
+    const known = await custRepo.findById(customerId);
+    if (known?.blocked) return res.status(403).json({ error: "You can't send messages to this team right now.", code: 'blocked' });
 
     const customer = await custRepo.findOrCreate(customerId, {
       externalId,
@@ -270,6 +272,10 @@ export async function updateCustomerProfile(req: AuthenticatedRequest, res: Resp
     
     // conversationId (optional) = the conversation the change was made from, for its event log
     const { conversationId, ...changes } = req.body || {};
+    if (changes.blocked !== undefined) {
+      if (typeof changes.blocked !== 'boolean') return res.status(400).json({ error: 'blocked must be true or false' });
+      changes.blockedAt = changes.blocked ? new Date().toISOString() : undefined;
+    }
     const beforeCustomer = await custRepo.findById(customerId);
     const updatedCustomer = await custRepo.update(customerId, changes);
     if (!updatedCustomer) {
@@ -293,6 +299,9 @@ export async function updateCustomerProfile(req: AuthenticatedRequest, res: Resp
         for (const t of prev.filter(t => !changes.tags.includes(t))) {
           await recordEvent(conversationId, 'tags', `${who} removed tag ${t} from the customer`, actor, { tag: t, action: 'removed', scope: 'customer' });
         }
+      }
+      if (typeof changes.blocked === 'boolean' && !!beforeCustomer.blocked !== changes.blocked) {
+        await recordEvent(conversationId, 'other', changes.blocked ? `${who} blocked ${beforeCustomer.name}` : `${who} unblocked ${beforeCustomer.name}`, actor, { field: 'blocked', to: changes.blocked });
       }
       if (Array.isArray(changes.notes) && changes.notes.length > (beforeCustomer.notes || []).length) {
         await recordEvent(conversationId, 'other', `${who} added a note to the customer`, actor, { field: 'notes' });
