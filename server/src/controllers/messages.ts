@@ -80,11 +80,17 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
 
     // Update unread count based on sender type
     const updateData: any = {};
+    // A customer writing into a resolved or closed ticket reopens it, so the team sees the reply.
+    // (Not merged tickets: their conversation continues in the primary. Not while the bot is still
+    // handling the chat: bot chats sit in "resolved" until someone asks for a person.)
+    const botStillHandling = !!conv.bot && conv.bot.state !== 'handoff';
+    const reopenedByCustomer = sender.type === 'customer' && !isInternalNote && !conv.mergedInto && !botStillHandling
+      && (conv.status === 'resolved' || conv.status === 'closed');
     if (sender.type === 'customer') {
       updateData.unreadCountAgent = conv.unreadCountAgent + 1;
       // A customer reply wakes the conversation up (Intercom-style)
       if (conv.snoozedUntil) updateData.snoozedUntil = null;
-      if (conv.status === 'waiting') updateData.status = 'open';
+      if (conv.status === 'waiting' || reopenedByCustomer) updateData.status = 'open';
     } else if (sender.type === 'agent' && !isInternalNote) {
       updateData.unreadCountCustomer = conv.unreadCountCustomer + 1;
     }
@@ -119,6 +125,10 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       if (conv.status === 'waiting') {
         await recordEvent(conversationId, 'status', 'State changed to In progress because the customer replied', undefined,
           { field: 'status', from: 'waiting', to: 'open' });
+      }
+      if (reopenedByCustomer) {
+        await recordEvent(conversationId, 'status', `Reopened because the customer replied (was ${conv.status === 'resolved' ? 'Resolved' : 'Closed'})`, undefined,
+          { field: 'status', from: conv.status, to: 'open' });
       }
     }
 
