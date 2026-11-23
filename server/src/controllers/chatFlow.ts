@@ -13,6 +13,7 @@ import {
   chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, fillName, validPhone, validEmail,
 } from '../services/chatFlow';
 import { ChatFlow, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
+import { logAudit } from '../services/audit';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const isAdmin = (req: AuthenticatedRequest, res: Response) => {
@@ -57,6 +58,7 @@ export async function publishChatFlow(req: AuthenticatedRequest, res: Response) 
   const next = { ...current, draft: live, published: live, version: (current.version || 0) + 1, publishedAt: now, updatedAt: now };
   await repo.update(ws.id, { chatFlow: next });
   try { SocketService.getIO().emit('chatflow:updated', { workspaceId: ws.id, version: next.version }); } catch { /* sockets not ready */ }
+  await logAudit(req, 'settings.chat_flow', `Published chat flow version ${next.version}`);
   return res.json(next);
 }
 

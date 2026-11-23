@@ -26,6 +26,8 @@ export interface IWorkspaceDoc extends Document {
   appId?: string;
   showStateToCustomer?: boolean;
   csatEnabled?: boolean;
+  defaultTeamId?: string;
+  customerAttributes?: any[];
   sla?: any;
   ai?: any;
   dataImports?: any[];
@@ -54,6 +56,8 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   appId: { type: String, unique: true, sparse: true, index: true },
   showStateToCustomer: { type: Boolean },
   csatEnabled: { type: Boolean },
+  defaultTeamId: { type: String },
+  customerAttributes: { type: Schema.Types.Mixed },
   sla: { type: Schema.Types.Mixed },
   ai: { type: Schema.Types.Mixed }
 }, { timestamps: true });
@@ -67,7 +71,7 @@ export interface IUserDoc extends Document {
   passwordHash: string;
   name: string;
   avatar?: string;
-  role: 'admin' | 'support_agent';
+  role: 'admin' | 'support_agent' | 'light';
   jobTitle?: string;
   department?: string;
   phone?: string;
@@ -87,7 +91,7 @@ export const UserSchema = new Schema<IUserDoc>({
   passwordHash: { type: String, required: true },
   name: { type: String, required: true },
   avatar: { type: String },
-  role: { type: String, enum: ['admin', 'support_agent'], default: 'support_agent' },
+  role: { type: String, enum: ['admin', 'support_agent', 'light'], default: 'support_agent' },
   status: { type: String, enum: ['online', 'offline'], default: 'offline' },
   lastSeen: { type: Date, default: Date.now },
   jobTitle: { type: String },
@@ -107,6 +111,8 @@ export const UserModel = mongoose.model<IUserDoc>('User', UserSchema);
 export interface ICustomerDoc extends Document {
   blocked?: boolean;
   blockedAt?: string;
+  companyId?: string;
+  attributes?: any;
   workspaceId: string;
   id: string; // User id: UUID for every new customer (legacy: guest_..., cust_...)
   externalId?: string; // your system's user id for logged-in users
@@ -135,6 +141,8 @@ export const CustomerSchema = new Schema<ICustomerDoc>({
   id: { type: String, required: true, unique: true, index: true },
   blocked: { type: Boolean, default: false },
   blockedAt: { type: String },
+  companyId: { type: String, index: true },
+  attributes: { type: Schema.Types.Mixed },
   externalId: { type: String, index: true, sparse: true },
   name: { type: String, required: true },
   email: { type: String },
@@ -186,6 +194,7 @@ export interface IConversationDoc extends Document {
   rating?: any;
   csatRequestedAt?: string;
   sla?: any;
+  teamId?: string;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -214,7 +223,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   importedFrom: { type: Schema.Types.Mixed },
   rating: { type: Schema.Types.Mixed },
   csatRequestedAt: { type: String },
-  sla: { type: Schema.Types.Mixed }
+  sla: { type: Schema.Types.Mixed },
+  teamId: { type: String, index: true }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

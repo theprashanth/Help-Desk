@@ -4,6 +4,8 @@ import { io, Socket } from 'socket.io-client';
 import { useStore, PresenceViewer } from '../store/useStore';
 import { mentionedConversationIds } from '../lib/inboxViews';
 import { Message, Conversation } from '../../../../shared/src/types';
+import { loadTeams } from '../lib/teams';
+import { refreshAttributeDefs } from '../components/agent/CustomerOrgFields';
 
 const SocketContext = createContext<Socket | null>(null);
 const BACKEND_URL = 'http://localhost:3000';
@@ -175,6 +177,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         });
       }
     });
+
+    // Settings › Teams changed somewhere: refresh the team inboxes
+    newSocket.on('teams:changed', () => { loadTeams(true); });
+    newSocket.on('attributes:changed', () => { refreshAttributeDefs(); });
 
     newSocket.on('conversation:update', (conv: Conversation) => {
       updateConversation(conv);

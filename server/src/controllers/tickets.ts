@@ -5,6 +5,9 @@ import { SocketService } from '../services/socket';
 import { Conversation, Customer, Tag, SavedReply, MacroActions } from '../../../shared/src/types';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
 import { refreshSla } from '../services/sla';
+import { routeNewConversation, teamsRepo, pickFromTeam } from '../services/teams';
+import { companiesRepo, cleanAttributeValues } from './org';
+import { logAudit } from '../services/audit';
 import { toCustomerView, isCustomerVisible, computeCustomerSnippet, plainText } from '../services/conversationView';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
@@ -37,6 +40,8 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       createdByAgentId,
       bot: ['handled', 'active', 'resolved'].includes(req.query.bot as string) ? req.query.bot as 'handled' | 'active' | 'resolved' : undefined,
     });
+    // Team inbox view
+    if (typeof req.query.team === 'string' && req.query.team) list = list.filter(c => c.teamId === req.query.team);
     // Mentions view: conversations with a note that mentions you
     if (req.query.mentions === 'me' && req.user) {
       const ids = await mentionedConversationIds(req.user.id);
@@ -123,35 +128,9 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     });
 
     // Auto-assign to online agent with the fewest open/waiting tickets
-    let assignedAgentId = undefined;
-    // Online teammates who aren't in Away mode
-    const awayIds = new Set((await RepositoryFactory.getUserRepository().findAll()).filter(a => a.away).map(a => a.id));
-    const onlineAgentIds = Array.from(SocketService.onlineAgents.keys()).filter(id => !awayIds.has(id));
-    if (onlineAgentIds.length > 0) {
-      // Get all open/waiting conversations to balance load
-      const openConvs = await convRepo.findFiltered({ status: ['open', 'waiting'] });
-      const openTicketCounts: Record<string, number> = {};
-      onlineAgentIds.forEach(id => {
-        openTicketCounts[id] = 0;
-      });
-      openConvs.forEach(c => {
-        if (c.assignedAgentId && openTicketCounts[c.assignedAgentId] !== undefined) {
-          openTicketCounts[c.assignedAgentId]++;
-        }
-      });
-      
-      // Find the agent with the minimum load
-      let minCount = Infinity;
-      let targetAgentId = onlineAgentIds[0];
-      onlineAgentIds.forEach(id => {
-        if (openTicketCounts[id] < minCount) {
-          minCount = openTicketCounts[id];
-          targetAgentId = id;
-        }
-      });
-      assignedAgentId = targetAgentId;
-      console.log(`[AutoAssign] Automatically assigned new ticket to online agent: ${targetAgentId} (current load: ${minCount} tickets)`);
-    }
+    // Team inbox + assignment rule (Settings › Teams); no teams = balanced across everyone
+    const route = await routeNewConversation();
+    const assignedAgentId = route.assignedAgentId;
 
     const newConv = await convRepo.create({
       customer,
@@ -160,7 +139,8 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       category: category || 'general',
       unreadCountAgent: 1, // Start with 1 unread message for agents
       unreadCountCustomer: 0,
-      assignedAgentId
+      assignedAgentId,
+      ...(route.teamId ? { teamId: route.teamId } : {})
     });
 
     // Save initial message if provided (text and/or attachments)
@@ -194,7 +174,7 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       await refreshSla(newConv.id);
       if (assignedAgentId) {
         const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
-        await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}`, undefined,
+        await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}${route.reason ? ` (${route.reason})` : ''}`, undefined,
           { targetId: assignedAgentId, targetName: assignee?.name, auto: true });
       }
       if (updatedConv) {
@@ -216,9 +196,24 @@ export async function updateTicket(req: AuthenticatedRequest, res: Response) {
   try {
     const convRepo = RepositoryFactory.getConversationRepository();
     const before = await convRepo.findById(id);
-    const updated = await convRepo.update(id, req.body);
+    const body = { ...req.body };
+    // Moving to a team inbox: the team must exist; null/'' takes it out of any team
+    let newTeam = null as Awaited<ReturnType<typeof teamsRepo.get>>;
+    if ('teamId' in body) {
+      if (!body.teamId) body.teamId = undefined;
+      else {
+        newTeam = await teamsRepo.get(String(body.teamId));
+        if (!newTeam) return res.status(400).json({ error: 'That team no longer exists' });
+      }
+    }
+    let updated = await convRepo.update(id, body);
     if (!updated) {
       return res.status(404).json({ error: 'Ticket not found' });
+    }
+    // Unassigned and sent to a team that assigns automatically: its rule picks a teammate
+    if (newTeam && before?.teamId !== newTeam.id && !updated.assignedAgentId && !('assignedAgentId' in body)) {
+      const pick = await pickFromTeam(newTeam);
+      if (pick) updated = (await convRepo.update(id, { assignedAgentId: pick })) || updated;
     }
     SocketService.broadcastConversationUpdate(updated);
     if (before) await recordUpdateEvents(before, updated, await getActor(req));
@@ -283,12 +278,30 @@ export async function updateCustomerProfile(req: AuthenticatedRequest, res: Resp
     const convRepo = RepositoryFactory.getConversationRepository();
     
     // conversationId (optional) = the conversation the change was made from, for its event log
-    const { conversationId, ...changes } = req.body || {};
+    const { conversationId, ...body } = req.body || {};
+    // Only these fields can be changed from the dashboard
+    const changes: Record<string, any> = {};
+    for (const k of ['name', 'email', 'phone', 'tags', 'notes', 'blocked']) if (body[k] !== undefined) changes[k] = body[k];
     if (changes.blocked !== undefined) {
       if (typeof changes.blocked !== 'boolean') return res.status(400).json({ error: 'blocked must be true or false' });
       changes.blockedAt = changes.blocked ? new Date().toISOString() : undefined;
     }
     const beforeCustomer = await custRepo.findById(customerId);
+    if (!beforeCustomer) return res.status(404).json({ error: 'Customer not found' });
+    let companyName: string | null | undefined;
+    if (body.companyId !== undefined) {
+      if (body.companyId) {
+        const company = await companiesRepo.get(String(body.companyId));
+        if (!company) return res.status(400).json({ error: 'That company no longer exists' });
+        changes.companyId = company.id;
+        companyName = company.name;
+      } else { changes.companyId = undefined; companyName = null; }
+    }
+    if (body.attributes !== undefined) {
+      const checked = await cleanAttributeValues(body.attributes, beforeCustomer.attributes || {});
+      if (checked.error) return res.status(400).json({ error: checked.error });
+      changes.attributes = checked.value;
+    }
     const updatedCustomer = await custRepo.update(customerId, changes);
     if (!updatedCustomer) {
       return res.status(404).json({ error: 'Customer not found' });
@@ -317,6 +330,19 @@ export async function updateCustomerProfile(req: AuthenticatedRequest, res: Resp
       }
       if (Array.isArray(changes.notes) && changes.notes.length > (beforeCustomer.notes || []).length) {
         await recordEvent(conversationId, 'other', `${who} added a note to the customer`, actor, { field: 'notes' });
+      }
+      if (companyName !== undefined && (beforeCustomer.companyId || '') !== (changes.companyId || '')) {
+        await recordEvent(conversationId, 'attributes', companyName ? `${who} set the customer's company to ${companyName}` : `${who} removed the customer's company`, actor, { field: 'companyId' });
+      }
+      if (changes.attributes) {
+        const defs = (await RepositoryFactory.getWorkspaceRepository().findById(req.workspaceId || 'default_workspace'))?.customerAttributes || [];
+        for (const d of defs) {
+          const a = (beforeCustomer.attributes || {})[d.key], b = changes.attributes[d.key];
+          if (JSON.stringify(a) !== JSON.stringify(b)) {
+            const shown = b === undefined ? '—' : typeof b === 'boolean' ? (b ? 'Yes' : 'No') : String(b);
+            await recordEvent(conversationId, 'attributes', `${who} set ${d.label} to ${shown}`, actor, { field: `attr:${d.key}` });
+          }
+        }
       }
     }
 
@@ -387,6 +413,7 @@ export async function createSavedReply(req: AuthenticatedRequest, res: Response)
       availableWhen: availableWhen || ['starting_conversations', 'replying', 'adding_notes'],
       creator
     });
+    await logAudit(req, 'macro.created', `Created the macro ${created.title}`, { target: created.trigger });
     return res.status(201).json(created);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -415,8 +442,10 @@ export async function deleteSavedReply(req: AuthenticatedRequest, res: Response)
   const { id } = req.params;
   try {
     const replyRepo = RepositoryFactory.getSavedReplyRepository();
+    const macro = (await replyRepo.findAll()).find(r => r.id === id);
     const deleted = await replyRepo.delete(id);
     if (!deleted) return res.status(404).json({ error: 'Saved reply not found' });
+    await logAudit(req, 'macro.deleted', `Deleted the macro ${macro?.title || id}`, { target: macro?.trigger });
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -629,8 +658,10 @@ export async function mergeTickets(req: AuthenticatedRequest, res: Response) {
 export async function createManualTicket(req: AuthenticatedRequest, res: Response) {
   const {
     kind = 'conversation', customer: customerRef, title, description, category, priority,
-    assignedAgentId, attributes, sharing, message
+    assignedAgentId, attributes, sharing, message, teamId
   } = req.body;
+    const team = teamId ? await teamsRepo.get(String(teamId)) : null;
+    if (teamId && !team) return res.status(400).json({ error: 'That team no longer exists' });
 
   if (!['conversation', 'ticket', 'issue'].includes(kind)) {
     return res.status(400).json({ error: 'kind must be conversation, ticket or issue' });
@@ -689,6 +720,7 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
       unreadCountAgent: 0,
       unreadCountCustomer: 0,
       assignedAgentId: assignedAgentId || undefined,
+      ...(team ? { teamId: team.id } : {}),
       kind,
       title: title ? String(title).trim() : undefined,
       description: description || undefined,
@@ -748,8 +780,10 @@ export async function getInboxCounts(req: AuthenticatedRequest, res: Response) {
     );
     const byAgent: Record<string, number> = {};
     const byKind: Record<string, number> = { conversation: 0, ticket: 0, issue: 0 };
+    const byTeam: Record<string, number> = {};
     for (const c of open) {
       if (c.assignedAgentId) byAgent[c.assignedAgentId] = (byAgent[c.assignedAgentId] || 0) + 1;
+      if (c.teamId) byTeam[c.teamId] = (byTeam[c.teamId] || 0) + 1;
       byKind[c.kind || 'conversation'] = (byKind[c.kind || 'conversation'] || 0) + 1;
     }
     // Mentions: conversations mentioning you, and how many mentions arrived since you last looked
@@ -772,6 +806,7 @@ export async function getInboxCounts(req: AuthenticatedRequest, res: Response) {
       unassigned: open.filter(c => !c.assignedAgentId).length,
       byAgent,
       byKind,
+      byTeam,
       // Chat-flow bot chats that never reached a person (they don't show in the views above)
       bot: {
         active: all.filter(c => c.bot && (c.bot.state === 'menu' || c.bot.state === 'confirm')).length,

@@ -10,6 +10,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { uploadDir } from '../middleware/upload';
+import { logAudit } from '../services/audit';
 
 export async function login(req: AuthenticatedRequest, res: Response) {
   const { email, password } = req.body;
@@ -128,7 +129,8 @@ export async function getAgents(req: AuthenticatedRequest, res: Response) {
 // ─── Teammates management (admin only) ──────────────────────────────────────
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const ROLES: UserRole[] = ['admin', 'support_agent'];
+const ROLES: UserRole[] = ['admin', 'support_agent', 'light'];
+const ROLE_LABELS: Record<UserRole, string> = { admin: 'Admin', support_agent: 'Agent', light: 'Light (read-only)' };
 
 function requireAdmin(req: AuthenticatedRequest, res: Response): boolean {
   if (!req.user) {
@@ -162,7 +164,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response) {
   if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'Name is required' });
   if (name.trim().length > 80) return res.status(400).json({ error: 'Name is too long' });
   if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) return res.status(400).json({ error: 'A valid email address is required' });
-  if (!ROLES.includes(role)) return res.status(400).json({ error: "Role must be 'admin' or 'support_agent'" });
+  if (!ROLES.includes(role)) return res.status(400).json({ error: "Role must be 'admin', 'support_agent' or 'light'" });
   const hasPassword = password !== undefined && password !== null && password !== '';
   if (hasPassword && (typeof password !== 'string' || password.length < 8)) {
     return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -184,6 +186,7 @@ export async function createAgent(req: AuthenticatedRequest, res: Response) {
       passwordPlain,
     });
     const { passwordHash: _omit, ...safe } = created as any;
+    await logAudit(req, 'teammate.added', `Added ${created.name} as ${ROLE_LABELS[role as UserRole]}`, { target: created.name, details: { email: created.email } });
     return res.status(201).json({
       agent: { ...safe, online: false },
       ...(hasPassword ? {} : { temporaryPassword: passwordPlain }),
@@ -210,7 +213,7 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response) {
     updates.name = name.trim();
   }
   if (role !== undefined) {
-    if (!ROLES.includes(role)) return res.status(400).json({ error: "Role must be 'admin' or 'support_agent'" });
+    if (!ROLES.includes(role)) return res.status(400).json({ error: "Role must be 'admin', 'support_agent' or 'light'" });
     updates.role = role;
   }
   if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to update' });
@@ -219,11 +222,15 @@ export async function updateAgent(req: AuthenticatedRequest, res: Response) {
     const userRepo = RepositoryFactory.getUserRepository();
     const target = await userRepo.findById(id);
     if (!target) return res.status(404).json({ error: 'Teammate not found' });
-    if (target.role === 'admin' && updates.role === 'support_agent' && (await countAdmins()) <= 1) {
+    if (target.role === 'admin' && updates.role && updates.role !== 'admin' && (await countAdmins()) <= 1) {
       return res.status(400).json({ error: 'You can’t remove admin access from the last admin' });
     }
     const updated = await userRepo.update(id, updates);
     if (!updated) return res.status(404).json({ error: 'Teammate not found' });
+    if (updates.role && updates.role !== target.role) {
+      await logAudit(req, 'teammate.role_changed', `Changed ${target.name}'s role from ${ROLE_LABELS[target.role]} to ${ROLE_LABELS[updates.role]}`, { target: target.name });
+    }
+    if (updates.name && updates.name !== target.name) await logAudit(req, 'teammate.renamed', `Renamed ${target.name} to ${updates.name}`, { target: updates.name });
     const { passwordHash: _omit, ...safe } = updated as any;
     return res.json({ ...safe, online: SocketService.onlineAgents.has(id) });
   } catch (err: any) {
@@ -262,6 +269,12 @@ export async function deleteAgent(req: AuthenticatedRequest, res: Response) {
     const ok = await userRepo.delete(id);
     if (!ok) return res.status(404).json({ error: 'Teammate not found' });
     SocketService.onlineAgents.delete(id);
+    await logAudit(req, 'teammate.removed', `Removed ${target.name} from the workspace`, { target: target.name, details: { unassignedConversations: unassigned } });
+    // Take them out of every team
+    const { teamsRepo } = await import('../services/teams');
+    for (const t of (await teamsRepo.list()).filter(t => t.memberIds.includes(id))) {
+      await teamsRepo.update(t.id, { memberIds: t.memberIds.filter(m => m !== id) });
+    }
     return res.json({ success: true, unassignedConversations: unassigned });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

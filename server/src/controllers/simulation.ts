@@ -4,6 +4,7 @@ import { SocketService } from '../services/socket';
 import { Customer, Conversation, Message, Tag, SavedReply } from '../../../shared/src/types';
 import fs from 'fs/promises';
 import path from 'path';
+import { logAudit } from '../services/audit';
 
 // Sample arrays for simulation
 const MOCK_COUNTRIES = ['United States', 'United Kingdom', 'Canada', 'India', 'Germany', 'Australia', 'Brazil', 'Japan'];
@@ -80,7 +81,8 @@ export async function resetDatabase(req: Request, res: Response) {
     if (RepositoryFactory.isJson()) {
       // Clear JSON files in .data
       const dataDir = path.resolve(process.cwd(), '.data');
-      const files = ['users.json', 'customers.json', 'conversations.json', 'messages.json', 'tags.json', 'saved_replies.json', 'settings.json'];
+      // The audit log is kept, so the reset itself stays on record
+      const files = ['users.json', 'customers.json', 'conversations.json', 'messages.json', 'tags.json', 'saved_replies.json', 'settings.json', 'teams.json', 'companies.json'];
       
       for (const file of files) {
         try {
@@ -111,6 +113,7 @@ export async function resetDatabase(req: Request, res: Response) {
     });
 
     console.log('[Simulator] Database Reset Completed');
+    await logAudit(req as any, 'data.reset', 'Reset the workspace data (testing tools)');
     return res.json({ success: true, message: 'Database reset and default admin registered.' });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

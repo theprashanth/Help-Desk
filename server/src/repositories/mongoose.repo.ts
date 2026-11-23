@@ -67,6 +67,8 @@ const mapWorkspace = (doc: any): Workspace => ({
   chatFlow: doc.chatFlow,
   showStateToCustomer: doc.showStateToCustomer,
   csatEnabled: doc.csatEnabled,
+  defaultTeamId: doc.defaultTeamId || undefined,
+  customerAttributes: doc.customerAttributes || undefined,
   sla: doc.sla || undefined,
   ai: doc.ai || undefined,
   dataImports: doc.dataImports || undefined,
@@ -154,6 +156,8 @@ const mapCustomer = (doc: any): Customer => ({
   notes: doc.notes || [],
   blocked: doc.blocked || undefined,
   blockedAt: doc.blockedAt || undefined,
+  companyId: doc.companyId || undefined,
+  attributes: doc.attributes || undefined,
 });
 
 const mapMessage = (doc: any): Message => ({
@@ -354,6 +358,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       rating: doc.rating || undefined,
       csatRequestedAt: doc.csatRequestedAt || undefined,
       sla: doc.sla || undefined,
+      teamId: doc.teamId || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };

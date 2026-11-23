@@ -6,6 +6,7 @@ import { MessengerAppearance, Workspace } from '../../../shared/src/types';
 import {
   appearanceOf, ensureIdentitySecret, newIdentitySecret, verifyUserHash, normaliseDomain, hostAllowed, recordInstallation, dashboardHost,
 } from '../services/messenger';
+import { logAudit } from '../services/audit';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const requireAdmin = (req: AuthenticatedRequest, res: Response) => {
@@ -89,12 +90,15 @@ export async function updateMessengerSettings(req: AuthenticatedRequest, res: Re
     updates.allowedDomains = cleaned;
   }
   const updated = await repo.update(ws.id, updates);
+  const what = [updates.messenger ? 'appearance' : '', updates.identityEnforced !== undefined ? 'identity verification' : '', updates.allowedDomains ? 'allowed domains' : ''].filter(Boolean);
+  if (what.length) await logAudit(req, 'settings.messenger', `Changed Messenger ${what.join(', ')}`);
   return res.json(settingsResponse(updated || ws));
 }
 
 /** GET /api/messenger/identity-secret — admins: reveal (created on first use). */
 export async function getIdentitySecret(req: AuthenticatedRequest, res: Response) {
   if (!requireAdmin(req, res)) return;
+  await logAudit(req, 'security.secret_viewed', 'Viewed the identity verification secret');
   return res.json({ secret: await ensureIdentitySecret(wsIdOf(req)) });
 }
 
@@ -103,6 +107,7 @@ export async function rotateIdentitySecret(req: AuthenticatedRequest, res: Respo
   if (!requireAdmin(req, res)) return;
   const secret = newIdentitySecret();
   await RepositoryFactory.getWorkspaceRepository().update(wsIdOf(req), { identitySecret: secret });
+  await logAudit(req, 'security.secret_rotated', 'Rotated the identity verification secret');
   return res.json({ secret });
 }
 

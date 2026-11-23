@@ -11,6 +11,8 @@ import { timeAgo, shortAgo } from '../../lib/timeAgo';
 import TimeHover from '../ui/TimeHover';
 import { StatusPill, statusOf, aboutText } from './mergeUi';
 import AskAiPanel from './AskAiPanel';
+import CustomerOrgFields from './CustomerOrgFields';
+import { useTeams } from '../../lib/teams';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -36,6 +38,8 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
   const activeConversationId = conversationId ?? storeActiveId;
   const conversations = useStore((state) => state.conversations);
   const token = useStore((state) => state.token);
+  const isLight = useStore((state) => state.agent?.role === 'light');
+  const teams = useTeams();
   const tags = useStore((state) => state.tags);
   const setTags = useStore((state) => state.setTags);
   const storeUpdateConversation = useStore((state) => state.updateConversation);
@@ -205,6 +209,21 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
     }
   };
 
+  // Move to a team inbox (its assignment rule may pick a teammate if it's unassigned)
+  const handleTeamChange = async (teamId: string) => {
+    if (!activeConversationId || !token) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${activeConversationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ teamId: teamId || null })
+      });
+      if (res.ok) updateConversation(await res.json());
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Assign the conversation (moved here from the chat toolbar; same endpoint)
   const handleAssigneeChange = async (agentId: string) => {
     if (!activeConversationId || !token) return;
@@ -228,6 +247,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
 
   // Retrieve current active conversation
   const conv = conversations.find(c => c.id === activeConversationId) || (fetchedConv?.id === activeConversationId ? fetchedConv : undefined);
+  const currentTeam = teams.find(t => t.id === conv?.teamId);
 
   // Retrieve current active conversation's customer
   useEffect(() => {
@@ -486,9 +506,22 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
 
               <div className="ic-detail-row">
                 <span className="ic-detail-label">Team Inbox</span>
-                <div className="ic-detail-value flex items-center gap-2">
-                  <Users className="w-4 h-4 text-muted shrink-0" />
-                  <span className="truncate">Support Team</span>
+                <div className="ic-detail-value flex items-center gap-1 min-w-0">
+                  {currentTeam?.emoji ? <span className="w-4 text-center shrink-0">{currentTeam.emoji}</span> : <Users className="w-4 h-4 text-muted shrink-0" />}
+                  {teams.length === 0 ? (
+                    <span className="truncate text-muted px-1.5" title="Create team inboxes in Settings › Teams">No teams yet</span>
+                  ) : (
+                    <select
+                      value={conv.teamId || ''}
+                      disabled={isLight}
+                      onChange={(e) => handleTeamChange(e.target.value)}
+                      className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${currentTeam ? 'text-ink' : 'text-muted'}`}
+                      title="Move to a team inbox"
+                    >
+                      <option value="" className="bg-surface text-ink">No team</option>
+                      {teams.map(t => <option key={t.id} value={t.id} className="bg-surface text-ink">{t.name}</option>)}
+                    </select>
+                  )}
                 </div>
               </div>
             </div>
@@ -718,6 +751,9 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                       {renderCopyButton(customer.phone, 'phone')}
                     </div>
                   </div>
+
+                  {/* Company + custom attributes (Settings › People data) */}
+                  <CustomerOrgFields customer={customer} conversationId={activeConversationId} readOnly={isLight} onUpdated={setCustomer} />
 
                   {/* Session properties */}
 

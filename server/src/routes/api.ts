@@ -1,6 +1,7 @@
 import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction } from '../controllers/chatFlow';
 import { Router, text as textBody } from 'express';
-import { authenticateJWT, optionalJWT } from '../middleware/auth';
+import { authenticateJWT, optionalJWT, requireFullSeat, requireAdmin } from '../middleware/auth';
+import { listTeams, createTeam, updateTeam, deleteTeam, setDefaultTeam, getAttributeDefs, saveAttributeDefs, listCompanies, getCompany, createCompany, updateCompany, deleteCompany, getAuditLog } from '../controllers/org';
 import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
@@ -102,37 +103,52 @@ router.post('/chat-flow/start', requireKnownWorkspace, startChatFlow);     // pu
 router.post('/chat-flow/action', requireKnownWorkspace, chatFlowAction);   // public: visitor tapped a button
 router.get('/search', authenticateJWT, searchConversations); // full search: messages, notes, tickets, customers, tags
 router.get('/tickets/state-counts', authenticateJWT, getStateCounts); // counts per state for the list's state menu
-router.post('/tickets/bulk', authenticateJWT, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete
+router.post('/tickets/bulk', authenticateJWT, requireFullSeat, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete
 router.get('/tickets', authenticateJWT, getTickets);
 router.get('/tickets/:id', optionalJWT, getTicket); // Let guest fetch single ticket details if needed
 router.post('/tickets', requireKnownWorkspace, createTicket); // Guest can create conversations
-router.post('/tickets/manual', authenticateJWT, createManualTicket); // Teammate creates a conversation/ticket/issue
+router.post('/tickets/manual', authenticateJWT, requireFullSeat, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);
 router.get('/customers', authenticateJWT, searchCustomers);
-router.put('/tickets/:id', authenticateJWT, updateTicket);
-router.put('/tickets/:id/assign', authenticateJWT, assignTicket);
-router.put('/customers/:customerId', authenticateJWT, updateCustomerProfile);
+router.put('/tickets/:id', authenticateJWT, requireFullSeat, updateTicket);
+router.put('/tickets/:id/assign', authenticateJWT, requireFullSeat, assignTicket);
+router.put('/customers/:customerId', authenticateJWT, requireFullSeat, updateCustomerProfile);
 router.get('/customers/:customerId/tickets', authenticateJWT, getCustomerTickets);
-router.post('/tickets/:id/merge', authenticateJWT, mergeTickets);
+router.post('/tickets/:id/merge', authenticateJWT, requireFullSeat, mergeTickets);
+
+// --- Teams, people data, companies, audit log (Phase C) ---
+router.get('/teams', authenticateJWT, listTeams);
+router.post('/teams', authenticateJWT, requireAdmin, createTeam);
+router.put('/teams/default', authenticateJWT, requireAdmin, setDefaultTeam);
+router.put('/teams/:id', authenticateJWT, requireAdmin, updateTeam);
+router.delete('/teams/:id', authenticateJWT, requireAdmin, deleteTeam);
+router.get('/people-attributes', authenticateJWT, getAttributeDefs);
+router.put('/people-attributes', authenticateJWT, requireAdmin, saveAttributeDefs);
+router.get('/companies', authenticateJWT, listCompanies);
+router.get('/companies/:id', authenticateJWT, getCompany);
+router.post('/companies', authenticateJWT, requireFullSeat, createCompany);
+router.put('/companies/:id', authenticateJWT, requireFullSeat, updateCompany);
+router.delete('/companies/:id', authenticateJWT, requireAdmin, deleteCompany);
+router.get('/audit-log', authenticateJWT, requireAdmin, getAuditLog);
 
 // --- Saved Replies Routes ---
 router.get('/saved-replies', authenticateJWT, getSavedReplies);
-router.post('/saved-replies', authenticateJWT, createSavedReply);
-router.put('/saved-replies/:id', authenticateJWT, updateSavedReply);
-router.delete('/saved-replies/:id', authenticateJWT, deleteSavedReply);
+router.post('/saved-replies', authenticateJWT, requireFullSeat, createSavedReply);
+router.put('/saved-replies/:id', authenticateJWT, requireFullSeat, updateSavedReply);
+router.delete('/saved-replies/:id', authenticateJWT, requireFullSeat, deleteSavedReply);
 
 // --- Tags Routes ---
 router.get('/tags', authenticateJWT, getTags);
-router.post('/tags', authenticateJWT, createTag);
-router.delete('/tags/:id', authenticateJWT, deleteTag);
+router.post('/tags', authenticateJWT, requireFullSeat, createTag);
+router.delete('/tags/:id', authenticateJWT, requireFullSeat, deleteTag);
 
 // --- Message Routes ---
 router.get('/messages/:conversationId', optionalJWT, getMessages); // Open for guest testing
 router.post('/messages', requireKnownWorkspace, optionalJWT, createMessage); // Guest & Agent can post messages
 router.post('/conversations/:id/rating', requireKnownWorkspace, optionalJWT, rateConversation); // CSAT from the Messenger
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
-router.put('/messages/:messageId/tags', authenticateJWT, updateMessageTags);
-router.delete('/messages/:messageId', authenticateJWT, deleteMessage);
+router.put('/messages/:messageId/tags', authenticateJWT, requireFullSeat, updateMessageTags);
+router.delete('/messages/:messageId', authenticateJWT, requireFullSeat, deleteMessage);
 router.post('/messages/upload', upload.single('file'), uploadFiles); // File attachments
 router.post('/attachments/upload', upload.single('file'), uploadFiles); // Alias for widget file attachments
 router.put('/messages/seen/:conversationId', optionalJWT, markSeen); // Mark conversation as read

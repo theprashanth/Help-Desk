@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { Agent, Conversation } from '../../../../../shared/src/types';
+import { useTeams } from '../../lib/teams';
 
 const BACKEND_URL = 'http://localhost:3000';
 const PLATFORM_OPTIONS = ['Web', 'iOS', 'Android'];
@@ -39,6 +40,10 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
   const [platformMenu, setPlatformMenu] = useState(false);
   const [sharing, setSharing] = useState<'shared' | 'internal'>(kind === 'issue' ? 'internal' : 'shared');
   const [assigneeId, setAssigneeId] = useState<string>(me.id);
+  const teams = useTeams();
+  const defaultTeamId = useStore(s => s.defaultTeamId);
+  const [teamId, setTeamId] = useState<string>('');
+  useEffect(() => { if (defaultTeamId) setTeamId(t => t || defaultTeamId); }, [defaultTeamId]);
   const [message, setMessage] = useState('');
   const [messageIsNote, setMessageIsNote] = useState(kind !== 'conversation');
   const [submitting, setSubmitting] = useState(false);
@@ -97,6 +102,7 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
           category,
           priority,
           assignedAgentId: assigneeId === 'unassigned' ? undefined : assigneeId,
+          ...(teamId ? { teamId } : {}),
           attributes: needsTitle ? { platforms, rootCause: rootCause.trim() || undefined } : undefined,
           sharing,
           message: message.trim() ? { content: message.trim(), isInternalNote: messageIsNote } : undefined,
@@ -402,9 +408,21 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
           </div>
           <div className="ic-detail-row">
             <span className="ic-detail-label">Team Inbox</span>
-            <div className="ic-detail-value flex items-center gap-2">
+            <div className="ic-detail-value flex items-center gap-1 min-w-0">
               <Users className="w-4 h-4 text-muted shrink-0" />
-              <span className="truncate">Support Team</span>
+              {teams.length === 0 ? (
+                <span className="truncate text-muted px-1.5">No teams yet</span>
+              ) : (
+                <select
+                  value={teamId}
+                  onChange={e => setTeamId(e.target.value)}
+                  className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:outline-none text-[14px] ${teamId ? 'text-ink' : 'text-muted'}`}
+                  title="Team inbox"
+                >
+                  <option value="" className="bg-surface text-ink">No team</option>
+                  {teams.map(t => <option key={t.id} value={t.id} className="bg-surface text-ink">{t.name}</option>)}
+                </select>
+              )}
             </div>
           </div>
         </div>

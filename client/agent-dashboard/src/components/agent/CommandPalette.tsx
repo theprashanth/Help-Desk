@@ -85,6 +85,8 @@ export const CommandPalette: React.FC<{
   const savedReplies = useStore(s => s.savedReplies);
   const setSavedReplies = useStore(s => s.setSavedReplies);
   const snoozeOptions = useSnoozeOptions();
+  const isLight = me?.role === 'light';
+  const teams = useStore(s => s.teams);
 
   const [open, setOpen] = useState(false);
   const [help, setHelp] = useState(false);
@@ -162,8 +164,9 @@ export const CommandPalette: React.FC<{
       else if (k === 'j') run(() => window.dispatchEvent(new CustomEvent('inbox:step', { detail: 1 })));
       else if (k === 'k') run(() => window.dispatchEvent(new CustomEvent('inbox:step', { detail: -1 })));
       else if (!hasConv) return;
-      else if (k === 'r') run(() => sendChat('reply'));
       else if (k === 'n') run(() => sendChat('note'));
+      else if (isLight) return; // read-only seat: notes and navigation only
+      else if (k === 'r') run(() => sendChat('reply'));
       else if (k === 'e') run(() => sendChat('close'));
       else if (k === 'z') run(() => sendChat('snooze'));
       else if (k === 'a') run(() => openAt('assign'));
@@ -217,7 +220,9 @@ export const CommandPalette: React.FC<{
     }
 
     // Root
-    if (conv) {
+    if (conv && isLight) {
+      list.push({ id: 'note', group: `Conversation ${conv.ticketNumber}`, label: 'Add a note', icon: <StickyNote className={ic} />, kbd: ['N'], keywords: 'internal', run: () => sendChat('note') });
+    } else if (conv) {
       const g = `Conversation ${conv.ticketNumber}`;
       list.push(
         { id: 'reply', group: g, label: 'Reply', icon: <CornerUpLeft className={ic} />, kbd: ['R'], run: () => sendChat('reply') },
@@ -248,18 +253,21 @@ export const CommandPalette: React.FC<{
       { id: 'v-unassigned', group: nav, label: 'Unassigned', icon: <UserX className={ic} />, run: () => onSelectView('unassigned') },
       { id: 'v-tickets', group: nav, label: 'Tickets', icon: <Ticket className={ic} />, run: () => onSelectView('kind:ticket') },
       { id: 'v-bot', group: nav, label: 'Bot chats', icon: <Bot className={ic} />, run: () => onSelectView('bot') },
+      ...teams.map(t => ({ id: `v-team-${t.id}`, group: nav, label: `${t.name} team inbox`, icon: t.emoji ? <span className="text-[15px] leading-none">{t.emoji}</span> : <Users className={ic} />, keywords: 'team', run: () => onSelectView(`team:${t.id}`) })),
       ...agents.filter(a => a.id !== me?.id).map(a => ({ id: `v-agent-${a.id}`, group: nav, label: `${a.name}'s inbox`, icon: <Users className={ic} />, keywords: 'teammate', run: () => onSelectView(`agent:${a.id}`) })),
       { id: 'search', group: nav, label: 'Search everything', icon: <Search className={ic} />, run: () => onOpenTab('search') },
       { id: 'analytics', group: nav, label: 'Analytics', icon: <BarChart3 className={ic} />, keywords: 'reports dashboard', run: () => onOpenTab('analytics') },
       { id: 'settings', group: nav, label: 'Settings', icon: <SettingsIcon className={ic} />, run: () => onOpenTab('settings') },
-      { id: 'new-conv', group: 'Create', label: 'New conversation', icon: <Plus className={ic} />, run: () => onCreate('conversation') },
-      { id: 'new-ticket', group: 'Create', label: 'New ticket', icon: <Plus className={ic} />, run: () => onCreate('ticket') },
+      ...(isLight ? [] : [
+        { id: 'new-conv', group: 'Create', label: 'New conversation', icon: <Plus className={ic} />, run: () => onCreate('conversation') },
+        { id: 'new-ticket', group: 'Create', label: 'New ticket', icon: <Plus className={ic} />, run: () => onCreate('ticket') },
+      ]),
       { id: 'help', group: 'Help', label: 'Keyboard shortcuts', icon: <Keyboard className={ic} />, kbd: ['?'], run: () => { setHelp(true); } },
     );
 
     // Typing also searches macros and loaded conversations
     if (query.trim()) {
-      if (conv) macroItems(list, savedReplies, me?.id, agents);
+      if (conv && !isLight) macroItems(list, savedReplies, me?.id, agents);
       const q = query.trim().toLowerCase().replace(/^#/, '');
       const local = conversations.filter(c => [c.ticketNumber, c.customer?.name, c.customer?.email, c.title, c.lastMessageSnippet]
         .some(v => (v || '').toLowerCase().replace(/^#/, '').includes(q)));
@@ -294,7 +302,7 @@ export const CommandPalette: React.FC<{
         }));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, conv, agents, me, savedReplies, snoozeOptions, query, conversations, token, found]);
+  }, [page, conv, agents, me, savedReplies, snoozeOptions, query, conversations, token, found, teams, isLight]);
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();

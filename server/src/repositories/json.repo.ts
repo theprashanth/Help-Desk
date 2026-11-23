@@ -55,7 +55,7 @@ const fileLocks: Record<string, Promise<any>> = {};
  */
 const inTransaction = new AsyncLocalStorage<boolean>();
 let transactionChain: Promise<unknown> = Promise.resolve();
-function transaction<T>(fn: () => Promise<T>): Promise<T> {
+export function transaction<T>(fn: () => Promise<T>): Promise<T> {
   if (inTransaction.getStore()) return fn();
   const run = transactionChain.then(() => inTransaction.run(true, fn));
   transactionChain = run.catch(() => {});
@@ -73,7 +73,7 @@ async function lockFile<T>(filename: string, operation: () => Promise<T>): Promi
   return nextLock;
 }
 
-async function readJson<T>(filename: string, defaultValue: T): Promise<T> {
+export async function readJson<T>(filename: string, defaultValue: T): Promise<T> {
   return lockFile(filename, async () => {
     await ensureDataDir();
     const filePath = path.join(DATA_DIR, filename);
@@ -95,7 +95,7 @@ async function readJson<T>(filename: string, defaultValue: T): Promise<T> {
   });
 }
 
-async function writeJson<T>(filename: string, data: T): Promise<void> {
+export async function writeJson<T>(filename: string, data: T): Promise<void> {
   return lockFile(filename, async () => {
     await ensureDataDir();
     const filePath = path.join(DATA_DIR, filename);
@@ -429,6 +429,7 @@ export class JsonConversationRepository implements IConversationRepository {
         rating: raw.rating || undefined,
         csatRequestedAt: raw.csatRequestedAt || undefined,
         sla: raw.sla || undefined,
+        teamId: raw.teamId || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

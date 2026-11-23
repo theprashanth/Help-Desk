@@ -215,6 +215,7 @@ export const Inbox: React.FC = () => {
     if (activeTab === 'unassigned') return 'Unassigned';
     if (activeTab.startsWith('agent:')) return agents.find(a => a.id === activeTab.slice(6))?.name || 'Teammate';
     if (activeTab.startsWith('kind:')) return KIND_LABELS[activeTab.slice(5)] || 'Inbox';
+    if (activeTab.startsWith('team:')) return useStore.getState().teams.find(t => t.id === activeTab.slice(5))?.name || 'Team inbox';
     if (activeTab === 'bot') return 'All bot chats';
     if (activeTab === 'bot:active') return 'Bot chats in progress';
     if (activeTab === 'bot:resolved') return 'Resolved by bot';

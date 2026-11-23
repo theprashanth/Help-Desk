@@ -6,6 +6,7 @@ import { DataImportRecord, DataImportType } from '../../../shared/src/types';
 import { parseCsvObjects } from '../services/csv';
 import { FIELDS, Mapping, checkMapping, runImport, suggestMapping } from '../services/dataImport';
 import { ExportType, buildExport } from '../services/dataExport';
+import { logAudit } from '../services/audit';
 
 const TYPES: DataImportType[] = ['people', 'conversations', 'messages'];
 const MAX_ROWS = 100_000;
@@ -74,6 +75,7 @@ export async function runDataImport(req: AuthenticatedRequest, res: Response) {
     const repo = RepositoryFactory.getWorkspaceRepository();
     const ws = await repo.findById(wsIdOf(req));
     if (ws) await repo.update(ws.id, { dataImports: [record, ...(ws.dataImports || [])].slice(0, 50) });
+    await logAudit(req, 'data.imported', `Imported ${record.rows} ${up.type} rows from ${record.fileName}`, { details: { created: record.created, updated: record.updated, skipped: record.skipped } });
     return res.json({ ...result, record });
   } catch (e: any) {
     console.error('[Import] failed:', e);
@@ -98,6 +100,7 @@ export async function downloadExport(req: AuthenticatedRequest, res: Response) {
     return new Date(`${v}T${end ? '23:59:59.999' : '00:00:00.000'}Z`).toISOString();
   };
   const { csv, rows } = await buildExport(type, day(req.query.from), day(req.query.to, true));
+  await logAudit(req, 'data.exported', `Exported ${rows} ${type} rows`, { details: { type, from: req.query.from || null, to: req.query.to || null } });
   const stamp = new Date().toISOString().slice(0, 10);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${type}-${stamp}.csv"`);

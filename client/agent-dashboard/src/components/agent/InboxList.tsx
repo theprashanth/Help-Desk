@@ -45,6 +45,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   const setConversations = useStore((state) => state.setConversations);
   const activeConversationId = useStore((state) => state.activeConversationId);
   const setActiveConversationId = useStore((state) => state.setActiveConversationId);
+  const isLight = useStore((state) => state.agent?.role === 'light');
   const token = useStore((state) => state.token);
   const agent = useStore((state) => state.agent);
   const presence = useStore((state) => state.presence);
@@ -809,7 +810,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); toggleSelect(c.id, rowIndex, e.shiftKey); }}
-                    className={`absolute inset-0 flex items-center justify-center ${selectionMode || isSelected ? '' : 'opacity-0 group-hover/card:opacity-100 focus:opacity-100'}`}
+                    className={`absolute inset-0 flex items-center justify-center ${isLight ? 'hidden' : ''} ${selectionMode || isSelected ? '' : 'opacity-0 group-hover/card:opacity-100 focus:opacity-100'}`}
                     title={isSelected ? 'Deselect' : 'Select (Shift-click to select a range)'}
                     aria-pressed={isSelected}
                   >
@@ -831,7 +832,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       <PresenceDots viewers={othersIn(presence[c.id], agent?.id)} />
                       {/* Icons Action container */}
                       <div className="flex items-center gap-1 shrink-0 z-30">
-                        {c.status !== 'closed' && (
+                        {c.status !== 'closed' && !isLight && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setClosingConv({ id: c.id, status: c.status, ticketNumber: c.ticketNumber }); }}
                             title="Close conversation"
@@ -846,7 +847,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                             openRowMenu(c.id, e.currentTarget);
                           }}
                           title="More actions"
-                          className={`w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 focus:opacity-100 ${
+                          className={`${isLight ? 'hidden' : ''} w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 focus:opacity-100 ${
                             openMenuConvId === c.id ? 'opacity-100 bg-ink/[0.08]' : 'opacity-0 group-hover/card:opacity-100'
                           }`}
                         >
