@@ -8,12 +8,13 @@ import {
   Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
 } from 'lucide-react';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
+import CloseDialog from './CloseDialog';
 import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { Conversation } from '../../../../../shared/src/types';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snooze';
 import { STATE_FILTERS, StateFilter, statusesFor, viewParams, matchesState } from '../../lib/inboxViews';
-import { PRIORITY_OPTIONS, PriorityIcon } from '../../lib/priority';
+import { PRIORITY_OPTIONS, PriorityIcon, priorityLabel } from '../../lib/priority';
 import { Agent } from '../../../../../shared/src/types';
 
 type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until';
@@ -114,7 +115,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   };
   const handleSetPriority = (convId: string, priority: string) => putTicket(`${BACKEND_URL}/api/tickets/${convId}`, { priority });
   const handleAssignTo = (convId: string, agentId: string | null) => putTicket(`${BACKEND_URL}/api/tickets/${convId}/assign`, { agentId });
-  const handleCloseConversation = (convId: string) => putTicket(`${BACKEND_URL}/api/tickets/${convId}`, { status: 'closed' });
+  const setConversationStatus = (convId: string, status: string) => putTicket(`${BACKEND_URL}/api/tickets/${convId}`, { status });
+  // Row close icon: ask Resolved vs close without resolving
+  const [closingConv, setClosingConv] = useState<{ id: string; status: string; ticketNumber: string } | null>(null);
 
   // Which view/state/filters the current list was loaded for. Auto-selecting the first
   // conversation waits until the list matches what's on screen, so a deep link (or a just-created
@@ -162,9 +165,8 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
 
   // Apply the Open/Snoozed/All view and the chosen sort order
   const visibleConversations = useMemo(() => {
-    const byView = conversations.filter((c: Conversation) => {
-      return matchesState(c, stateView, now);
-    });
+    // The open conversation stays in the list after you close/resolve/snooze it, until you open another
+    const byView = conversations.filter((c: Conversation) => c.id === activeConversationId || matchesState(c, stateView, now));
     const time = (iso?: string | null) => (iso ? new Date(iso).getTime() : 0);
     const keyOf = (c: Conversation): number => {
       switch (sortBy) {
@@ -179,7 +181,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       if (diff !== 0) return sortDesc ? diff : -diff;
       return time(b.updatedAt) - time(a.updatedAt); // stable tie-break: most recent first
     });
-  }, [conversations, stateView, sortBy, sortDesc, now]);
+  }, [conversations, stateView, sortBy, sortDesc, now, activeConversationId]);
 
   // Auto-select the first conversation if none is selected, or if the selected one is not in the visible list
   useEffect(() => {
@@ -465,6 +467,14 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
 
   return (
     <div className="ic-panel-side w-[340px] 2xl:w-[380px] h-full shrink-0 flex flex-col relative">
+      {closingConv && (
+        <CloseDialog
+          currentStatus={closingConv.status}
+          ticketLabel={closingConv.ticketNumber}
+          onClose={() => setClosingConv(null)}
+          onPick={status => { const c = closingConv; setClosingConv(null); setConversationStatus(c.id, status); }}
+        />
+      )}
       
       {/* Click outside overlay to close card menus and popovers */}
       {(openMenuConvId || openPopover) && (
@@ -796,15 +806,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       </span>
                       {/* Icons Action container */}
                       <div className="flex items-center gap-1 shrink-0 z-30">
-                        {c.starred && (
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" />
-                        )}
-                        {(c.priority === 'critical' || c.priority === 'high') && (
-                          <span title={c.priority === 'critical' ? 'Urgent' : 'High priority'}><PriorityIcon priority={c.priority} className="w-3.5 h-3.5" /></span>
-                        )}
                         {c.status !== 'closed' && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleCloseConversation(c.id); }}
+                            onClick={(e) => { e.stopPropagation(); setClosingConv({ id: c.id, status: c.status, ticketNumber: c.ticketNumber }); }}
                             title="Close conversation"
                             className="w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 opacity-0 group-hover/card:opacity-100 focus:opacity-100"
                           >
@@ -823,6 +827,11 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                         >
                           <MoreHorizontal className="w-[18px] h-[18px]" strokeWidth={3} />
                         </button>
+                        {/* Status icons sit next to the time, to the right of the hover actions */}
+                        {c.starred && (
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Starred" />
+                        )}
+                        <span title={priorityLabel(c.priority)} className="inline-flex"><PriorityIcon priority={c.priority} className="w-3.5 h-3.5" /></span>
                         <span className="text-[13px] text-faint tabular-nums">
                           {formatTime(c.updatedAt || c.createdAt)}
                         </span>

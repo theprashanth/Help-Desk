@@ -10,7 +10,8 @@ export const AGENTS_ROOM = 'agents';
 export const customerRoom = (customerId: string) => `customer:${customerId}`;
 
 /** Internal notes and conversation events must never reach customer sockets. */
-const isAgentOnly = (m: Message) => !!m.isInternalNote || m.sender?.type === 'system';
+// Customer-facing state lines ("Ticket resolved") are system messages the customer may see
+const isAgentOnly = (m: Message) => !!m.isInternalNote || (m.sender?.type === 'system' && m.metadata?.type !== 'customer_event');
 
 export class SocketService {
   private static io: Server | null = null;

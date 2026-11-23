@@ -1,3 +1,4 @@
+import { appIdOf } from '../services/appId';
 import { liveChatFlow } from '../services/chatFlow';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
@@ -39,9 +40,10 @@ function workspaceSettingsResponse(ws: Workspace) {
     timezone: ws.timezone || ws.officeHours?.timezone || null,
     showAttribution: ws.showAttribution !== false,
     attributionText: ws.attributionText || '',
+    showStateToCustomer: ws.showStateToCustomer !== false,
     snoozeOptions: Array.isArray(ws.snoozeOptions) ? ws.snoozeOptions : [],
     replyTimeNotice: ws.replyTimeNotice !== false,
-    appId: ws.id,
+    appId: appIdOf(ws),
   };
 }
 
@@ -94,7 +96,7 @@ export async function getPublicWorkspace(req: AuthenticatedRequest, res: Respons
     try {
       const agents = await RepositoryFactory.getUserRepository().findAll();
       onlineAgents = agents
-        .filter(a => SocketService.onlineAgents.has(a.id))
+        .filter(a => SocketService.onlineAgents.has(a.id) && !a.away)
         .slice(0, 3)
         .map(a => ({ id: a.id, name: a.name, ...(a.avatar ? { avatar: a.avatar } : {}) }));
     } catch {
@@ -186,6 +188,10 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
   if (body.showAttribution !== undefined) {
     if (typeof body.showAttribution !== 'boolean') return res.status(400).json({ error: 'showAttribution must be true or false' });
     updates.showAttribution = body.showAttribution;
+  }
+  if (body.showStateToCustomer !== undefined) {
+    if (typeof body.showStateToCustomer !== 'boolean') return res.status(400).json({ error: 'showStateToCustomer must be true or false' });
+    updates.showStateToCustomer = body.showStateToCustomer;
   }
   if (body.attributionText !== undefined) {
     if (typeof body.attributionText !== 'string' || body.attributionText.length > 60) {

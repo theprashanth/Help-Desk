@@ -7,7 +7,7 @@ import {
   MessageSquare, Puzzle, Globe, ChevronRight,
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import ProfileSettings from '../../components/settings/ProfileSettings';
@@ -16,14 +16,16 @@ import GeneralSettings from '../../components/settings/GeneralSettings';
 import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
 import MessengerSettings, { MessengerTab } from '../../components/settings/MessengerSettings';
 import ChatFlowSettings from '../../components/settings/ChatFlowSettings';
+import AiSettings from '../../components/settings/AiSettings';
+import DataSettings from '../../components/settings/DataSettings';
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -95,7 +97,12 @@ export const Settings: React.FC = () => {
   const [showWhenDropdown, setShowWhenDropdown] = useState(false);
   const token = useStore((state) => state.token);
 
-  const [section, setSection] = useState<Section>('home');
+  const [section, setSection] = useState<Section>(() => {
+    // Another screen can ask Settings to open a section (e.g. the profile menu's Workspace row)
+    const wanted = sessionStorage.getItem('settings_open_section') as Section | null;
+    sessionStorage.removeItem('settings_open_section');
+    return wanted || 'home';
+  });
   const [messengerTab, setMessengerTab] = useState<MessengerTab>('overview');
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null);
   const [loading, setLoading] = useState(false);
@@ -799,7 +806,7 @@ export const Settings: React.FC = () => {
 
   // Purely visual: which sidebar groups are expanded
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    workspace: true, channels: true, inbox: true, personal: true,
+    workspace: true, channels: true, inbox: true, data: true, personal: true,
   });
   const toggleGroup = (key: string) => setOpenGroups(g => ({ ...g, [key]: !g[key] }));
 
@@ -814,6 +821,8 @@ export const Settings: React.FC = () => {
     messenger: 'Messenger Live Chat',
     chatFlow: 'Chat flow',
     integrations: 'Integrations',
+    ai: 'AI assistant',
+    data: 'Imports & exports',
     macros: 'Macros',
   };
 
@@ -833,6 +842,7 @@ export const Settings: React.FC = () => {
               <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
               <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
+              <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
               <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => setSection('home')} />
             </SettingsNavGroup>
@@ -846,6 +856,10 @@ export const Settings: React.FC = () => {
 
             <SettingsNavGroup label="Inbox" open={openGroups.inbox} onToggle={() => toggleGroup('inbox')}>
               <SettingsNavItem icon={Zap} label="Macros" active={section === 'macros'} onClick={() => setSection('macros')} badge={macros.length > 0 ? String(macros.length) : undefined} />
+            </SettingsNavGroup>
+
+            <SettingsNavGroup label="Data" open={openGroups.data} onToggle={() => toggleGroup('data')}>
+              <SettingsNavItem icon={ArrowUpDown} label="Imports & exports" active={section === 'data'} onClick={() => setSection('data')} />
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Personal" open={openGroups.personal} onToggle={() => toggleGroup('personal')}>
@@ -862,6 +876,8 @@ export const Settings: React.FC = () => {
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
         {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
+        {section === 'ai' && <AiSettings onBack={() => setSection('home')} />}
+        {section === 'data' && <DataSettings onBack={() => setSection('home')} />}
         {section === 'messenger' && <MessengerSettings onBack={() => setSection('home')} tab={messengerTab} onTabChange={setMessengerTab} />}
         {section === 'chatFlow' && <ChatFlowSettings onBack={() => setSection('home')} />}
         {section === 'profile' && <ProfileSettings onBack={() => setSection('home')} onOpenNotifications={() => setSection('notifications')} />}

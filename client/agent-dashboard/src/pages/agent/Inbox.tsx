@@ -10,13 +10,14 @@ import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
 import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
+import ProfileMenu, { ThemePref } from '../../components/agent/ProfileMenu';
 import { SearchPanel } from '../../components/agent/SearchPanel';
 import { isBotView, isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
 import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, LogOut, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 
@@ -142,27 +143,35 @@ export const Inbox: React.FC = () => {
     }
   }, [token, agent, navigate]);
 
-  // Dark Mode toggle
+  // Theme: System (follows the OS), Light or Dark — saved per browser
+  const [themePref, setThemePref] = useState<ThemePref>(() => {
+    const saved = localStorage.getItem('theme');
+    return saved === 'dark' || saved === 'light' ? saved : 'system';
+  });
   useEffect(() => {
-    const isDark = localStorage.getItem('theme') === 'dark';
-    setDarkMode(isDark);
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, []);
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      const isDark = themePref === 'dark' || (themePref === 'system' && media.matches);
+      setDarkMode(isDark);
+      document.documentElement.classList.toggle('dark', isDark);
+    };
+    apply();
+    localStorage.setItem('theme', themePref);
+    if (themePref !== 'system') return;
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, [themePref]);
 
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    localStorage.setItem('theme', next ? 'dark' : 'light');
-    if (next) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  };
+  // The rail's moon/sun button flips to the opposite of what's showing
+  const toggleDarkMode = () => setThemePref(darkMode ? 'light' : 'dark');
+
+  // Other screens can open Settings (e.g. Ask AI's "Set up in Settings")
+  useEffect(() => {
+    const open = () => setActiveTab('settings');
+    window.addEventListener('open-settings', open);
+    return () => window.removeEventListener('open-settings', open);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -217,7 +226,7 @@ export const Inbox: React.FC = () => {
   const [railHover, setRailHover] = useState(false);
   const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const railHoverIn = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(true), 120); };
-  const railHoverOut = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => { setRailHover(false); setProfileMenuOpen(false); }, 180); };
+  const railHoverOut = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(false), 180); };
   useEffect(() => () => { if (railTimer.current) clearTimeout(railTimer.current); }, []);
   const toggleRailPinned = () => {
     const next = !railPinned;
@@ -225,7 +234,9 @@ export const Inbox: React.FC = () => {
     if (!next) setRailHover(false);
     try { localStorage.setItem('nav_rail_pinned', next ? '1' : '0'); } catch { /* private mode */ }
   };
-  const railExpanded = railPinned || railHover;
+  // Stays open while the profile menu is showing (the menu sits outside the rail)
+  const railExpanded = railPinned || railHover || profileMenuOpen;
+  const profileButtonRef = useRef<HTMLButtonElement>(null);
 
   // One row of the far-left menu; the icon stays in the same place whether collapsed or expanded
   const railItem = (o: {
@@ -326,44 +337,29 @@ export const Inbox: React.FC = () => {
           {/* Profile + sign out */}
           <div className="relative mt-1 shrink-0">
             <button
+              ref={profileButtonRef}
               onClick={() => setProfileMenuOpen(o => !o)}
               className={`relative h-9 flex items-center gap-3 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-9 justify-center'}`}
               title={agent.name}
             >
               <span className="relative w-9 h-9 shrink-0 flex items-center justify-center">
                 <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
-                <span className="absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-canvas" />
+                <span className={`absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${agent.away ? 'bg-amber-400' : 'bg-emerald-500'}`} title={agent.away ? 'Away' : 'Online'} />
               </span>
               {railExpanded && <span className="truncate text-[14px] font-medium text-ink">{agent.name}</span>}
             </button>
 
             {profileMenuOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
-                <div className={`ic-menu absolute bottom-0 w-60 animate-fade-in ${railExpanded ? 'left-full ml-3' : 'left-11'}`}>
-                  <div className="flex items-center gap-3 px-3.5 py-2.5 border-b border-line mb-1">
-                    <AgentAvatar agent={agent} className="w-8 h-8 text-[12px]" />
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-[14px] font-semibold text-ink truncate">{agent.name}</span>
-                      <span className="text-[12px] text-muted truncate capitalize">{agent.role.replace('_', ' ')}</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => { setProfileMenuOpen(false); toggleDarkMode(); }}
-                    className="ic-menu-item"
-                  >
-                    {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                    {darkMode ? 'Light mode' : 'Dark mode'}
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="ic-menu-item text-red-600"
-                    title="Sign Out"
-                  >
-                    <LogOut className="w-4 h-4" /> Sign Out
-                  </button>
-                </div>
-              </>
+              <ProfileMenu
+                agent={agent}
+                avatar={<AgentAvatar agent={agent} className="w-10 h-10 text-[14px]" />}
+                anchor={profileButtonRef.current}
+                themePref={themePref}
+                onThemeChange={setThemePref}
+                onOpenSettings={(section) => { sessionStorage.setItem('settings_open_section', section); setActiveTab('settings'); }}
+                onLogout={handleLogout}
+                onClose={() => setProfileMenuOpen(false)}
+              />
             )}
           </div>
         </nav>

@@ -1,3 +1,4 @@
+import { appIdOf } from '../services/appId';
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
@@ -15,7 +16,7 @@ const requireAdmin = (req: AuthenticatedRequest, res: Response) => {
 
 function settingsResponse(ws: Workspace) {
   return {
-    appId: ws.id,
+    appId: appIdOf(ws),
     appearance: appearanceOf(ws),
     identityVerification: { enforced: !!ws.identityEnforced, secretConfigured: !!ws.identitySecret },
     allowedDomains: ws.allowedDomains || [],

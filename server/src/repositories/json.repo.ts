@@ -13,6 +13,7 @@ import {
 
 import { getActiveWorkspaceId } from '../context/tenant.context';
 import { nextTicketNumber, migrateLegacyText, hasLegacyTicketText } from '../services/ticketNumbers';
+import { generateAppId } from '../services/appId';
 
 const DATA_DIR = path.resolve(process.cwd(), '.data');
 
@@ -424,6 +425,7 @@ export class JsonConversationRepository implements IConversationRepository {
         sharing: raw.sharing || 'shared',
         bot: raw.bot || undefined,
         mergedInto: raw.mergedInto || undefined,
+        importedFrom: raw.importedFrom || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
@@ -524,6 +526,13 @@ export class JsonMessageRepository implements IMessageRepository {
     // Sort ascending by creation time
     const sorted = filtered.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
     return sorted.slice(skip, skip + limit);
+  }
+
+  async findAll(): Promise<Message[]> {
+    const workspaceId = getActiveWorkspaceId();
+    return (await readJson<Message[]>(this.file, []))
+      .filter(m => m.workspaceId === workspaceId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   }
 
   async create(msg: Omit<Message, 'id' | 'createdAt'>): Promise<Message> {
@@ -798,6 +807,15 @@ export class JsonWorkspaceRepository implements IWorkspaceRepository {
     return list.find(w => w.apiKey === apiKey) || null;
   }
 
+  async findByAppId(appId: string): Promise<Workspace | null> {
+    const list = await readJson<Workspace[]>(this.file, []);
+    return list.find(w => w.appId === appId) || null;
+  }
+
+  async findAll(): Promise<Workspace[]> {
+    return readJson<Workspace[]>(this.file, []);
+  }
+
   async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
     return transaction(async () => {
       const list = await readJson<Workspace[]>(this.file, []);
@@ -806,6 +824,7 @@ export class JsonWorkspaceRepository implements IWorkspaceRepository {
       const newWorkspace: Workspace = {
         ...workspace,
         id,
+        appId: workspace.appId || generateAppId(),
         createdAt: now
       };
       list.push(newWorkspace);
@@ -824,4 +843,56 @@ export class JsonWorkspaceRepository implements IWorkspaceRepository {
       return list[idx];
     });
   }
+}
+
+/**
+ * Bulk import (Settings › Data › Imports): upsert customers, add conversations and messages in one
+ * transaction, writing each file once. Records keep their own createdAt/updatedAt.
+ * Conversations get the next free ticket numbers in the order given.
+ */
+export async function bulkImportJson(plan: {
+  customers: any[];                                   // full customer records (upsert by id)
+  conversations: any[];                               // raw conversation records without ticketNumber
+  messages: any[];                                    // raw messages
+  conversationPatches: Record<string, Record<string, any>>; // existing conversation id -> fields to set
+}): Promise<Record<string, string>> {
+  return transaction(async () => {
+    const workspaceId = getActiveWorkspaceId();
+    const numbers: Record<string, string> = {};
+
+    if (plan.customers.length) {
+      const customers = await readJson<any[]>('customers.json', []);
+      const index = new Map(customers.map((c, i) => [`${c.workspaceId}|${c.id}`, i]));
+      for (const c of plan.customers) {
+        const rec = { ...c, workspaceId };
+        const i = index.get(`${workspaceId}|${c.id}`);
+        if (i === undefined) { index.set(`${workspaceId}|${c.id}`, customers.length); customers.push(rec); }
+        else customers[i] = { ...customers[i], ...rec };
+      }
+      await writeJson('customers.json', customers);
+    }
+
+    if (plan.conversations.length || Object.keys(plan.conversationPatches).length) {
+      const conversations = await readJson<any[]>('conversations.json', []);
+      const existing = conversations.map(c => c.ticketNumber);
+      for (const c of plan.conversations) {
+        const ticketNumber = nextTicketNumber(existing);
+        existing.push(ticketNumber);
+        numbers[c.id] = ticketNumber;
+        conversations.push({ ...c, workspaceId, ticketNumber });
+      }
+      for (const [id, patch] of Object.entries(plan.conversationPatches)) {
+        const i = conversations.findIndex(c => c.id === id && c.workspaceId === workspaceId);
+        if (i !== -1) conversations[i] = { ...conversations[i], ...patch };
+      }
+      await writeJson('conversations.json', conversations);
+    }
+
+    if (plan.messages.length) {
+      const messages = await readJson<any[]>('messages.json', []);
+      for (const m of plan.messages) messages.push({ ...m, workspaceId });
+      await writeJson('messages.json', messages);
+    }
+    return numbers;
+  });
 }

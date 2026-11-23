@@ -1,11 +1,13 @@
 import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction } from '../controllers/chatFlow';
-import { Router } from 'express';
+import { Router, text as textBody } from 'express';
 import { authenticateJWT, optionalJWT } from '../middleware/auth';
 import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
-  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar
+  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus
 } from '../controllers/auth';
+import { getAiSettings, saveAiSettings, testAiSettings, askAi } from '../controllers/ai';
+import { previewImport, runDataImport, listImports, downloadExport } from '../controllers/data';
 import { 
   getTickets, getTicket, createTicket, updateTicket, assignTicket, 
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
@@ -44,6 +46,18 @@ router.get('/', (req, res) => {
 router.post('/auth/login', login);
 router.get('/auth/profile', authenticateJWT, getProfile);
 router.put('/auth/profile', authenticateJWT, updateProfile);
+router.put('/auth/profile/status', authenticateJWT, updateStatus);   // { away }
+// Settings › AI assistant + the Ask AI panel
+router.get('/ai/settings', authenticateJWT, getAiSettings);
+router.put('/ai/settings', authenticateJWT, saveAiSettings);
+router.post('/ai/test', authenticateJWT, testAiSettings);
+router.post('/ai/ask', authenticateJWT, askAi);
+// Settings › Data › Imports & exports (CSV uploads are sent as text/csv)
+const csvUpload = textBody({ type: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], limit: '25mb' });
+router.post('/data/imports/preview', authenticateJWT, csvUpload, previewImport);
+router.post('/data/imports', authenticateJWT, csvUpload, runDataImport);
+router.get('/data/imports', authenticateJWT, listImports);
+router.get('/data/exports/:type', authenticateJWT, downloadExport);
 router.post('/auth/profile/avatar', authenticateJWT, uploadAvatar);   // multipart field "avatar", images ≤ 2 MB
 router.delete('/auth/profile/avatar', authenticateJWT, deleteAvatar);
 router.get('/auth/settings', authenticateJWT, getSettings);

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Agent, Conversation, Message, Tag, SavedReply, SnoozePreset } from '../../../../shared/src/types';
 import { Socket } from 'socket.io-client';
-import { matchesView, statusesFor, StateFilter } from '../lib/inboxViews';
+import { matchesView, matchesState, statusesFor, StateFilter } from '../lib/inboxViews';
 
 /** What the create screen is making; customer is prefilled from "New conversation". */
 export type ComposerState = {
@@ -24,6 +24,9 @@ interface AppState {
   conversations: Conversation[];
   activeConversationId: string | null;
   viewingMergedConversationId: string | null;
+  /** Text to put in a conversation's reply box (Ask AI → "Insert in reply") */
+  replyDraft: { conversationId: string; text: string } | null;
+  setReplyDraft: (draft: { conversationId: string; text: string } | null) => void;
   currentQueue: string;
   setConversations: (conversations: Conversation[]) => void;
   addConversation: (conversation: Conversation) => void;
@@ -119,6 +122,8 @@ export const useStore = create<AppState>((set) => ({
   conversations: [],
   activeConversationId: null,
   viewingMergedConversationId: null,
+  replyDraft: null,
+  setReplyDraft: (replyDraft) => set({ replyDraft }),
   currentQueue: 'yours',
   stateFilter: 'open',
   composer: null,
@@ -126,7 +131,7 @@ export const useStore = create<AppState>((set) => ({
   inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
   focusMessageId: null,
   snoozePresets: [],
-  workspaceName: 'Chai Samosa',
+  workspaceName: (() => { try { return localStorage.getItem('workspace_name') || 'Chai Samosa'; } catch { return 'Chai Samosa'; } })(),
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
@@ -164,10 +169,17 @@ export const useStore = create<AppState>((set) => ({
         return state;
       }
 
-      if (!matchesQueue) {
+      // The conversation you're looking at stays put (e.g. right after you close it) until you open
+      // another one; only then does it leave a view it no longer belongs to (Intercom behaviour).
+      if (!matchesQueue && conversation.id !== state.activeConversationId) {
         return {
           conversations: state.conversations.filter((c) => c.id !== conversation.id)
         };
+      }
+      if (!matchesQueue) {
+        const kept = [...state.conversations];
+        kept[index] = { ...kept[index], ...conversation };
+        return { conversations: kept };
       }
 
       const updated = [...state.conversations];
@@ -180,7 +192,20 @@ export const useStore = create<AppState>((set) => ({
     set((state) => ({
       conversations: state.conversations.filter((c) => c.id !== id)
     })),
-  setActiveConversationId: (id) => set({ activeConversationId: id, viewingMergedConversationId: null }), // Clear merged view when changing active chat
+  // Clear the merged view when changing chats, and let the chat you're leaving drop out of a view it no
+  // longer belongs to (it was kept in place while it was open)
+  setActiveConversationId: (id) => set((state) => {
+    const prevId = state.activeConversationId;
+    const prev = prevId && prevId !== id ? state.conversations.find(c => c.id === prevId) : undefined;
+    const stale = !!prev && state.currentQueue !== 'search' && (
+      !matchesView(prev, state.currentQueue, state.agent?.id) || !matchesState(prev, state.stateFilter)
+    );
+    return {
+      activeConversationId: id,
+      viewingMergedConversationId: null,
+      ...(stale ? { conversations: state.conversations.filter(c => c.id !== prevId) } : {}),
+    };
+  }),
   setViewingMergedConversationId: (id) => set({ viewingMergedConversationId: id }),
   setCurrentQueue: (queue) => set({ currentQueue: queue }),
   setStateFilter: (stateFilter) => set({ stateFilter }),
@@ -191,6 +216,8 @@ export const useStore = create<AppState>((set) => ({
   setSnoozePresets: (snoozePresets) => set({ snoozePresets }),
   setWorkspaceName: (workspaceName) => {
     set({ workspaceName });
+    // Remembered so the browser tab shows it immediately on the next load (see index.html)
+    try { localStorage.setItem('workspace_name', workspaceName); } catch { /* storage blocked */ }
     if (typeof document !== 'undefined' && !document.title.startsWith('(')) document.title = workspaceName;
   },
 

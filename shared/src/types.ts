@@ -20,6 +20,7 @@ export type ReplyTime = 'asap' | 'minutes' | 'hours' | 'day';
 
 export interface Workspace {
   id: string;
+  appId?: string;                  // public Messenger App ID, e.g. "x7k2m9pq" (install code, X-Workspace-Id)
   name: string;
   subdomain?: string;
   apiKey: string;
@@ -31,6 +32,7 @@ export interface Workspace {
   timezone?: string;               // IANA; office hours use this zone
   showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
   attributionText?: string;        // custom attribution text (default "Powered by Chai Samosa")
+  showStateToCustomer?: boolean;   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
   snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
   // Settings > Office hours
   replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
@@ -46,6 +48,35 @@ export interface Workspace {
   allowedDomains?: string[];        // empty = the Messenger may load on any site
   installations?: MessengerInstallation[];
   chatFlow?: ChatFlowSettings;
+  ai?: AiSettings;                 // Settings › AI assistant (the API key never leaves the server)
+  dataImports?: DataImportRecord[]; // Settings › Data › Imports & exports (newest first, last 50)
+}
+
+export type DataImportType = 'people' | 'conversations' | 'messages';
+export interface DataImportRecord {
+  id: string;
+  type: DataImportType;
+  fileName: string;
+  at: string;
+  byName?: string;
+  rows: number;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+}
+
+/** Settings › AI assistant: the model teammates use in the "Ask AI" panel. */
+export type AiProvider = 'anthropic' | 'openai' | 'openai_compatible';
+export interface AiSettings {
+  enabled: boolean;
+  provider: AiProvider;
+  model: string;
+  baseUrl?: string;        // openai_compatible only, e.g. https://generativelanguage.googleapis.com/v1beta/openai
+  apiKey?: string;         // stored server-side only
+  instructions?: string;   // extra guidance added to every request (tone, policies, product facts)
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 /** How the Messenger looks for customers (saved on the server, applied everywhere it's installed). */
@@ -108,6 +139,7 @@ export interface Agent {
   avatar?: string;
   role: UserRole;
   status: 'online' | 'offline';
+  away?: boolean;        // Away mode: not shown as online to customers, skipped by auto-assignment
   lastSeen?: string;
   createdAt?: string;
   // Public profile (Settings > Personal > Details)
@@ -205,6 +237,7 @@ export interface Conversation {
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
+  importedFrom?: { source: 'csv'; id: string; url?: string };  // Settings › Data › Imports (e.g. the Intercom conversation id)
   createdAt: string;
   updatedAt: string;
 }

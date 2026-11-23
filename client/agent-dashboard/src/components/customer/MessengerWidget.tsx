@@ -1,8 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
-import { MessageSquare, X, Send, Paperclip, Smile, ArrowLeft, Check, CheckCheck, ChevronRight } from 'lucide-react';
+import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight } from 'lucide-react';
+import TimeHover from '../ui/TimeHover';
 import { shortAgo } from '../../lib/timeAgo';
+
+/** What the customer sees: no internal notes or team events, but customer-facing state lines ("Ticket resolved"). */
+const customerVisible = (m: Message) => !m.isInternalNote && (m.sender?.type !== 'system' || m.metadata?.type === 'customer_event');
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
 import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
@@ -181,6 +185,17 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  // Composer grows with the text (up to ~6 lines), like Intercom's
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [inputText]);
+  // Re-render every minute so "5m" / "1h" message times stay current
+  const [, setClock] = useState(0);
+  useEffect(() => { const t = setInterval(() => setClock(n => n + 1), 60_000); return () => clearInterval(t); }, []);
   const typingTimeoutRef = useRef<any>(null);
 
   /** Preview text a customer may see: the last public message, never an internal note */
@@ -576,7 +591,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         const res = await api(`/api/messages/${activeConv.id}`);
         if (res.ok) {
           const data: Message[] = await res.json();
-          setChatMessages(data.filter(m => !m.isInternalNote && m.sender?.type !== 'system'));
+          setChatMessages(data.filter(customerVisible));
         }
       } catch (err) {
         console.error('Failed to fetch messages:', err);
@@ -587,7 +602,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
     const handleNewMessage = (msg: Message) => {
       // Never show teammates' internal notes or conversation events to the customer
-      if (msg.isInternalNote || msg.sender?.type === 'system') return;
+      if (msg.isInternalNote || (msg.sender?.type === 'system' && msg.metadata?.type !== 'customer_event')) return;
       if (msg.conversationId === activeConv.id) {
         setChatMessages(prev => {
           if (prev.some(m => m.id === msg.id)) return prev;
@@ -742,7 +757,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       const msgRes = await api(`/api/messages/${activeConv.id}`);
       if (msgRes.ok) {
         const list: Message[] = await msgRes.json();
-        setChatMessages(list.filter(m => !m.isInternalNote && m.sender?.type !== 'system'));
+        setChatMessages(list.filter(customerVisible));
       }
     } catch {
       setFlowError('Couldn’t connect — please try again');
@@ -852,7 +867,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     }
   };
 
-  const handleTextChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputText(e.target.value);
     if (!isTyping) {
       setIsTyping(true);
@@ -891,7 +906,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   };
 
   // Paste a screenshot into the message box
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const files = Array.from(e.clipboardData.files || []).filter(f => f.type.startsWith('image/'));
     if (files.length) { e.preventDefault(); stageFiles(files); }
   };
@@ -1101,17 +1116,42 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       );
                     })()}
 
-                    {chatMessages.map(m => {
+                    {chatMessages.map((m, idx) => {
+                      // Ticket state lines: in progress / waiting on you / resolved / closed (Settings › General)
+                      if (m.metadata?.type === 'customer_event') {
+                        const st = m.metadata.state as string;
+                        const tone = st === 'resolved'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+                          : st === 'waiting'
+                          ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'
+                          : st === 'open'
+                          ? 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300'
+                          : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900';
+                        return (
+                          <div key={m.id} className="self-center flex items-center gap-2 my-1 text-xs text-slate-500 dark:text-slate-400">
+                            <span className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border ${tone}`}>
+                              {st === 'resolved' ? <CheckCheck className="w-3.5 h-3.5" /> : <span className="w-1.5 h-1.5 rounded-full bg-current" />}
+                              {m.content}
+                              <TimeHover iso={m.createdAt} className="text-slate-400">· {shortAgo(m.createdAt)}</TimeHover>
+                            </span>
+                            <span className="h-px w-8 bg-slate-200 dark:bg-slate-700" />
+                          </div>
+                        );
+                      }
                       const isMe = m.sender.type === 'customer';
+                      // Messages from the same person within 5 minutes form a group; the last one gets "Name · 1h"
+                      const sameGroup = (a?: Message, b?: Message) => !!a && !!b && a.metadata?.type !== 'customer_event' && b.metadata?.type !== 'customer_event'
+                        && a.sender.type === b.sender.type && a.sender.id === b.sender.id
+                        && Math.abs(new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) < 5 * 60_000;
+                      const lastInGroup = !sameGroup(m, chatMessages[idx + 1]);
+                      const firstInGroup = !sameGroup(chatMessages[idx - 1], m);
                       return (
                         <div
                           key={m.id}
                           data-from={m.sender.type}
-                          className={`flex flex-col max-w-[75%] ${isMe ? 'self-end items-end' : 'self-start items-start'}`}
+                          className={`flex flex-col max-w-[75%] ${isMe ? 'self-end items-end' : 'self-start items-start'} ${firstInGroup ? '' : '-mt-2'}`}
                         >
-                          <span className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 px-1">
-                            {m.sender.name}
-                          </span>
 
                           <div
                             className={`p-3 rounded-2xl text-sm ${isMe ? 'rounded-tr-none' : `${recipientBubbleClass} rounded-tl-none`}`}
@@ -1146,18 +1186,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             )}
                           </div>
 
-                          {/* Receipt */}
-                          {isMe && (
-                            <span className="text-[9px] text-slate-400 mt-1 flex items-center gap-0.5">
-                              {m.seen ? (
-                                <>
-                                  <CheckCheck className="w-3.5 h-3.5" style={{ color: themeColor }} /> Seen
-                                </>
-                              ) : (
-                                <>
-                                  <Check className="w-3.5 h-3.5" /> Sent
-                                </>
-                              )}
+                          {lastInGroup && (
+                            <span className="mt-1 px-1 text-[11px] text-slate-400 dark:text-slate-500">
+                              {!isMe && <>{m.sender.name} · </>}
+                              <TimeHover iso={m.createdAt}>{shortAgo(m.createdAt) === 'Now' ? 'Just now' : shortAgo(m.createdAt)}</TimeHover>
                             </span>
                           )}
                         </div>
@@ -1198,7 +1230,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                   <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 relative">
                     {/* Emoji dropdown picker */}
                     {showEmoji && (
-                      <div className="absolute bottom-14 left-4 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl flex gap-2 z-20">
+                      <div className="absolute bottom-full mb-1 left-4 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl flex gap-2 z-20">
                         {['👍', '👋', '❤️', '😊', '💡', '🎉'].map(emoji => (
                           <button
                             key={emoji}
@@ -1236,7 +1268,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       </div>
                     )}
 
-                    <div className="flex items-center gap-1.5">
+                    <div
+                      className="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 transition-colors focus-within:border-[var(--composer-color)]"
+                      style={{ ['--composer-color' as any]: themeColor }}
+                    >
                       <input
                         type="file"
                         ref={fileInputRef}
@@ -1245,44 +1280,55 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                         multiple
                         accept="image/*,application/pdf"
                       />
-                      <button
-                        onClick={() => fileInputRef.current?.click()}
-                        disabled={uploading}
-                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        onClick={() => setShowEmoji(!showEmoji)}
-                        className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                      >
-                        <Smile className="w-4 h-4" />
-                      </button>
-
-                      <input
-                        type="text"
+                      {/* Enter sends; Shift+Enter starts a new line */}
+                      <textarea
+                        ref={composerRef}
+                        rows={1}
                         value={inputText}
                         onChange={handleTextChange}
                         onPaste={handlePaste}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSendMessage();
+                          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                            e.preventDefault();
+                            handleSendMessage();
+                          }
                         }}
-                        placeholder={isPendingNewConv ? 'Type your first message to start the chat...' : 'Write a message...'}
-                        className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none"
-                        style={{ '--tw-ring-color': themeColor } as any}
-                        onFocus={e => (e.target.style.borderColor = themeColor)}
-                        onBlur={e => (e.target.style.borderColor = '')}
+                        placeholder={isPendingNewConv ? 'Type your first message to start the chat…' : 'Message…'}
+                        aria-label="Message"
+                        className="block w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-relaxed text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none max-h-[140px] overflow-y-auto"
                       />
-
-                      <button
-                        onClick={() => handleSendMessage()}
-                        disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading}
-                        className="p-2 text-white rounded-xl active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all shadow-md"
-                        style={{ background: themeColor }}
-                      >
-                        <Send className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-0.5 px-2 pb-2">
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={uploading}
+                          title="Attach a file"
+                          className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40"
+                        >
+                          <Paperclip className="w-[18px] h-[18px]" />
+                        </button>
+                        <button
+                          onClick={() => setShowEmoji(!showEmoji)}
+                          title="Emoji"
+                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${showEmoji ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                        >
+                          <Smile className="w-[18px] h-[18px]" />
+                        </button>
+                        <span className="flex-1" />
+                        {(() => {
+                          const canSend = (!!inputText.trim() || pendingAttachments.length > 0) && !uploading;
+                          return (
+                            <button
+                              onClick={() => handleSendMessage()}
+                              disabled={!canSend}
+                              title="Send (Enter)"
+                              className="w-8 h-8 rounded-full flex items-center justify-center transition-all active:scale-95 disabled:pointer-events-none"
+                              style={canSend ? { background: themeColor, color: '#fff' } : { background: 'rgb(226 232 240)', color: 'rgb(148 163 184)' }}
+                            >
+                              <ArrowUp className="w-4 h-4" strokeWidth={2.5} />
+                            </button>
+                          );
+                        })()}
+                      </div>
                     </div>
                   </div>
                   )}

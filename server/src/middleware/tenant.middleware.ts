@@ -15,7 +15,13 @@ export async function resolveTenant(req: AuthenticatedRequest, res: Response, ne
     const headerWorkspaceId = req.headers['x-workspace-id'] as string;
 
     if (headerWorkspaceId) {
-      workspaceId = headerWorkspaceId;
+      // The Messenger sends its App ID; older install codes sent the internal workspace id
+      try {
+        const byAppId = await RepositoryFactory.getWorkspaceRepository().findByAppId(headerWorkspaceId);
+        workspaceId = byAppId ? byAppId.id : headerWorkspaceId;
+      } catch {
+        workspaceId = headerWorkspaceId;
+      }
     } else if (apiKey) {
       try {
         const workspaceRepo = RepositoryFactory.getWorkspaceRepository();
