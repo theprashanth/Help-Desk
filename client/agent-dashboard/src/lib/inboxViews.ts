@@ -20,9 +20,12 @@ export const STATE_FILTERS: { key: StateFilter; label: string }[] = [
 ];
 
 export const isInboxView = (id: string) =>
-  ['yours', 'created', 'all', 'unassigned', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:');
+  ['yours', 'created', 'all', 'unassigned', 'mentions', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:');
 
 export const isBotView = (id: string) => id === 'bot' || id.startsWith('bot:');
+
+/** Conversations with a note mentioning you (kept fresh from /api/inbox/counts and live mentions). */
+export const mentionedConversationIds = new Set<string>();
 
 /** Statuses to request from the server for a state filter (snooze is applied client-side). */
 export function statusesFor(state: StateFilter): string[] {
@@ -44,6 +47,7 @@ export function viewParams(view: string, myId?: string): string {
   if (view === 'unassigned') return 'assignedAgentId=unassigned';
   if (view.startsWith('agent:')) return `assignedAgentId=${encodeURIComponent(view.slice(6))}`;
   if (view.startsWith('kind:')) return `kind=${encodeURIComponent(view.slice(5))}`;
+  if (view === 'mentions') return 'mentions=me';
   if (view === 'bot') return 'bot=handled';
   if (view === 'bot:active') return 'bot=active';
   if (view === 'bot:resolved') return 'bot=resolved';
@@ -57,6 +61,7 @@ export function matchesView(c: Conversation, view: string, myId?: string): boole
   if (view === 'unassigned') return !c.assignedAgentId;
   if (view.startsWith('agent:')) return c.assignedAgentId === view.slice(6);
   if (view.startsWith('kind:')) return (c.kind || 'conversation') === view.slice(5);
+  if (view === 'mentions') return mentionedConversationIds.has(c.id);
   if (view === 'bot') return !!c.bot && c.bot.state !== 'handoff';
   if (view === 'bot:active') return c.bot?.state === 'menu' || c.bot?.state === 'confirm';
   if (view === 'bot:resolved') return c.bot?.state === 'done';

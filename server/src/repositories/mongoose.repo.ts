@@ -66,6 +66,8 @@ const mapWorkspace = (doc: any): Workspace => ({
   installations: doc.installations,
   chatFlow: doc.chatFlow,
   showStateToCustomer: doc.showStateToCustomer,
+  csatEnabled: doc.csatEnabled,
+  sla: doc.sla || undefined,
   ai: doc.ai || undefined,
   dataImports: doc.dataImports || undefined,
 });
@@ -126,6 +128,7 @@ const mapAgent = (doc: any): Agent => ({
   location: doc.location,
   timezone: doc.timezone,
   away: doc.away || undefined,
+  mentionsSeenAt: doc.mentionsSeenAt || undefined,
 });
 
 const mapCustomer = (doc: any): Customer => ({
@@ -348,6 +351,9 @@ export class MongooseConversationRepository implements IConversationRepository {
       bot: doc.bot || undefined,
       mergedInto: doc.mergedInto || undefined,
       importedFrom: doc.importedFrom || undefined,
+      rating: doc.rating || undefined,
+      csatRequestedAt: doc.csatRequestedAt || undefined,
+      sla: doc.sla || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -394,7 +400,7 @@ export class MongooseConversationRepository implements IConversationRepository {
     return this.buildConversationObject(doc);
   }
 
-  async update(id: string, updateData: Partial<Conversation>): Promise<Conversation | null> {
+  async update(id: string, updateData: Partial<Conversation>, opts?: { touch?: boolean }): Promise<Conversation | null> {
     const cleanUpdates: any = { ...updateData };
     if (updateData.customer) {
       cleanUpdates.customerId = updateData.customer.id;
@@ -410,7 +416,7 @@ export class MongooseConversationRepository implements IConversationRepository {
     }
     const update: any = { $set: cleanUpdates };
     if (Object.keys(unset).length) update.$unset = unset;
-    const doc = await ConversationModel.findByIdAndUpdate(id, update, { new: true });
+    const doc = await ConversationModel.findByIdAndUpdate(id, update, { new: true, ...(opts?.touch === false ? { timestamps: false } : {}) });
     return doc ? this.buildConversationObject(doc) : null;
   }
 
@@ -638,6 +644,7 @@ export class MongooseSavedReplyRepository implements ISavedReplyRepository {
       content: d.content,
       availableFor: d.availableFor,
       availableWhen: d.availableWhen,
+      actions: (d as any).actions || undefined,
       creator: d.creator,
       createdAt: (d as any).createdAt?.toISOString()
     }));
@@ -652,6 +659,7 @@ export class MongooseSavedReplyRepository implements ISavedReplyRepository {
       content: doc.content,
       availableFor: doc.availableFor,
       availableWhen: doc.availableWhen,
+      actions: (doc as any).actions || undefined,
       creator: doc.creator,
       createdAt: (doc as any).createdAt?.toISOString()
     } : null;
@@ -667,6 +675,7 @@ export class MongooseSavedReplyRepository implements ISavedReplyRepository {
       content: doc.content,
       availableFor: doc.availableFor,
       availableWhen: doc.availableWhen,
+      actions: (doc as any).actions || undefined,
       creator: doc.creator,
       createdAt: (doc as any).createdAt?.toISOString()
     };
@@ -681,6 +690,7 @@ export class MongooseSavedReplyRepository implements ISavedReplyRepository {
       content: doc.content,
       availableFor: doc.availableFor,
       availableWhen: doc.availableWhen,
+      actions: (doc as any).actions || undefined,
       creator: doc.creator,
       createdAt: (doc as any).createdAt?.toISOString()
     } : null;

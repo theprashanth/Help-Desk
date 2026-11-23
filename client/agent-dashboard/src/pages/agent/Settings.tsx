@@ -1,17 +1,20 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
-import { AgentSettings, SavedReply } from '../../../../../shared/src/types';
+import { AgentSettings, SavedReply, MacroActions } from '../../../../../shared/src/types';
 import Button from '../../components/ui/Button';
 import {
   Bell, Calendar, User, ShieldAlert, Check,
   MessageSquare, Puzzle, Globe, ChevronRight,
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
+import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
+import { describeMacroActions } from '../../lib/macros';
 import ProfileSettings from '../../components/settings/ProfileSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
+import SlaSettings from '../../components/settings/SlaSettings';
 import GeneralSettings from '../../components/settings/GeneralSettings';
 import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
 import MessengerSettings, { MessengerTab } from '../../components/settings/MessengerSettings';
@@ -22,10 +25,10 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -121,12 +124,14 @@ export const Settings: React.FC = () => {
     content: string;
     availableFor: 'everyone' | 'myself' | 'teams';
     availableWhen: ('starting_conversations' | 'replying' | 'adding_notes')[];
+    actions: MacroActions;
   }>({
     trigger: '',
     title: '',
     content: '',
     availableFor: 'everyone',
-    availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+    availableWhen: ['starting_conversations', 'replying', 'adding_notes'],
+    actions: {}
   });
   const [macroEditing, setMacroEditing] = useState(false);
   const [macroSaving, setMacroSaving] = useState(false);
@@ -161,7 +166,7 @@ export const Settings: React.FC = () => {
   }, [section, fetchMacros]);
 
   const handleCreateMacro = async () => {
-    if (!token || !macroForm.trigger || !macroForm.content) return;
+    if (!token || !macroForm.trigger || !macroForm.title || (!macroForm.content.trim() && !Object.keys(macroForm.actions).length)) return;
     setMacroSaving(true);
     try {
       const trigger = macroForm.trigger.startsWith('/') ? macroForm.trigger : '/' + macroForm.trigger;
@@ -179,7 +184,8 @@ export const Settings: React.FC = () => {
           title: '',
           content: '',
           availableFor: 'everyone',
-          availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+          availableWhen: ['starting_conversations', 'replying', 'adding_notes'],
+          actions: {}
         });
         setMacroEditing(false);
       }
@@ -461,7 +467,8 @@ export const Settings: React.FC = () => {
         title: '',
         content: '',
         availableFor: 'everyone',
-        availableWhen: ['starting_conversations', 'replying', 'adding_notes']
+        availableWhen: ['starting_conversations', 'replying', 'adding_notes'],
+        actions: {}
       });
       setMacroEditing(true);
     };
@@ -473,7 +480,8 @@ export const Settings: React.FC = () => {
         title: m.title,
         content: m.content,
         availableFor: m.availableFor || 'everyone',
-        availableWhen: m.availableWhen || ['starting_conversations', 'replying', 'adding_notes']
+        availableWhen: m.availableWhen || ['starting_conversations', 'replying', 'adding_notes'],
+        actions: m.actions || {}
       });
       setMacroEditing(true);
     };
@@ -590,11 +598,13 @@ export const Settings: React.FC = () => {
                       value={macroForm.content}
                       onChange={e => setMacroForm(f => ({ ...f, content: e.target.value }))}
                       onPaste={e => handleFormattedPaste(e, v => setMacroForm(f => ({ ...f, content: v })))}
-                      placeholder="Type your macro message here. Use **bold**, *italic*, or plain text."
+                      placeholder="Type your macro message here. Use **bold**, *italic*, or plain text. Leave empty for an action-only macro."
                       rows={6}
                       className="ic-textarea"
                     />
                   </div>
+
+                  <MacroActionsEditor value={macroForm.actions} onChange={actions => setMacroForm(f => ({ ...f, actions }))} />
 
                   <div className="grid grid-cols-2 gap-4">
                     {/* Available for Selector */}
@@ -696,7 +706,7 @@ export const Settings: React.FC = () => {
                 <div className="flex items-center gap-2 pt-5 border-t border-line">
                   <button
                     onClick={selectedMacro ? handleUpdateMacro : handleCreateMacro}
-                    disabled={macroSaving || !macroForm.trigger || !macroForm.content}
+                    disabled={macroSaving || !macroForm.trigger || !macroForm.title || (!macroForm.content.trim() && !Object.keys(macroForm.actions).length)}
                     className="ic-btn-primary"
                   >
                     {macroSaving ? 'Saving...' : (selectedMacro ? 'Save changes' : 'Create macro')}
@@ -763,8 +773,20 @@ export const Settings: React.FC = () => {
                 {/* Content preview */}
                 <div className="px-6 py-4">
                   <div className="p-4 border border-line rounded-xl bg-sidebar min-h-[120px]">
-                    <RichText className="text-[14px] text-ink whitespace-pre-wrap leading-relaxed" text={selectedMacro.content} linkClass="text-link underline" />
+                    {selectedMacro.content?.trim()
+                      ? <RichText className="text-[14px] text-ink whitespace-pre-wrap leading-relaxed" text={selectedMacro.content} linkClass="text-link underline" />
+                      : <p className="text-[14px] text-muted italic">No message: this macro only runs actions.</p>}
                   </div>
+                  {describeMacroActions(selectedMacro.actions).length > 0 && (
+                    <div className="mt-4">
+                      <p className="text-[13px] text-muted font-medium mb-1.5">Actions</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {describeMacroActions(selectedMacro.actions).map(a => (
+                          <span key={a} className="ic-badge h-6 px-2.5 text-[13px] text-ink gap-1"><Zap className="w-3 h-3 text-amber-500" />{a}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Meta */}
@@ -823,6 +845,7 @@ export const Settings: React.FC = () => {
     notifications: 'Notifications & preferences',
     teammates: 'Teammates',
     officeHours: 'Office hours',
+    sla: 'SLAs',
     messenger: 'Messenger Live Chat',
     chatFlow: 'Chat flow',
     integrations: 'Integrations',
@@ -846,6 +869,7 @@ export const Settings: React.FC = () => {
               <SettingsNavItem icon={SlidersHorizontal} label="General" active={section === 'general'} onClick={() => setSection('general')} />
               <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
               <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
+              <SettingsNavItem icon={Timer} label="SLAs" active={section === 'sla'} onClick={() => setSection('sla')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
@@ -879,6 +903,7 @@ export const Settings: React.FC = () => {
       <div className="ic-panel flex-1 min-w-0 h-full flex flex-col">
         {section === 'teammates' && <TeammatesSettings onBack={() => setSection('home')} />}
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
+        {section === 'sla' && <SlaSettings onBack={() => setSection('home')} />}
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
         {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
         {section === 'ai' && <AiSettings onBack={() => setSection('home')} />}

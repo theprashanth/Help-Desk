@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Plus, Search, PenLine, Users, UserX, BarChart3, ChevronDown, ChevronRight,
-  MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare
+  MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare, AtSign
 } from 'lucide-react';
 import { Agent } from '../../../../../shared/src/types';
 
@@ -14,6 +14,7 @@ export interface InboxCounts {
   byAgent: Record<string, number>;
   byKind: Record<string, number>;
   bot?: { active: number; resolved: number };
+  mentions?: { unread: number; conversationIds: string[] };
 }
 
 interface Props {
@@ -152,6 +153,7 @@ export const InboxNavPanel: React.FC<Props> = ({
             ? <img src={me.avatar} alt="" className="w-[18px] h-[18px] rounded-full object-cover" />
             : <Users className="w-[17px] h-[17px]" />,
           counts?.yours)}
+        {item('mentions', 'Mentions', <AtSign className="w-[17px] h-[17px]" />, counts?.mentions?.unread)}
         {item('created', 'Created by you', <PenLine className="w-[17px] h-[17px]" />, counts?.createdByYou)}
         {item('all', 'All', <Users className="w-[17px] h-[17px]" />, counts?.all)}
         {item('unassigned', 'Unassigned', <UserX className="w-[17px] h-[17px]" />, counts?.unassigned)}

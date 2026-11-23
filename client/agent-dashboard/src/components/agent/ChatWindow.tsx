@@ -9,7 +9,7 @@ import {
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
-  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
@@ -24,6 +24,8 @@ import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
 import TimeHover, { longTimestamp } from '../ui/TimeHover';
 import { MergedBanner } from './mergeUi';
+import SlaChip from '../ui/SlaChip';
+import { applyMacroActions, describeMacroActions, hasMacroActions } from '../../lib/macros';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
 const TICKET_STATES: {
@@ -213,11 +215,30 @@ export const ChatWindow: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<RichComposerHandle>(null);
   const typingTimeoutRef = useRef<any>(null);
+  // @mentions in notes: teammate picker + who was mentioned in this draft
+  const [teammates, setTeammates] = useState<{ id: string; name: string; email: string; avatar?: string }[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const draftMentionsRef = useRef<Map<string, string>>(new Map()); // id -> name
   const lastTypingPingRef = useRef(0);
   const draftStartedAtRef = useRef<string | null>(null);
   // Double-reply guard: a teammate is typing, or replied after this draft started
   const [collision, setCollision] = useState<{ who: string; kind: 'typing' | 'replied'; at?: string; text?: string; files?: Attachment[] } | null>(null);
   const presenceHere = useStore((state) => (activeConversationId ? state.presence[activeConversationId] : undefined));
+  // Macro picked from "/" whose actions run when this draft is sent
+  const [pendingMacro, setPendingMacro] = useState<SavedReply | null>(null);
+  const [macroNotice, setMacroNotice] = useState<{ text: string; error?: boolean } | null>(null);
+  useEffect(() => { setPendingMacro(null); setMacroNotice(null); }, [activeConversationId]);
+  useEffect(() => {
+    if (!macroNotice) return;
+    const t = setTimeout(() => setMacroNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [macroNotice]);
+  const runMacroActions = async (macro: SavedReply, conv: Conversation | null) => {
+    if (!conv || !macro.actions) return;
+    const r = await applyMacroActions(conv, macro.actions, { token, agentId: agent?.id });
+    setMacroNotice(r.ok ? { text: `Applied “${macro.title}”` } : { text: r.error || 'Macro failed', error: true });
+  };
 
   // Derived state
   const isStarred = ticket?.starred || false;
@@ -382,6 +403,16 @@ export const ChatWindow: React.FC = () => {
       });
     }, 2000);
 
+    // @mentions (notes only): "@sa" opens the teammate picker
+    const at = isInternal ? val.match(/(^|\s)@([\w.]{0,30})$/) : null;
+    if (at) {
+      const q = at[2].toLowerCase();
+      setMentionQuery(q);
+      setMentionIndex(0);
+    } else if (mentionQuery !== null) {
+      setMentionQuery(null);
+    }
+
     // Search for saved replies trigger (e.g. typing /refund)
     const match = val.match(/\/(\w*)$/);
     if (match) {
@@ -420,11 +451,67 @@ export const ChatWindow: React.FC = () => {
 
   const selectSavedReply = (reply: SavedReply) => {
     // Replace the trailing slash command with the saved reply text
-    const textWithoutSlash = inputText.replace(/\/(\w*)$/, reply.content);
+    const textWithoutSlash = inputText.replace(/\/(\w*)$/, reply.content || '');
     setInputText(textWithoutSlash);
     setShowReplies(false);
     composerRef.current?.focus();
+    if (!hasMacroActions(reply)) return;
+    // Action-only macros run now; otherwise the actions run when the reply is sent
+    if (!reply.content?.trim()) { setPendingMacro(null); runMacroActions(reply, ticket); }
+    else setPendingMacro(reply);
   };
+  // Used by the ⌘K palette ("Run macro…")
+  useEffect(() => {
+    const onRun = (e: Event) => {
+      const reply = (e as CustomEvent<SavedReply>).detail;
+      if (!reply) return;
+      if (reply.content?.trim()) {
+        setInputText(prev => (prev.trim() ? prev + '\n' : '') + reply.content);
+        if (hasMacroActions(reply)) setPendingMacro(reply);
+        setTimeout(() => composerRef.current?.focus(), 0);
+      } else runMacroActions(reply, ticket);
+    };
+    window.addEventListener('macro:run', onRun);
+    return () => window.removeEventListener('macro:run', onRun);
+  });
+
+  // Mention picker keys: ↑↓ to move, Enter/Tab to pick, Esc to close (captured before the composer)
+  useEffect(() => {
+    if (mentionQuery === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      const list = mentionMatchesRef.current;
+      if (!list.length) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setMentionIndex(i => Math.min(i + 1, list.length - 1)); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setMentionIndex(i => Math.max(i - 1, 0)); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); insertMentionRef.current(list[Math.min(mentionIndexRef.current, list.length - 1)]); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setMentionQuery(null); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [mentionQuery]);
+
+  // Teammates for the @mention picker
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${BACKEND_URL}/api/auth/agents`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then(list => setTeammates(Array.isArray(list) ? list : []))
+      .catch(() => {});
+  }, [token]);
+  const mentionMatches = mentionQuery === null ? [] : teammates
+    .filter(t => t.name.toLowerCase().split(/\s+/).some(w => w.startsWith(mentionQuery)) || t.name.toLowerCase().startsWith(mentionQuery) || t.email.toLowerCase().startsWith(mentionQuery))
+    .slice(0, 6);
+  const mentionMatchesRef = useRef(mentionMatches); mentionMatchesRef.current = mentionMatches;
+  const mentionIndexRef = useRef(mentionIndex); mentionIndexRef.current = mentionIndex;
+  const insertMentionRef = useRef<(t: { id: string; name: string }) => void>(() => {});
+  const insertMention = (t: { id: string; name: string }) => {
+    // Replace the "@que" being typed with a bold "@Full Name "
+    setInputText(prev => prev.replace(/(^|\s)@([\w.]{0,30})$/, (_m, pre) => `${pre}**@${t.name}** `));
+    draftMentionsRef.current.set(t.id, t.name);
+    setMentionQuery(null);
+    setTimeout(() => composerRef.current?.focus(), 0);
+  };
+  insertMentionRef.current = insertMention;
 
   const handleSendMessage = async (textToSend?: string, filesArg?: Attachment[], force = false) => {
     const text = textToSend !== undefined ? textToSend : inputText;
@@ -464,7 +551,12 @@ export const ChatWindow: React.FC = () => {
           },
           content: text,
           attachments: files || [],
-          isInternalNote: isInternal
+          isInternalNote: isInternal,
+          // Teammates still @mentioned in the note's text
+          ...(isInternal ? (() => {
+            const ids = Array.from(draftMentionsRef.current.entries()).filter(([, name]) => text.includes(`@${name}`)).map(([id]) => id);
+            return ids.length ? { metadata: { mentions: ids } } : {};
+          })() : {}),
         })
       });
 
@@ -472,6 +564,9 @@ export const ChatWindow: React.FC = () => {
         if (textToSend === undefined) {
           setInputText('');
           setPendingAttachments([]);
+          draftMentionsRef.current.clear();
+          setMentionQuery(null);
+          if (pendingMacro) { const m = pendingMacro; setPendingMacro(null); runMacroActions(m, ticket); }
         }
       }
     } catch (err) {
@@ -737,6 +832,29 @@ export const ChatWindow: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticket?.id, ticket?.status]);
 
+  // Commands from the keyboard shortcuts and the ⌘K palette (R, N, E, Z, merge)
+  useEffect(() => {
+    const onCmd = (e: Event) => {
+      const cmd = (e as CustomEvent<string>).detail;
+      if (!ticket) return;
+      if (cmd === 'reply' || cmd === 'note') {
+        setIsInternal(cmd === 'note');
+        setTimeout(() => composerRef.current?.focus(), 0);
+      } else if (cmd === 'close') {
+        setShowStateMenu(false);
+        if (ticket.status !== 'closed') setShowCloseDialog(true);
+      } else if (cmd === 'snooze') {
+        setShowMoreMenu(false);
+        setShowSnoozeMenu(true);
+      } else if (cmd === 'merge' && !ticket.mergedInto) {
+        setShowMoreMenu(false);
+        setShowMergePanel(true);
+      }
+    };
+    window.addEventListener('chat:command', onCmd);
+    return () => window.removeEventListener('chat:command', onCmd);
+  }, [ticket]);
+
   const formatMarkdown = (text: string) => (
     <RichText
       text={text}
@@ -764,7 +882,7 @@ export const ChatWindow: React.FC = () => {
     return ind?.metadata?.mergedIntoConversationId ? { id: ind.metadata.mergedIntoConversationId as string, ticketNumber: String(ind.metadata.mergedIntoTicketNumber || '') } : null;
   })();
   // Customer-facing state lines duplicate the teammates' own state events, so they're hidden here
-  const visibleMessages = messages.filter(m => m.metadata?.type !== 'customer_event' && (!isEvent(m) || eventFilter.includes(m.metadata?.category || 'other')));
+  const visibleMessages = messages.filter(m => m.metadata?.type !== 'customer_event' && m.metadata?.type !== 'csat_request' && (!isEvent(m) || eventFilter.includes(m.metadata?.category || 'other')));
   const ticketTitle = (ticket.kind === 'ticket' || ticket.kind === 'issue') && ticket.title ? ticket.title : ticket.customer.name;
 
   // Event text with "You" for your own actions, e.g. "You assigned yourself"
@@ -792,6 +910,8 @@ export const ChatWindow: React.FC = () => {
           <h2 className="ic-title flex-1 min-w-0" title={ticketTitle}>{ticketTitle}</h2>
           {/* Teammates viewing or typing in this conversation */}
           <PresenceIndicator viewers={othersIn(presenceHere, agent?.id)} />
+          {/* SLA countdown for the reply the customer is waiting on */}
+          <SlaChip conv={ticket} size="md" />
 
           {/* Right Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1663,6 +1783,44 @@ export const ChatWindow: React.FC = () => {
       /* Composer Panel */
       <div className="shrink-0 px-4 pb-4 pt-1 relative">
         {/* Saved replies trigger selector popup */}
+        {/* @mention picker (notes) */}
+        {isInternal && mentionQuery !== null && mentionMatches.length > 0 && (
+          <div className="ic-menu absolute bottom-full left-4 mb-2 w-72 flex flex-col" role="listbox" aria-label="Mention a teammate">
+            <div className="px-3.5 pt-1 pb-2 text-[13px] font-medium text-muted">Mention a teammate</div>
+            {mentionMatches.map((t, i) => (
+              <button
+                key={t.id}
+                role="option"
+                aria-selected={i === mentionIndex}
+                onMouseEnter={() => setMentionIndex(i)}
+                onMouseDown={e => { e.preventDefault(); insertMention(t); }}
+                className={`ic-menu-item ${i === mentionIndex ? 'bg-subtle' : ''}`}
+              >
+                <span className="w-6 h-6 rounded-full bg-sky-100 text-sky-900 dark:bg-sky-500/25 dark:text-sky-100 text-[11px] font-semibold flex items-center justify-center uppercase shrink-0">{t.name.charAt(0)}</span>
+                <span className="flex-1 min-w-0 truncate">{t.name}{t.id === agent?.id ? ' (you)' : ''}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {(pendingMacro || macroNotice) && !showReplies && mentionQuery === null && (
+          <div className="absolute bottom-full left-4 right-4 mb-2 flex justify-start pointer-events-none">
+            {pendingMacro ? (
+              <div className="pointer-events-auto inline-flex items-center gap-2 max-w-full rounded-full border border-line bg-surface shadow-sm pl-3 pr-1.5 h-8 text-[13px]">
+                <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="truncate text-ink"><span className="font-medium">On send:</span> {describeMacroActions(pendingMacro.actions, teammates).join(' · ')}</span>
+                <button onClick={() => setPendingMacro(null)} title="Don't run these actions" className="w-5 h-5 rounded-full flex items-center justify-center text-muted hover:bg-subtle hover:text-ink shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : macroNotice && (
+              <div className={`inline-flex items-center gap-2 rounded-full border px-3 h-8 text-[13px] shadow-sm ${macroNotice.error ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300' : 'border-line bg-surface text-ink'}`}>
+                <Zap className="w-3.5 h-3.5 text-amber-500" /> {macroNotice.text}
+              </div>
+            )}
+          </div>
+        )}
+
         {showReplies && (
           <div className="ic-menu absolute bottom-full left-4 mb-2 w-80 flex flex-col">
             <div className="px-3.5 pt-1 pb-2 text-[13px] font-medium text-muted">
@@ -1675,8 +1833,8 @@ export const ChatWindow: React.FC = () => {
                   onClick={() => selectSavedReply(r)}
                   className="ic-menu-item h-auto py-2 flex-col items-start gap-0"
                 >
-                  <div className="font-semibold text-ink">{r.trigger}</div>
-                  <div className="truncate w-full text-[13px] text-muted">{r.title}</div>
+                  <div className="font-semibold text-ink flex items-center gap-1.5">{r.trigger}{hasMacroActions(r) && <Zap className="w-3 h-3 text-amber-500" aria-label="Has actions" />}</div>
+                  <div className="truncate w-full text-[13px] text-muted">{r.title}{hasMacroActions(r) ? ` · ${describeMacroActions(r.actions, teammates).join(', ')}` : ''}</div>
                 </button>
               ))}
             </div>

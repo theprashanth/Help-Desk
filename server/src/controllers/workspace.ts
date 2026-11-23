@@ -7,6 +7,7 @@ import { appearanceOf } from '../services/messenger';
 import { ReplyTime, SnoozePreset, Workspace } from '../../../shared/src/types';
 import { isOpenAt, nextOpening, validateOfficeHours, isValidTimeZone, REPLY_TIMES } from '../services/officeHours';
 import { SocketService } from '../services/socket';
+import { slaPolicyOf, PRIORITIES, checkSlas } from '../services/sla';
 
 export function workspaceIdOf(req: AuthenticatedRequest): string {
   return req.workspaceId || req.user?.workspaceId || 'default_workspace';
@@ -41,6 +42,8 @@ function workspaceSettingsResponse(ws: Workspace) {
     showAttribution: ws.showAttribution !== false,
     attributionText: ws.attributionText || '',
     showStateToCustomer: ws.showStateToCustomer !== false,
+    csatEnabled: ws.csatEnabled !== false,
+    sla: slaPolicyOf(ws),
     snoozeOptions: Array.isArray(ws.snoozeOptions) ? ws.snoozeOptions : [],
     replyTimeNotice: ws.replyTimeNotice !== false,
     appId: appIdOf(ws),
@@ -189,6 +192,10 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
     if (typeof body.showAttribution !== 'boolean') return res.status(400).json({ error: 'showAttribution must be true or false' });
     updates.showAttribution = body.showAttribution;
   }
+  if (body.csatEnabled !== undefined) {
+    if (typeof body.csatEnabled !== 'boolean') return res.status(400).json({ error: 'csatEnabled must be true or false' });
+    updates.csatEnabled = body.csatEnabled;
+  }
   if (body.showStateToCustomer !== undefined) {
     if (typeof body.showStateToCustomer !== 'boolean') return res.status(400).json({ error: 'showStateToCustomer must be true or false' });
     updates.showStateToCustomer = body.showStateToCustomer;
@@ -198,6 +205,22 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
       return res.status(400).json({ error: 'attributionText must be text of at most 60 characters' });
     }
     updates.attributionText = body.attributionText.trim(); // empty = default text
+  }
+  let slaBody: any;
+  if (body.sla !== undefined) {
+    slaBody = body.sla;
+    if (!slaBody || typeof slaBody !== 'object') return res.status(400).json({ error: 'sla must be an object' });
+    if (slaBody.enabled !== undefined && typeof slaBody.enabled !== 'boolean') return res.status(400).json({ error: 'sla.enabled must be true or false' });
+    for (const key of ['firstResponseMinutes', 'nextResponseMinutes']) {
+      const m = slaBody[key];
+      if (m === undefined) continue;
+      if (!m || typeof m !== 'object') return res.status(400).json({ error: `sla.${key} must be an object` });
+      for (const p of PRIORITIES) {
+        const v = m[p];
+        if (v === undefined) continue;
+        if (!Number.isInteger(v) || v < 1 || v > 60 * 24 * 30) return res.status(400).json({ error: `sla.${key}.${p} must be 1 to 43200 minutes` });
+      }
+    }
   }
   if (body.snoozeOptions !== undefined) {
     const checked = validateSnoozeOptions(body.snoozeOptions);
@@ -210,12 +233,25 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
     const id = workspaceIdOf(req);
     const current = await repo.findById(id);
     if (!current) return res.status(404).json({ error: 'Workspace not found' });
+    if (slaBody) {
+      const cur = slaPolicyOf(current);
+      const pick = (m: any, base: Record<string, number>) => Object.fromEntries(PRIORITIES.map(p => [p, m?.[p] ?? base[p]])) as any;
+      const enabled = slaBody.enabled ?? cur.enabled;
+      updates.sla = {
+        enabled,
+        // Turning SLAs on measures from now, so old open conversations don't all breach at once
+        enabledAt: enabled ? (cur.enabled && cur.enabledAt ? cur.enabledAt : new Date().toISOString()) : undefined,
+        firstResponseMinutes: pick(slaBody.firstResponseMinutes, cur.firstResponseMinutes),
+        nextResponseMinutes: pick(slaBody.nextResponseMinutes, cur.nextResponseMinutes),
+      };
+    }
     if (Object.keys(updates).length === 0) return res.json(workspaceSettingsResponse(current));
     if (updates.timezone && current.officeHours && current.officeHours.timezone !== updates.timezone) {
       updates.officeHours = { ...current.officeHours, timezone: updates.timezone };
     }
     const updated = await repo.update(id, updates);
     if (!updated) return res.status(404).json({ error: 'Workspace not found' });
+    if (updates.sla) checkSlas().catch(() => {}); // apply new targets to open conversations now
     return res.json(workspaceSettingsResponse(updated));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

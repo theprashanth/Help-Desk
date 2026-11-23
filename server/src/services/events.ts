@@ -78,6 +78,32 @@ export async function postCustomerStateLine(conv: Conversation, from: string, to
   }
 }
 
+/**
+ * CSAT: when a conversation is resolved, the Messenger shows a 1–5 rating card (a customer-visible
+ * system message). Skipped for merged tickets, tracker issues, internal tickets, chats the bot is
+ * still handling, conversations already rated, and when Settings › General turns it off.
+ */
+export async function requestRating(conv: Conversation): Promise<void> {
+  try {
+    if (conv.rating || conv.mergedInto || conv.kind === 'issue' || conv.sharing === 'internal') return;
+    if (conv.bot && conv.bot.state !== 'handoff') return;
+    const ws = await RepositoryFactory.getWorkspaceRepository().findById(conv.workspaceId || 'default_workspace');
+    if (ws?.csatEnabled === false) return;
+    const msg = await RepositoryFactory.getMessageRepository().create({
+      conversationId: conv.id,
+      sender: { type: 'system', id: 'system', name: 'Rating' },
+      content: 'How would you rate the help you received?',
+      attachments: [], isInternalNote: false, seen: true, delivered: true, reactions: [],
+      metadata: { type: 'csat_request' },
+    });
+    SocketService.broadcastMessageNew(msg);
+    const updated = await RepositoryFactory.getConversationRepository().update(conv.id, { csatRequestedAt: msg.createdAt });
+    if (updated) SocketService.broadcastConversationUpdate(updated);
+  } catch (err) {
+    console.error('[Events] Failed to request a rating:', err);
+  }
+}
+
 const STATE_LABELS: Record<string, string> = {
   open: 'In progress',
   waiting: 'Waiting on customer',
@@ -101,6 +127,7 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
     await recordEvent(id, 'status', `${who} set state to ${STATE_LABELS[after.status] || after.status}`, actor,
       { field: 'status', from: before.status, to: after.status });
     await postCustomerStateLine(after, before.status, after.status);
+    if (after.status === 'resolved') await requestRating(after);
   }
   const wasSnoozed = !!before.snoozedUntil;
   const isSnoozedNow = !!after.snoozedUntil;

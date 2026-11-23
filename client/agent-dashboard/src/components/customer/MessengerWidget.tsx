@@ -3,10 +3,12 @@ import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
 import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight } from 'lucide-react';
 import TimeHover from '../ui/TimeHover';
+import CsatCard from './CsatCard';
 import { shortAgo } from '../../lib/timeAgo';
 
 /** What the customer sees: no internal notes or team events, but customer-facing state lines ("Ticket resolved"). */
-const customerVisible = (m: Message) => !m.isInternalNote && (m.sender?.type !== 'system' || m.metadata?.type === 'customer_event');
+const CUSTOMER_SYSTEM_TYPES = ['customer_event', 'csat_request'];
+const customerVisible = (m: Message) => !m.isInternalNote && (m.sender?.type !== 'system' || CUSTOMER_SYSTEM_TYPES.includes(m.metadata?.type));
 import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
 import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
@@ -603,7 +605,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
     const handleNewMessage = (msg: Message) => {
       // Never show teammates' internal notes or conversation events to the customer
-      if (msg.isInternalNote || (msg.sender?.type === 'system' && msg.metadata?.type !== 'customer_event')) return;
+      if (!customerVisible(msg)) return;
       if (msg.conversationId === activeConv.id) {
         setChatMessages(prev => {
           if (prev.some(m => m.id === msg.id)) return prev;
@@ -1125,6 +1127,32 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
                     {chatMessages.map((m, idx) => {
                       // Ticket state lines: in progress / waiting on you / resolved / closed (Settings › General)
+                      // CSAT: rate the conversation after it was resolved (only the latest request is live)
+                      if (m.metadata?.type === 'csat_request') {
+                        const latest = [...chatMessages].reverse().find(x => x.metadata?.type === 'csat_request')?.id === m.id;
+                        const rated = activeConv?.rating && activeConv.rating.at >= m.createdAt ? activeConv.rating : undefined;
+                        return (
+                          <CsatCard
+                            key={m.id}
+                            question={m.content}
+                            rating={rated}
+                            active={latest}
+                            themeColor={themeColor}
+                            onSubmit={async (score, comment) => {
+                              if (!activeConv) return 'Something went wrong';
+                              try {
+                                const res = await api(`/api/conversations/${activeConv.id}/rating`, {
+                                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ score, comment }),
+                                });
+                                const data = await res.json().catch(() => ({}));
+                                if (!res.ok) return data.error || 'Your rating couldn’t be sent';
+                                setActiveConv(data);
+                                return null;
+                              } catch { return 'Your rating couldn’t be sent. Check your connection.'; }
+                            }}
+                          />
+                        );
+                      }
                       if (m.metadata?.type === 'customer_event') {
                         const st = m.metadata.state as string;
                         const tone = st === 'resolved'

@@ -559,6 +559,23 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <span className="ic-detail-label">Ticket number</span>
                     <span className="ic-detail-value">{conv.ticketNumber}</span>
                   </div>
+                  {(conv.rating || conv.csatRequestedAt) && (
+                    <div className="ic-detail-row">
+                      <span className="ic-detail-label">CX rating</span>
+                      <span className="ic-detail-value" title={conv.rating?.comment || undefined}>
+                        {conv.rating ? (
+                          <span className="inline-flex items-center gap-1.5">
+                            <span>{['', '😞', '🙁', '😐', '🙂', '🤩'][conv.rating.score]}</span>
+                            <span className="font-medium">{conv.rating.score}/5</span>
+                            <span className="text-muted">{['', 'Terrible', 'Bad', 'OK', 'Great', 'Amazing'][conv.rating.score]}</span>
+                          </span>
+                        ) : <span className="text-faint">Requested, not rated yet</span>}
+                      </span>
+                    </div>
+                  )}
+                  {conv.rating?.comment && (
+                    <p className="px-0 pb-2 text-[13px] text-muted italic leading-relaxed">“{conv.rating.comment}”</p>
+                  )}
                   <div className="ic-detail-row">
                     <span className="ic-detail-label">Category</span>
                     <select

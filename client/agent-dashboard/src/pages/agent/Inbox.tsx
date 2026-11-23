@@ -12,7 +12,8 @@ import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel
 import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
 import ProfileMenu, { ThemePref } from '../../components/agent/ProfileMenu';
 import { SearchPanel } from '../../components/agent/SearchPanel';
-import { isBotView, isInboxView, KIND_LABELS, StateFilter } from '../../lib/inboxViews';
+import CommandPalette from '../../components/agent/CommandPalette';
+import { isBotView, isInboxView, KIND_LABELS, StateFilter, mentionedConversationIds } from '../../lib/inboxViews';
 import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
@@ -82,13 +83,18 @@ export const Inbox: React.FC = () => {
     const load = () => {
       fetch(`${BACKEND_URL}/api/inbox/counts`, { headers: { 'Authorization': `Bearer ${token}` } })
         .then(r => (r.ok ? r.json() : null))
-        .then(c => c && setCounts(c))
+        .then(c => {
+          if (!c) return;
+          mentionedConversationIds.clear();
+          (c.mentions?.conversationIds || []).forEach((id: string) => mentionedConversationIds.add(id));
+          setCounts(c);
+        })
         .catch(() => {});
     };
     const schedule = () => { if (timer) clearTimeout(timer); timer = setTimeout(load, 400); };
     load();
     const interval = setInterval(load, 60_000);
-    const events = ['conversation:new', 'conversation:update', 'conversation:deleted', 'conversation:assigned'];
+    const events = ['conversation:new', 'conversation:update', 'conversation:deleted', 'conversation:assigned', 'mention:new'];
     events.forEach(ev => socket?.on(ev, schedule));
     return () => {
       clearInterval(interval);
@@ -203,6 +209,7 @@ export const Inbox: React.FC = () => {
 
   const viewTitle = (() => {
     if (activeTab === 'yours') return 'Your inbox';
+    if (activeTab === 'mentions') return 'Mentions';
     if (activeTab === 'created') return 'Created by you';
     if (activeTab === 'all') return 'All';
     if (activeTab === 'unassigned') return 'Unassigned';
@@ -218,6 +225,13 @@ export const Inbox: React.FC = () => {
     setComposer(null);
     // Bot-handled chats are resolved until someone asks for a person, so show every state there
     if (isBotView(view)) useStore.getState().setStateFilter('all');
+    if (view === 'mentions') {
+      // Every mention, whatever the conversation's state; opening the view marks them read
+      useStore.getState().setStateFilter('all');
+      fetch(`${BACKEND_URL}/api/auth/profile/mentions-seen`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } })
+        .then(() => setCounts(c => (c ? { ...c, mentions: { ...(c.mentions || { conversationIds: [] }), unread: 0 } } : c)))
+        .catch(() => {});
+    }
     setActiveTab(view);
   };
 
@@ -364,6 +378,15 @@ export const Inbox: React.FC = () => {
           </div>
         </nav>
       </div>
+
+      {/* ⌘K palette + single-key shortcuts */}
+      <CommandPalette
+        enabled={isChatTab || activeTab === 'analytics' || activeTab === 'settings'}
+        agents={agents}
+        onSelectView={(view) => { setComposer(null); selectView(view); }}
+        onOpenTab={(tab) => { setComposer(null); setActiveTab(tab); }}
+        onCreate={(kind) => { setActiveTab(t => (isInboxView(t) ? t : 'yours')); setComposer({ kind }); }}
+      />
 
       {/* Main Workspace content area */}
       <div className="flex-1 h-full min-w-0 flex gap-2 overflow-hidden animate-fade-in">

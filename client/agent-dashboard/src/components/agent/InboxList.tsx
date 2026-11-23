@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
-  AlarmClock, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
+  AlarmClock, Timer, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
   ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User,
   Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
   Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
@@ -17,14 +17,16 @@ import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snoo
 import { STATE_FILTERS, StateFilter, statusesFor, viewParams, matchesState } from '../../lib/inboxViews';
 import { PRIORITY_OPTIONS, PriorityIcon, priorityLabel } from '../../lib/priority';
 import { Agent } from '../../../../../shared/src/types';
+import SlaChip, { slaState } from '../ui/SlaChip';
 
-type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until';
+type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until' | 'sla_due';
 
 const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] = [
   { key: 'last_activity', label: 'Last activity', icon: Bell },
   { key: 'date_started', label: 'Date started', icon: CalendarDays },
   { key: 'priority', label: 'Priority', icon: SignalHigh },
   { key: 'snoozed_until', label: 'Snoozed until', icon: AlarmClock },
+  { key: 'sla_due', label: 'SLA due', icon: Timer },
 ];
 
 const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
@@ -175,6 +177,8 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
         case 'date_started': return time(c.createdAt);
         case 'priority': return PRIORITY_RANK[c.priority] || 0;
         case 'snoozed_until': return isSnoozed(c, now) ? time(c.snoozedUntil) : 0;
+        // Soonest due first (when "descending"); conversations without a clock go last
+        case 'sla_due': { const st = slaState(c, now); return st ? -st.dueAt : -Number.MAX_SAFE_INTEGER; }
         default: return time(c.updatedAt || c.createdAt);
       }
     };
@@ -184,6 +188,22 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       return time(b.updatedAt) - time(a.updatedAt); // stable tie-break: most recent first
     });
   }, [conversations, stateView, sortBy, sortDesc, now, activeConversationId]);
+
+  // J / K (from the keyboard shortcuts): open the next / previous conversation in this list
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const step = (e as CustomEvent<number>).detail;
+      if (!visibleConversations.length) return;
+      const i = visibleConversations.findIndex(c => c.id === activeConversationId);
+      const next = visibleConversations[Math.max(0, Math.min(visibleConversations.length - 1, i < 0 ? 0 : i + step))];
+      if (next && next.id !== activeConversationId) {
+        setActiveConversationId(next.id);
+        requestAnimationFrame(() => document.querySelector(`[data-conv-id="${next.id}"]`)?.scrollIntoView({ block: 'nearest' }));
+      }
+    };
+    window.addEventListener('inbox:step', onNav);
+    return () => window.removeEventListener('inbox:step', onNav);
+  }, [visibleConversations, activeConversationId, setActiveConversationId]);
 
   // Auto-select the first conversation if none is selected, or if the selected one is not in the visible list
   useEffect(() => {
@@ -758,6 +778,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                   role="button"
                   tabIndex={0}
                   data-conv-row
+                  data-conv-id={c.id}
                   aria-current={isActive ? 'true' : undefined}
                   onClick={() => setActiveConversationId(c.id)}
                   onKeyDown={(e) => {
@@ -855,6 +876,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                             ? <><span className="text-faint">{c.ticketNumber} · </span>{c.description || 'Tracker issue'}</>
                             : (c.lastMessageSnippet || 'No messages in conversation')}
                       </p>
+                      <SlaChip conv={c} />
                       {hasUnread && (
                         <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums shrink-0">
                           {c.unreadCountAgent}

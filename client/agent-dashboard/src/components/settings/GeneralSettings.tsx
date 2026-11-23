@@ -12,6 +12,7 @@ type WorkspaceSettings = {
   showAttribution: boolean;
   attributionText: string;
   showStateToCustomer?: boolean;
+  csatEnabled?: boolean;
   snoozeOptions: SnoozePreset[];
   replyTimeNotice: boolean;
   appId: string;
@@ -24,6 +25,7 @@ type Draft = {
   showAttribution: boolean;
   attributionText: string;
   showStateToCustomer: boolean;
+  csatEnabled: boolean;
   snoozeOptions: SnoozePreset[];
 };
 
@@ -68,6 +70,7 @@ const toDraft = (ws: WorkspaceSettings): Draft => ({
   showAttribution: ws.showAttribution,
   attributionText: ws.attributionText || '',
   showStateToCustomer: ws.showStateToCustomer === true,
+  csatEnabled: ws.csatEnabled !== false,
   snoozeOptions: ws.snoozeOptions.length ? clean(ws.snoozeOptions) : clean(DEFAULT_SNOOZE_OPTIONS),
 });
 
@@ -167,6 +170,7 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
       if (draft.showAttribution !== prev.showAttribution) body.showAttribution = draft.showAttribution;
       if (draft.attributionText.trim() !== prev.attributionText) body.attributionText = draft.attributionText.trim();
       if (draft.showStateToCustomer !== prev.showStateToCustomer) body.showStateToCustomer = draft.showStateToCustomer;
+      if (draft.csatEnabled !== prev.csatEnabled) body.csatEnabled = draft.csatEnabled;
       if (!sameList(draft.snoozeOptions, prev.snoozeOptions)) {
         body.snoozeOptions = sameList(draft.snoozeOptions, DEFAULT_SNOOZE_OPTIONS) ? [] : clean(draft.snoozeOptions);
       }
@@ -270,6 +274,17 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
                   label="Show ticket state changes to the customer" />
                 <p className="ic-help mt-1.5">
                   Adds a small line to the customer’s chat: “Ticket in progress”, “Waiting on you”, “Ticket resolved” or “Conversation closed”. Notes and other team events stay private.
+                </p>
+              </SettingsFormSection>
+
+              <SettingsFormSection
+                title="Customer satisfaction (CSAT)"
+                description="Ask customers to rate the help they got when a conversation is resolved."
+              >
+                <ToggleRow checked={draft.csatEnabled} disabled={ro} onChange={v => set('csatEnabled', v)}
+                  label="Ask for a rating when a conversation is resolved" />
+                <p className="ic-help mt-1.5">
+                  The Messenger shows a 1–5 rating with an optional comment. Ratings appear in the conversation and in Analytics as your CSAT score (share of 4 and 5 ratings).
                 </p>
               </SettingsFormSection>
 
