@@ -3,6 +3,8 @@ import { Agent, Customer, Conversation, Message, SavedReply, Tag, AgentSettings,
 export interface IWorkspaceRepository {
   findById(id: string): Promise<Workspace | null>;
   findByApiKey(apiKey: string): Promise<Workspace | null>;
+  findByAppId(appId: string): Promise<Workspace | null>;
+  findAll(): Promise<Workspace[]>;
   create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace>;
   update(id: string, updateData: Partial<Workspace>): Promise<Workspace | null>;
 }
@@ -50,6 +52,8 @@ export interface IConversationRepository {
 export interface IMessageRepository {
   findById(id: string): Promise<Message | null>;
   findByConversationId(conversationId: string, limit?: number, skip?: number): Promise<Message[]>;
+  /** Every message in the workspace, oldest first (exports). */
+  findAll(): Promise<Message[]>;
   create(message: Omit<Message, 'id' | 'createdAt'>): Promise<Message>;
   update(id: string, updateData: Partial<Message>): Promise<Message | null>;
   delete(id: string): Promise<boolean>;

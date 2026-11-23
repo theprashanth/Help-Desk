@@ -116,7 +116,9 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
 
     // Auto-assign to online agent with the fewest open/waiting tickets
     let assignedAgentId = undefined;
-    const onlineAgentIds = Array.from(SocketService.onlineAgents.keys());
+    // Online teammates who aren't in Away mode
+    const awayIds = new Set((await RepositoryFactory.getUserRepository().findAll()).filter(a => a.away).map(a => a.id));
+    const onlineAgentIds = Array.from(SocketService.onlineAgents.keys()).filter(id => !awayIds.has(id));
     if (onlineAgentIds.length > 0) {
       // Get all open/waiting conversations to balance load
       const openConvs = await convRepo.findFiltered({ status: ['open', 'waiting'] });
@@ -146,7 +148,7 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     const newConv = await convRepo.create({
       customer,
       status: 'open',
-      priority: priority || 'medium',
+      priority: priority || 'none',
       category: category || 'general',
       unreadCountAgent: 1, // Start with 1 unread message for agents
       unreadCountCustomer: 0,
@@ -637,7 +639,7 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
     const created = await convRepo.create({
       customer: customer!,
       status: 'open',
-      priority: priority || 'medium',
+      priority: priority || 'none',
       category: category || 'general',
       unreadCountAgent: 0,
       unreadCountCustomer: 0,

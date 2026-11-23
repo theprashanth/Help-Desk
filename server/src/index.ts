@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
 import { migrateJsonTicketNumbers } from './repositories/json.repo';
+import { ensureWorkspaceAppIds } from './services/appId';
 import { migrateMongoTicketNumbers } from './repositories/mongoose.repo';
 import { SocketService, AGENTS_ROOM, customerRoom } from './services/socket';
 
@@ -116,6 +117,9 @@ async function startServer() {
   } catch (err: any) {
     console.error('[Seeder Error] Failed to ensure default workspace:', err.message);
   }
+
+  // Every workspace gets a real App ID for the Messenger (instead of its internal id)
+  try { await ensureWorkspaceAppIds(); } catch (err: any) { console.warn(`[Migration] App ID setup skipped: ${err.message}`); }
 
   // Run JSON files schema migration to ensure all old single-tenant records
   // have a default workspaceId assigned.

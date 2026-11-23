@@ -11,6 +11,7 @@ type WorkspaceSettings = {
   timezone: string | null;
   showAttribution: boolean;
   attributionText: string;
+  showStateToCustomer?: boolean;
   snoozeOptions: SnoozePreset[];
   replyTimeNotice: boolean;
   appId: string;
@@ -22,6 +23,7 @@ type Draft = {
   timezone: string;
   showAttribution: boolean;
   attributionText: string;
+  showStateToCustomer: boolean;
   snoozeOptions: SnoozePreset[];
 };
 
@@ -65,6 +67,7 @@ const toDraft = (ws: WorkspaceSettings): Draft => ({
   timezone: ws.timezone || '',
   showAttribution: ws.showAttribution,
   attributionText: ws.attributionText || '',
+  showStateToCustomer: ws.showStateToCustomer === true,
   snoozeOptions: ws.snoozeOptions.length ? clean(ws.snoozeOptions) : clean(DEFAULT_SNOOZE_OPTIONS),
 });
 
@@ -163,6 +166,7 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
       if (draft.timezone && draft.timezone !== prev.timezone) body.timezone = draft.timezone;
       if (draft.showAttribution !== prev.showAttribution) body.showAttribution = draft.showAttribution;
       if (draft.attributionText.trim() !== prev.attributionText) body.attributionText = draft.attributionText.trim();
+      if (draft.showStateToCustomer !== prev.showStateToCustomer) body.showStateToCustomer = draft.showStateToCustomer;
       if (!sameList(draft.snoozeOptions, prev.snoozeOptions)) {
         body.snoozeOptions = sameList(draft.snoozeOptions, DEFAULT_SNOOZE_OPTIONS) ? [] : clean(draft.snoozeOptions);
       }
@@ -256,6 +260,17 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
                   </select>
                   <p className="ic-help mt-1.5">Office hours use this time zone.</p>
                 </div>
+              </SettingsFormSection>
+
+              <SettingsFormSection
+                title="Conversation events for customers"
+                description="Let customers see in the Messenger when their ticket's state changes."
+              >
+                <ToggleRow checked={draft.showStateToCustomer} disabled={ro} onChange={v => set('showStateToCustomer', v)}
+                  label="Show ticket state changes to the customer" />
+                <p className="ic-help mt-1.5">
+                  Adds a small line to the customer’s chat: “Ticket in progress”, “Waiting on you”, “Ticket resolved” or “Conversation closed”. Notes and other team events stay private.
+                </p>
               </SettingsFormSection>
 
               <SettingsFormSection

@@ -100,7 +100,7 @@ export const MiniTranscript: React.FC<{
   large?: boolean;
 }> = ({ messages, meId, onOpenConversation, onViewMerged, large }) => {
   if (!messages) return <p className="text-[13px] text-faint py-6 text-center">Loading conversation…</p>;
-  const shown = messages.filter(m => m.metadata?.type !== 'merge' || !!onViewMerged);
+  const shown = messages.filter(m => m.metadata?.type !== 'customer_event' && (m.metadata?.type !== 'merge' || !!onViewMerged));
   const bubbleText = large ? 'text-[14.5px] px-4 py-3' : 'text-[13.5px] px-3.5 py-2.5';
   if (!shown.length) return <p className="text-[13px] text-faint py-6 text-center">No messages yet</p>;
   return (

@@ -45,6 +45,39 @@ export async function recordEvent(
   }
 }
 
+/** Customer-visible state lines, shown in the Messenger unless Settings › General turns them off. */
+const CUSTOMER_STATE_TEXT: Record<string, string> = {
+  open: 'Ticket in progress',
+  waiting: 'Waiting on you',
+  resolved: 'Ticket resolved',
+  closed: 'Conversation closed',
+};
+
+export async function postCustomerStateLine(conv: Conversation, from: string, to: string): Promise<void> {
+  try {
+    if (conv.mergedInto) return; // merging closes the ticket; that's not news for the customer
+    const key = from !== to && CUSTOMER_STATE_TEXT[to] ? to : null; // archive/merge aren't shown
+    if (!key) return;
+    const ws = await RepositoryFactory.getWorkspaceRepository().findById(conv.workspaceId || 'default_workspace');
+    if (ws?.showStateToCustomer === false) return;
+    const msg = await RepositoryFactory.getMessageRepository().create({
+      conversationId: conv.id,
+      // "system" keeps it out of previews, unread counts and last activity
+      sender: { type: 'system', id: 'system', name: 'State' },
+      content: CUSTOMER_STATE_TEXT[key],
+      attachments: [],
+      isInternalNote: false,
+      seen: true,
+      delivered: true,
+      reactions: [],
+      metadata: { type: 'customer_event', state: key },
+    });
+    SocketService.broadcastMessageNew(msg);
+  } catch (err) {
+    console.error('[Events] Failed to post customer state line:', err);
+  }
+}
+
 const STATE_LABELS: Record<string, string> = {
   open: 'In progress',
   waiting: 'Waiting on customer',
@@ -67,6 +100,7 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
   if (before.status !== after.status) {
     await recordEvent(id, 'status', `${who} set state to ${STATE_LABELS[after.status] || after.status}`, actor,
       { field: 'status', from: before.status, to: after.status });
+    await postCustomerStateLine(after, before.status, after.status);
   }
   const wasSnoozed = !!before.snoozedUntil;
   const isSnoozedNow = !!after.snoozedUntil;

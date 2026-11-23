@@ -32,7 +32,7 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('general');
-  const [priority, setPriority] = useState('medium');
+  const [priority, setPriority] = useState('none');
   const [platforms, setPlatforms] = useState<string[]>([]);
   const [rootCause, setRootCause] = useState('');
   const [editingRootCause, setEditingRootCause] = useState(false);

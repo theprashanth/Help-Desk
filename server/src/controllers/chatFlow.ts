@@ -153,7 +153,7 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     const bot: ConversationBotState = { state: 'menu', node: null, path: [], version };
     const convRepo = RepositoryFactory.getConversationRepository();
     const conv = await convRepo.create({
-      customer, status: 'resolved', priority: 'medium', category: 'general',
+      customer, status: 'resolved', priority: 'none', category: 'general',
       unreadCountAgent: 0, unreadCountCustomer: 0, bot,
     });
 

@@ -28,7 +28,7 @@ export async function getMessages(req: AuthenticatedRequest, res: Response) {
     const msgRepo = RepositoryFactory.getMessageRepository();
     const list = await msgRepo.findByConversationId(conversationId, limit, skip);
     // Customers (no agent token) never see internal notes or conversation events
-    const visible = req.user ? list : list.filter(m => !m.isInternalNote && m.sender?.type !== 'system');
+    const visible = req.user ? list : list.filter(m => !m.isInternalNote && (m.sender?.type !== 'system' || m.metadata?.type === 'customer_event'));
     return res.json(visible);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

@@ -420,3 +420,14 @@ export async function deleteAvatar(req: AuthenticatedRequest, res: Response) {
     return res.status(500).json({ error: err.message });
   }
 }
+
+/** PUT /api/auth/profile/status { away } — Away mode for the signed-in teammate. */
+export async function updateStatus(req: AuthenticatedRequest, res: Response) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+  const { away } = req.body || {};
+  if (typeof away !== 'boolean') return res.status(400).json({ error: 'away must be true or false' });
+  const updated = await RepositoryFactory.getUserRepository().update(req.user.id, { away });
+  if (!updated) return res.status(404).json({ error: 'Teammate not found' });
+  try { SocketService.getIO().emit('agent:status', { agentId: updated.id, away }); } catch { /* sockets not ready */ }
+  return res.json(updated);
+}

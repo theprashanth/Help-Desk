@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { 
@@ -12,6 +13,7 @@ import {
   SavedReplyModel, TagModel, SettingsModel, WorkspaceModel 
 } from '../models/schemas';
 import { nextTicketNumber, migrateLegacyText, hasLegacyTicketText } from '../services/ticketNumbers';
+import { generateAppId } from '../services/appId';
 
 /** One-time rename of legacy "TICKET-1130" ids to "#41130" in MongoDB (see migrateJsonTicketNumbers). */
 export async function migrateMongoTicketNumbers(): Promise<number> {
@@ -43,6 +45,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 // Mappers
 const mapWorkspace = (doc: any): Workspace => ({
   id: doc._id.toString(),
+  appId: doc.appId || undefined,
   name: doc.name,
   subdomain: doc.subdomain,
   apiKey: doc.apiKey,
@@ -62,6 +65,9 @@ const mapWorkspace = (doc: any): Workspace => ({
   allowedDomains: doc.allowedDomains,
   installations: doc.installations,
   chatFlow: doc.chatFlow,
+  showStateToCustomer: doc.showStateToCustomer,
+  ai: doc.ai || undefined,
+  dataImports: doc.dataImports || undefined,
 });
 
 export class MongooseWorkspaceRepository implements IWorkspaceRepository {
@@ -75,11 +81,22 @@ export class MongooseWorkspaceRepository implements IWorkspaceRepository {
     return doc ? mapWorkspace(doc) : null;
   }
 
+  async findByAppId(appId: string): Promise<Workspace | null> {
+    const doc = await WorkspaceModel.findOne({ appId });
+    return doc ? mapWorkspace(doc) : null;
+  }
+
+  async findAll(): Promise<Workspace[]> {
+    const docs = await WorkspaceModel.find({});
+    return docs.map(mapWorkspace);
+  }
+
   async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
     const doc = new WorkspaceModel({
       name: workspace.name,
       subdomain: workspace.subdomain,
-      apiKey: workspace.apiKey
+      apiKey: workspace.apiKey,
+      appId: workspace.appId || generateAppId(),
     });
     await doc.save();
     return mapWorkspace(doc);
@@ -108,6 +125,7 @@ const mapAgent = (doc: any): Agent => ({
   calendarLink: doc.calendarLink,
   location: doc.location,
   timezone: doc.timezone,
+  away: doc.away || undefined,
 });
 
 const mapCustomer = (doc: any): Customer => ({
@@ -327,6 +345,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       sharing: (doc.sharing as any) || 'shared',
       bot: doc.bot || undefined,
       mergedInto: doc.mergedInto || undefined,
+      importedFrom: doc.importedFrom || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -510,6 +529,11 @@ export class MongooseMessageRepository implements IMessageRepository {
       .sort({ createdAt: 1 })
       .skip(skip)
       .limit(limit);
+    return docs.map(mapMessage);
+  }
+
+  async findAll(): Promise<Message[]> {
+    const docs = await MessageModel.find({}).sort({ createdAt: 1 });
     return docs.map(mapMessage);
   }
 
@@ -722,4 +746,38 @@ export class MongooseSettingsRepository implements ISettingsRepository {
       businessHours: doc.businessHours,
     };
   }
+}
+
+/** MongoDB version of bulkImportJson: same plan, original timestamps kept. Returns new conversation ids. */
+export async function bulkImportMongo(plan: {
+  customers: any[]; conversations: any[]; messages: any[]; conversationPatches: Record<string, Record<string, any>>;
+}, workspaceId: string): Promise<{ ids: Record<string, string>; numbers: Record<string, string> }> {
+  const ids: Record<string, string> = {};
+  const numbers: Record<string, string> = {};
+  for (const c of plan.customers) {
+    const { id, ...rest } = c;
+    await CustomerModel.updateOne({ id }, { $set: { ...rest, id, workspaceId } }, { upsert: true });
+  }
+  const existing = (await ConversationModel.find({}, { ticketNumber: 1 }).lean()).map((d: any) => d.ticketNumber);
+  for (const c of plan.conversations) {
+    const ticketNumber = nextTicketNumber(existing);
+    existing.push(ticketNumber);
+    const { id: tempId, ...rest } = c;
+    const res = await ConversationModel.collection.insertOne({ ...rest, workspaceId, ticketNumber,
+      createdAt: new Date(c.createdAt), updatedAt: new Date(c.updatedAt) } as any);
+    ids[tempId] = res.insertedId.toString();
+    numbers[tempId] = ticketNumber;
+  }
+  for (const [id, patch] of Object.entries(plan.conversationPatches)) {
+    const p: any = { ...patch };
+    if (p.updatedAt) p.updatedAt = new Date(p.updatedAt);
+    await ConversationModel.collection.updateOne({ _id: new mongoose.Types.ObjectId(id) } as any, { $set: p });
+  }
+  if (plan.messages.length) {
+    await MessageModel.collection.insertMany(plan.messages.map(m => {
+      const { id, ...rest } = m;
+      return { ...rest, workspaceId, conversationId: ids[m.conversationId] || m.conversationId, createdAt: new Date(m.createdAt) };
+    }) as any[]);
+  }
+  return { ids, numbers };
 }

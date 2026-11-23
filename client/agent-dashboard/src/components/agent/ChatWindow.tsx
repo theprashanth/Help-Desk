@@ -7,7 +7,7 @@ import {
   Lock, Globe, ExternalLink, Star, MoreHorizontal,
   Clock, GitMerge, Ban, Copy, UserPlus, FileText, FileDown,
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
-  SendHorizontal, Hourglass, CheckCircle2, Inbox as InboxIcon, Archive, ArrowLeft, Search, CircleDot,
+  SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
   ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot
 } from 'lucide-react';
@@ -19,6 +19,8 @@ import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snoo
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 import RichComposer, { RichComposerHandle } from './RichComposer';
 import MergeDialog from './MergeDialog';
+import CloseDialog from './CloseDialog';
+import CloseConversationIcon from '../ui/CloseConversationIcon';
 import TimeHover, { longTimestamp } from '../ui/TimeHover';
 import { MergedBanner } from './mergeUi';
 
@@ -27,10 +29,10 @@ const TICKET_STATES: {
   status: string; label: string; hint?: string; kbd?: string[];
   icon: React.ElementType; color: string;
 }[] = [
-  { status: 'open', label: 'In progress', hint: 'Keep working on it', icon: CircleDot, color: 'text-accent' },
-  { status: 'waiting', label: 'Waiting on customer', hint: 'Moves back to In progress when they reply', icon: Hourglass, color: 'text-red-500' },
-  { status: 'resolved', label: 'Resolved', hint: 'The problem is solved', icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400' },
-  { status: 'closed', label: 'Close', kbd: ['⌘', '⇧', 'Y'], icon: InboxIcon, color: 'text-ink' },
+  { status: 'open', label: 'In progress', hint: 'Customer sees "In progress"', icon: CircleDot, color: 'text-accent' },
+  { status: 'waiting', label: 'Waiting on customer', hint: 'Customer sees "Waiting on you"', icon: Hourglass, color: 'text-red-500' },
+  { status: 'resolved', label: 'Resolved', hint: 'Customer sees "Resolved"', icon: CheckCircle2, color: 'text-emerald-600 dark:text-emerald-400' },
+  { status: 'closed', label: 'Close', kbd: ['⌘', '⇧', 'Y'], icon: CloseConversationIcon, color: 'text-ink' },
   { status: 'archived', label: 'Archive', hint: 'Hide from every queue', icon: Archive, color: 'text-muted' },
 ];
 // Conversation event categories shown in "Show conversation events"
@@ -93,6 +95,16 @@ export const ChatWindow: React.FC = () => {
   const [ticket, setTicket] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
+  // Ask AI → "Insert in reply": add the text to this conversation's reply box (as a reply, not a note)
+  const replyDraft = useStore((state) => state.replyDraft);
+  useEffect(() => {
+    if (!replyDraft || replyDraft.conversationId !== activeConversationId) return;
+    setInputText(prev => (prev.trim() ? `${prev.trimEnd()}\n\n${replyDraft.text}` : replyDraft.text));
+    setIsInternal(false);
+    useStore.getState().setReplyDraft(null);
+    setTimeout(() => composerRef.current?.focus(), 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyDraft, activeConversationId]);
   
   const [isInternal, setIsInternal] = useState(false); // Toggle internal note vs public message
   const [uploading, setUploading] = useState(false);
@@ -650,8 +662,11 @@ export const ChatWindow: React.FC = () => {
     setShowMoreMenu(false);
     setShowSnoozeMenu(false);
   };
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
   const chooseState = (status: string) => {
     setShowStateMenu(false);
+    // "Close" asks for a resolved state first (Resolved, or close without resolving)
+    if (status === 'closed' && ticket && ticket.status !== 'closed') { setShowCloseDialog(true); return; }
     if (ticket && status !== ticket.status) handleStatusChange(status);
   };
 
@@ -696,7 +711,8 @@ export const ChatWindow: React.FC = () => {
     const ind = [...messages].reverse().find(m => m.metadata?.type === 'merged_indicator');
     return ind?.metadata?.mergedIntoConversationId ? { id: ind.metadata.mergedIntoConversationId as string, ticketNumber: String(ind.metadata.mergedIntoTicketNumber || '') } : null;
   })();
-  const visibleMessages = messages.filter(m => !isEvent(m) || eventFilter.includes(m.metadata?.category || 'other'));
+  // Customer-facing state lines duplicate the teammates' own state events, so they're hidden here
+  const visibleMessages = messages.filter(m => m.metadata?.type !== 'customer_event' && (!isEvent(m) || eventFilter.includes(m.metadata?.category || 'other')));
   const ticketTitle = (ticket.kind === 'ticket' || ticket.kind === 'issue') && ticket.title ? ticket.title : ticket.customer.name;
 
   // Event text with "You" for your own actions, e.g. "You assigned yourself"
@@ -1045,6 +1061,16 @@ export const ChatWindow: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Close: choose Resolved or close without resolving */}
+      {showCloseDialog && ticket && (
+        <CloseDialog
+          currentStatus={ticket.status}
+          ticketLabel={ticket.ticketNumber}
+          onClose={() => setShowCloseDialog(false)}
+          onPick={status => { setShowCloseDialog(false); if (status !== ticket.status) handleStatusChange(status); }}
+        />
       )}
 
       {/* Merge: pick the primary, then confirm side by side */}

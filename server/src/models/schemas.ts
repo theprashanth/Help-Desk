@@ -23,6 +23,10 @@ export interface IWorkspaceDoc extends Document {
   allowedDomains?: string[];
   installations?: any[];
   chatFlow?: any;
+  appId?: string;
+  showStateToCustomer?: boolean;
+  ai?: any;
+  dataImports?: any[];
 }
 
 export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
@@ -43,7 +47,11 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   identityEnforced: { type: Boolean, default: false },
   allowedDomains: { type: [String], default: [] },
   installations: { type: [Schema.Types.Mixed], default: [] },
-  chatFlow: { type: Schema.Types.Mixed }
+  chatFlow: { type: Schema.Types.Mixed },
+  dataImports: { type: [Schema.Types.Mixed], default: undefined },
+  appId: { type: String, unique: true, sparse: true, index: true },
+  showStateToCustomer: { type: Boolean },
+  ai: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);
@@ -62,6 +70,7 @@ export interface IUserDoc extends Document {
   bio?: string;
   calendarLink?: string;
   location?: string;
+  away?: boolean;
   timezone?: string;
   status: 'online' | 'offline';
   lastSeen?: Date;
@@ -82,6 +91,7 @@ export const UserSchema = new Schema<IUserDoc>({
   bio: { type: String },
   calendarLink: { type: String },
   location: { type: String },
+  away: { type: Boolean, default: false },
   timezone: { type: String }
 }, { timestamps: true });
 
@@ -162,6 +172,7 @@ export interface IConversationDoc extends Document {
   sharing?: string;
   bot?: any;
   mergedInto?: any;
+  importedFrom?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -170,7 +181,7 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   customerId: { type: String, required: true, index: true },
   assignedAgentId: { type: String, index: true },
   status: { type: String, required: true, enum: ['open', 'waiting', 'resolved', 'closed', 'archived'], default: 'open' },
-  priority: { type: String, required: true, enum: ['none', 'low', 'medium', 'high', 'critical'], default: 'medium' },
+  priority: { type: String, required: true, enum: ['none', 'low', 'medium', 'high', 'critical'], default: 'none' },
   category: { type: String, required: true, enum: ['general', 'bug', 'payment', 'subscription', 'refund', 'feature_request', 'other'], default: 'general' },
   lastMessageSnippet: { type: String, default: '' },
   unreadCountAgent: { type: Number, default: 0 },
@@ -186,7 +197,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   attributes: { type: Schema.Types.Mixed, default: {} },
   sharing: { type: String, enum: ['shared', 'internal'], default: 'shared' },
   bot: { type: Schema.Types.Mixed },
-  mergedInto: { type: Schema.Types.Mixed }
+  mergedInto: { type: Schema.Types.Mixed },
+  importedFrom: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

@@ -4,12 +4,13 @@ import { Customer } from '../../../../../shared/src/types';
 import { 
   Mail, Phone, Globe, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
   FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
-  Sidebar, Link2, ShieldAlert, Sparkles, Clock, MessageSquare, Copy, Eye, Layers, UserRound
+  Sidebar, Link2, ShieldAlert, Sparkles, MessageSquare, Copy, Eye, Layers, UserRound
 } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
 import { timeAgo, shortAgo } from '../../lib/timeAgo';
 import TimeHover from '../ui/TimeHover';
 import { StatusPill, statusOf, aboutText } from './mergeUi';
+import AskAiPanel from './AskAiPanel';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -423,7 +424,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
             onClick={() => setActiveTab('copilot')}
             className={`ic-tab flex items-center gap-1.5 ${activeTab === 'copilot' ? 'ic-tab-active' : ''}`}
           >
-            <Sparkles className="w-4 h-4" /> Copilot
+            <Sparkles className="w-4 h-4" /> Ask AI
           </button>
         </div>
         <div className="flex items-center gap-0.5 pb-2 text-muted">
@@ -438,7 +439,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
       )}
 
       {/* ═══ SCROLLABLE CONTENT ═════════════════════════════════════════════ */}
-      <div className="flex-1 overflow-y-auto">
+      <div className={!embedded && activeTab === 'copilot' ? 'flex-1 min-h-0 flex flex-col' : 'flex-1 overflow-y-auto'}>
         
         {(embedded || activeTab === 'details') ? (
           <>
@@ -1044,49 +1045,8 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
             </div>
           </>
         ) : (
-          /* AI COPILOT VIEW */
-          <div className="p-5 flex flex-col gap-3 animate-fade-in">
-            <div className="ic-card p-4 flex flex-col gap-2 bg-subtle border-transparent">
-              <div className="flex items-center gap-2 text-ink">
-                <Sparkles className="w-[18px] h-[18px] text-accent" />
-                <span className="text-[15px] font-semibold">Live AI Copilot</span>
-              </div>
-              <p className="text-[14px] text-muted leading-relaxed">
-                AI is monitoring this conversation. I can recommend replies and summarize key ticket properties dynamically.
-              </p>
-            </div>
-
-            {/* AI Summarization card */}
-            <div className="ic-card flex flex-col gap-2 p-4">
-              <span className="text-[15px] font-semibold text-ink flex items-center gap-2">
-                <FileText className="w-[18px] h-[18px] text-muted" /> Auto-summary
-              </span>
-              <p className="text-[14px] text-ink/80 leading-relaxed">
-                Customer is asking about the ticket category <span className="text-ink font-semibold">"{conv.category}"</span>. The ticket priority is flagged as <span className="font-semibold text-red-600 dark:text-red-400 uppercase">{conv.priority}</span>.
-              </p>
-            </div>
-
-            {/* Smart Actions checklist */}
-            <div className="ic-card flex flex-col gap-2.5 p-4">
-              <span className="text-[15px] font-semibold text-ink flex items-center gap-2">
-                <Clock className="w-[18px] h-[18px] text-muted" /> Recommended actions
-              </span>
-              <ul className="text-[14px] text-ink/80 flex flex-col gap-2">
-                <li className="flex items-center gap-2.5">
-                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
-                  <span>Verify customer contact info.</span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
-                  <span>Assign an agent to lock this ticket.</span>
-                </li>
-                <li className="flex items-center gap-2.5">
-                  <span className="w-1.5 h-1.5 bg-accent rounded-full shrink-0" />
-                  <span>Respond using a relevant saved reply.</span>
-                </li>
-              </ul>
-            </div>
-          </div>
+          /* ASK AI: the teammate's own AI provider (Settings › AI assistant) */
+          <AskAiPanel conversationId={conv.id} />
         )}
 
       </div>
