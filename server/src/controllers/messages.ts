@@ -61,6 +61,10 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       // Customers can only post into their own conversation
       return res.status(403).json({ error: 'Not your conversation' });
     }
+    if (sender.type === 'customer' && !isInternalNote) {
+      const who = await RepositoryFactory.getCustomerRepository().findById(conv.customer.id);
+      if (who?.blocked) return res.status(403).json({ error: "You can't send messages to this team right now.", code: 'blocked' });
+    }
 
     const createdMsg = await msgRepo.create({
       conversationId,

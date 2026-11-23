@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef } from 'react';
 import { playChime, unlockAudio } from '../lib/sound';
 import { io, Socket } from 'socket.io-client';
-import { useStore } from '../store/useStore';
+import { useStore, PresenceViewer } from '../store/useStore';
 import { Message, Conversation } from '../../../../shared/src/types';
 
 const SocketContext = createContext<Socket | null>(null);
@@ -141,6 +141,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     });
 
+    // A snoozed conversation is back: tell its assignee (or everyone, if unassigned)
+    newSocket.on('conversation:unsnoozed', (conv: Conversation) => {
+      if (!agent || !onAgentPage()) return;
+      if (conv.assignedAgentId && conv.assignedAgentId !== agent.id) return;
+      if (soundEnabledRef.current) playChime();
+      if ('Notification' in window && Notification.permission === 'granted' && (document.hidden || useStore.getState().activeConversationId !== conv.id)) {
+        new Notification(`Snooze ended · ${conv.ticketNumber}`, { body: `${conv.customer?.name || 'Conversation'} is back in your inbox` });
+      }
+    });
+
     newSocket.on('conversation:update', (conv: Conversation) => {
       updateConversation(conv);
     });
@@ -153,7 +163,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     });
 
+    // Collision detection: who else has a conversation open / is replying
+    newSocket.on('presence:all', (all: { conversationId: string; viewers: PresenceViewer[] }[]) => {
+      useStore.getState().setAllPresence(Array.isArray(all) ? all : []);
+    });
+    newSocket.on('presence:update', (p: { conversationId: string; viewers: PresenceViewer[] }) => {
+      if (p?.conversationId) useStore.getState().setPresence(p.conversationId, Array.isArray(p.viewers) ? p.viewers : []);
+    });
+
     newSocket.on('disconnect', () => {
+      useStore.getState().setAllPresence([]);
       console.log('[Socket] Disconnected from server');
     });
 

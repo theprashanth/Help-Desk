@@ -3,6 +3,8 @@ import { Agent, Conversation, Message, Tag, SavedReply, SnoozePreset } from '../
 import { Socket } from 'socket.io-client';
 import { matchesView, matchesState, statusesFor, StateFilter } from '../lib/inboxViews';
 
+export type PresenceViewer = { agentId: string; name: string; typing: boolean };
+
 /** What the create screen is making; customer is prefilled from "New conversation". */
 export type ComposerState = {
   kind: 'conversation' | 'ticket' | 'issue';
@@ -24,6 +26,10 @@ interface AppState {
   conversations: Conversation[];
   activeConversationId: string | null;
   viewingMergedConversationId: string | null;
+  /** Collision detection: teammates viewing / typing in each conversation (from the server) */
+  presence: Record<string, PresenceViewer[]>;
+  setPresence: (conversationId: string, viewers: PresenceViewer[]) => void;
+  setAllPresence: (all: { conversationId: string; viewers: PresenceViewer[] }[]) => void;
   /** Text to put in a conversation's reply box (Ask AI → "Insert in reply") */
   replyDraft: { conversationId: string; text: string } | null;
   setReplyDraft: (draft: { conversationId: string; text: string } | null) => void;
@@ -124,6 +130,13 @@ export const useStore = create<AppState>((set) => ({
   viewingMergedConversationId: null,
   replyDraft: null,
   setReplyDraft: (replyDraft) => set({ replyDraft }),
+  presence: {},
+  setPresence: (conversationId, viewers) => set((st) => {
+    const next = { ...st.presence };
+    if (viewers.length) next[conversationId] = viewers; else delete next[conversationId];
+    return { presence: next };
+  }),
+  setAllPresence: (all) => set({ presence: Object.fromEntries(all.filter(p => p.viewers.length).map(p => [p.conversationId, p.viewers])) }),
   currentQueue: 'yours',
   stateFilter: 'open',
   composer: null,

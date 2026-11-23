@@ -176,6 +176,8 @@ export interface Customer {
   session: CustomerSession;
   tags: string[]; // tag names
   notes: string[]; // local inline notes or note IDs
+  blocked?: boolean;     // can't send messages or start conversations (Block user)
+  blockedAt?: string;
 }
 
 export interface MessageReaction {

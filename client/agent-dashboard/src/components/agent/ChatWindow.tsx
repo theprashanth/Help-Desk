@@ -20,6 +20,7 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 import RichComposer, { RichComposerHandle } from './RichComposer';
 import MergeDialog from './MergeDialog';
 import CloseDialog from './CloseDialog';
+import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
 import TimeHover, { longTimestamp } from '../ui/TimeHover';
 import { MergedBanner } from './mergeUi';
@@ -183,7 +184,24 @@ export const ChatWindow: React.FC = () => {
   
 
   // Header action states
-  const [isBlocked, setIsBlocked] = useState(false);
+  // Block user: stored on the customer; blocked customers can't send messages or start chats
+  const isBlocked = !!ticket?.customer?.blocked;
+  const toggleBlocked = async () => {
+    if (!ticket || !token) return;
+    const blocked = !isBlocked;
+    if (blocked && !window.confirm(`Block ${ticket.customer.name}? They won't be able to send messages or start new conversations until you unblock them.`)) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/customers/${ticket.customer.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ blocked, conversationId: ticket.id }),
+      });
+      if (res.ok) {
+        const customer = await res.json();
+        setTicket(t => (t ? { ...t, customer: { ...t.customer, ...(customer?.id ? customer : { blocked }) } } : t));
+      }
+    } catch (e) { console.error(e); }
+  };
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
@@ -195,6 +213,11 @@ export const ChatWindow: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<RichComposerHandle>(null);
   const typingTimeoutRef = useRef<any>(null);
+  const lastTypingPingRef = useRef(0);
+  const draftStartedAtRef = useRef<string | null>(null);
+  // Double-reply guard: a teammate is typing, or replied after this draft started
+  const [collision, setCollision] = useState<{ who: string; kind: 'typing' | 'replied'; at?: string; text?: string; files?: Attachment[] } | null>(null);
+  const presenceHere = useStore((state) => (activeConversationId ? state.presence[activeConversationId] : undefined));
 
   // Derived state
   const isStarred = ticket?.starred || false;
@@ -325,8 +348,17 @@ export const ChatWindow: React.FC = () => {
 
     // Emit typing indicator
     if (!socket || !activeConversationId || !agent) return;
+    // Track when this draft started (double-reply guard)
+    if (!draftStartedAtRef.current && val.trim()) draftStartedAtRef.current = new Date().toISOString();
+    if (!val.trim()) draftStartedAtRef.current = null;
+    // Re-announce while typing continuously, so teammates' "typing…" doesn't expire mid-sentence
+    if (isTyping && Date.now() - lastTypingPingRef.current > 3000) {
+      lastTypingPingRef.current = Date.now();
+      socket.emit('typing', { conversationId: activeConversationId, senderType: 'agent', senderName: agent.name, isTyping: true });
+    }
     if (!isTyping) {
       setIsTyping(true);
+      lastTypingPingRef.current = Date.now();
       socket.emit('typing', {
         conversationId: activeConversationId,
         senderType: 'agent',
@@ -394,12 +426,26 @@ export const ChatWindow: React.FC = () => {
     composerRef.current?.focus();
   };
 
-  const handleSendMessage = async (textToSend?: string, filesArg?: Attachment[]) => {
+  const handleSendMessage = async (textToSend?: string, filesArg?: Attachment[], force = false) => {
     const text = textToSend !== undefined ? textToSend : inputText;
     // Sending from the composer includes any staged attachments
     const files = filesArg ?? (textToSend === undefined ? pendingAttachments : undefined);
     if (!text.trim() && (!files || files.length === 0)) return;
     if (!activeConversationId || !agent) return;
+
+    // Collision detection: don't double-reply to the customer by accident (notes are fine)
+    if (!force && !isInternal) {
+      const others = othersIn(presenceHere, agent.id);
+      const typer = others.find(v => v.typing);
+      const since = draftStartedAtRef.current;
+      const theirs = since
+        ? [...messages].reverse().find(m => m.sender.type === 'agent' && m.sender.id !== agent.id && m.sender.id !== 'bot'
+            && !m.isInternalNote && m.metadata?.type !== 'event' && m.metadata?.type !== 'auto_reply' && m.createdAt > since)
+        : undefined;
+      if (theirs) { setCollision({ who: theirs.sender.name, kind: 'replied', at: theirs.createdAt, text: textToSend, files: filesArg }); return; }
+      if (typer) { setCollision({ who: typer.name, kind: 'typing', text: textToSend, files: filesArg }); return; }
+    }
+    draftStartedAtRef.current = null;
 
     try {
       const res = await fetch(`${BACKEND_URL}/api/messages`, {
@@ -679,6 +725,12 @@ export const ChatWindow: React.FC = () => {
         setShowStateMenu(false);
         if (ticket.status !== 'closed') handleStatusChange('closed');
       }
+      // ⌘⇧M opens "Merge into…" (shown as a hint in the … menu)
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'm' && !ticket.mergedInto) {
+        e.preventDefault();
+        setShowMoreMenu(false);
+        setShowMergePanel(true);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -738,6 +790,8 @@ export const ChatWindow: React.FC = () => {
         {/* Row 1: Title & Main Actions */}
         <div className="ic-panel-header justify-between gap-3">
           <h2 className="ic-title flex-1 min-w-0" title={ticketTitle}>{ticketTitle}</h2>
+          {/* Teammates viewing or typing in this conversation */}
+          <PresenceIndicator viewers={othersIn(presenceHere, agent?.id)} />
 
           {/* Right Action Buttons */}
           <div className="flex items-center gap-1.5 shrink-0">
@@ -822,7 +876,7 @@ export const ChatWindow: React.FC = () => {
                     { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
                     { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',
                       danger: true, divider: false,
-                      action: () => { setIsBlocked(v => !v); setShowMoreMenu(false); }
+                      action: () => { setShowMoreMenu(false); toggleBlocked(); }
                     },
                   ].map((item: any, i) => (
                     <React.Fragment key={i}>
@@ -1058,6 +1112,28 @@ export const ChatWindow: React.FC = () => {
             </div>
             <div className="px-4 h-10 flex items-center border-t border-line text-[12px] text-muted">
               ↑↓ navigate · ↵ select · esc close
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Double-reply guard */}
+      {collision && (
+        <div className="absolute inset-0 z-50 bg-ink/20 flex items-center justify-center p-4" onMouseDown={e => { if (e.target === e.currentTarget) setCollision(null); }}>
+          <div className="w-[420px] max-w-full bg-surface rounded-2xl shadow-pop border border-line p-5 flex flex-col gap-3" role="alertdialog" aria-label="Teammate is replying">
+            <h3 className="text-[16px] font-semibold text-ink">
+              {collision.kind === 'typing' ? `${collision.who} is typing a reply` : `${collision.who} already replied`}
+            </h3>
+            <p className="text-[14px] text-muted leading-relaxed">
+              {collision.kind === 'typing'
+                ? `${collision.who} is writing to the customer in this conversation right now. Send your reply anyway?`
+                : `${collision.who} replied to the customer ${formatRelativeTime(collision.at!) === 'now' ? 'just now' : formatRelativeTime(collision.at!) + ' ago'}, after you started your draft. Check their reply before sending yours.`}
+            </p>
+            <div className="flex justify-end gap-2 mt-1">
+              <button className="ic-btn-ghost" onClick={() => { setCollision(null); if (collision.kind === 'replied') draftStartedAtRef.current = new Date().toISOString(); messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }}>
+                {collision.kind === 'replied' ? 'Review their reply' : 'Wait'}
+              </button>
+              <button className="ic-btn-primary" onClick={() => { const c = collision; setCollision(null); handleSendMessage(c.text, c.files, true); }}>Send anyway</button>
             </div>
           </div>
         </div>

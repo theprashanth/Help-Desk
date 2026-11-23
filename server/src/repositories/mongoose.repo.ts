@@ -149,6 +149,8 @@ const mapCustomer = (doc: any): Customer => ({
   },
   tags: doc.tags || [],
   notes: doc.notes || [],
+  blocked: doc.blocked || undefined,
+  blockedAt: doc.blockedAt || undefined,
 });
 
 const mapMessage = (doc: any): Message => ({

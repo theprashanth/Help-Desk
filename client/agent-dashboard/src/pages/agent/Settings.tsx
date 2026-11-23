@@ -40,17 +40,19 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
-function SettingsNavItem({ icon: Icon, label, active, onClick, badge }: {
-  icon: any; label: string; active: boolean; onClick: () => void; badge?: string;
+function SettingsNavItem({ icon: Icon, label, active, onClick, badge, soon }: {
+  icon: any; label: string; active: boolean; onClick: () => void; badge?: string; soon?: boolean;
 }) {
   return (
     <button
-      onClick={onClick}
-      className={`ic-nav-item ${active ? 'ic-nav-item-active' : ''}`}
+      onClick={soon ? undefined : onClick}
+      disabled={soon}
+      title={soon ? 'Coming soon' : undefined}
+      className={`ic-nav-item ${active ? 'ic-nav-item-active' : ''} ${soon ? 'opacity-50 cursor-default hover:bg-transparent' : ''}`}
     >
       <Icon className="w-[18px] h-[18px] shrink-0 text-ink/80" strokeWidth={2.2} />
       <span className="flex-1 truncate">{label}</span>
-      {badge && <span className="ic-count">{badge}</span>}
+      {soon ? <span className="text-[11px] font-medium text-muted">Soon</span> : badge && <span className="ic-count">{badge}</span>}
     </button>
   );
 }
@@ -256,16 +258,17 @@ export const Settings: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[
             { icon: SlidersHorizontal, label: 'General', desc: 'Workspace name, time zone and snooze options', target: 'general' as Section },
-            { icon: Shield, label: 'Security', desc: 'Authentication and permissions', badge: '⚠️', target: 'profile' as Section },
+            { icon: Shield, label: 'Security', desc: 'Identity verification and allowed domains for the Messenger', target: 'messenger' as Section, tab: 'security' },
             { icon: Calendar, label: 'Office Hours', desc: 'Set your support availability', target: 'officeHours' as Section },
-            { icon: Languages, label: 'Multilingual', desc: 'Manage language settings', target: 'profile' as Section },
-            { icon: Globe, label: 'Brands', desc: 'Manage your brand identity', target: 'profile' as Section },
+            { icon: Languages, label: 'Multilingual', desc: 'Manage language settings', target: 'home' as Section, soon: true },
+            { icon: Globe, label: 'Brands', desc: 'Manage your brand identity', target: 'home' as Section, soon: true },
             { icon: Activity, label: 'Teammates', desc: 'Invite and manage agents', target: 'teammates' as Section },
-          ].map(item => (
+          ].map((item: { icon: any; label: string; desc: string; target: Section; badge?: string; tab?: string; soon?: boolean }) => (
             <button
               key={item.label}
-              onClick={() => setSection(item.target)}
-              className="ic-card-hover p-5 flex items-start gap-4 text-left"
+              disabled={item.soon}
+              onClick={() => { if (item.soon) return; if (item.tab) setMessengerTab(item.tab as MessengerTab); setSection(item.target); }}
+              className={`${item.soon ? 'ic-card opacity-60 cursor-default' : 'ic-card-hover'} p-5 flex items-start gap-4 text-left`}
             >
               <div className="ic-tile-icon bg-violet-200/70 text-violet-900 dark:bg-violet-400/20 dark:text-violet-200">
                 <item.icon className="w-5 h-5" strokeWidth={2.2} />
@@ -273,6 +276,7 @@ export const Settings: React.FC = () => {
               <div className="min-w-0">
                 <p className="text-[15px] font-medium text-ink flex items-center gap-1.5">
                   {item.label} {item.badge && <span className="text-[13px]">{item.badge}</span>}
+                  {item.soon && <span className="ic-badge text-[11px]">Coming soon</span>}
                 </p>
                 <p className="text-[14px] text-muted mt-0.5 leading-snug">{item.desc}</p>
               </div>
@@ -313,19 +317,20 @@ export const Settings: React.FC = () => {
           {[
             { icon: MessageSquare, label: 'Messenger Live Chat', desc: 'Install and customize your Messenger', onClick: () => { setMessengerTab('overview'); setSection('messenger'); } },
             { icon: Workflow, label: 'Chat flow', desc: 'Greet visitors, collect details and answer common questions', onClick: () => setSection('chatFlow') },
-            { icon: Mail, label: 'Email', desc: 'Forwarding, domains, and routing', onClick: () => setSection('profile') },
-            { icon: Phone, label: 'Phone', desc: 'Set up phone and SMS support', onClick: () => setSection('profile') },
-          ].map(item => (
+            { icon: Mail, label: 'Email', desc: 'Forwarding, domains, and routing', onClick: () => {}, soon: true },
+            { icon: Phone, label: 'Phone', desc: 'Set up phone and SMS support', onClick: () => {}, soon: true },
+          ].map((item: { icon: any; label: string; desc: string; onClick: () => void; soon?: boolean }) => (
             <button
               key={item.label}
+              disabled={item.soon}
               onClick={item.onClick}
-              className="ic-card-hover p-5 flex items-start gap-4 text-left"
+              className={`${item.soon ? 'ic-card opacity-60 cursor-default' : 'ic-card-hover'} p-5 flex items-start gap-4 text-left`}
             >
               <div className="ic-tile-icon bg-pink-200/70 text-pink-900 dark:bg-pink-400/20 dark:text-pink-200">
                 <item.icon className="w-5 h-5" strokeWidth={2.2} />
               </div>
               <div className="min-w-0">
-                <p className="text-[15px] font-medium text-ink">{item.label}</p>
+                <p className="text-[15px] font-medium text-ink flex items-center gap-1.5">{item.label}{item.soon && <span className="ic-badge text-[11px]">Coming soon</span>}</p>
                 <p className="text-[14px] text-muted mt-0.5 leading-snug">{item.desc}</p>
               </div>
             </button>
@@ -844,14 +849,14 @@ export const Settings: React.FC = () => {
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
-              <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => setSection('home')} />
+              <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => {}} soon />
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Channels" open={openGroups.channels} onToggle={() => toggleGroup('channels')}>
               <SettingsNavItem icon={MessageSquare} label="Messenger Live Chat" active={section === 'messenger'} onClick={() => { setMessengerTab('overview'); setSection('messenger'); }} />
               <SettingsNavItem icon={Workflow} label="Chat flow" active={section === 'chatFlow'} onClick={() => setSection('chatFlow')} />
-              <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => setSection('profile')} />
-              <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => setSection('profile')} />
+              <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => {}} soon />
+              <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => {}} soon />
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Inbox" open={openGroups.inbox} onToggle={() => toggleGroup('inbox')}>

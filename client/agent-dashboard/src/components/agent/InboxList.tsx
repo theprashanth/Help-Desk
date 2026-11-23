@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
 import CloseDialog from './CloseDialog';
+import { PresenceDots, othersIn } from './Presence';
 import { exportAsText, exportAsPdf } from '../../lib/exportConversations';
 import { Conversation } from '../../../../../shared/src/types';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
@@ -44,6 +45,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   const setActiveConversationId = useStore((state) => state.setActiveConversationId);
   const token = useStore((state) => state.token);
   const agent = useStore((state) => state.agent);
+  const presence = useStore((state) => state.presence);
   const tags = useStore((state) => state.tags);
   const setCurrentQueue = useStore((state) => (state as any).setCurrentQueue);
 
@@ -804,6 +806,8 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       }`}>
                         {c.kind === 'issue' ? (c.title || c.ticketNumber) : c.customer.name}
                       </span>
+                      {/* Teammates who have it open right now */}
+                      <PresenceDots viewers={othersIn(presence[c.id], agent?.id)} />
                       {/* Icons Action container */}
                       <div className="flex items-center gap-1 shrink-0 z-30">
                         {c.status !== 'closed' && (

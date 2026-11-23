@@ -29,7 +29,8 @@ export const TestingPanel: React.FC = () => {
     pushLog('Database reset command dispatched...');
     try {
       const res = await fetch(`${BACKEND_URL}/api/simulation/reset`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { Authorization: `Bearer ${useStore.getState().token}` }
       });
       if (res.ok) {
         const data = await res.json();
@@ -53,7 +54,8 @@ export const TestingPanel: React.FC = () => {
     pushLog('Initiating bulk seed simulation (100 conversations)...');
     try {
       const res = await fetch(`${BACKEND_URL}/api/simulation/seed`, {
-        method: 'POST'
+        method: 'POST',
+        headers: { Authorization: `Bearer ${useStore.getState().token}` }
       });
       
       if (res.ok) {

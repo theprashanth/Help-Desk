@@ -139,6 +139,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
 
   const [inputText, setInputText] = useState('');
+  const [sendError, setSendError] = useState<string | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [agentTyping, setAgentTyping] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -788,6 +789,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     if (!content.trim() && attachments.length === 0) return;
     if (uploading) return;
 
+    setSendError(null);
     setInputText('');
     if (text === undefined) setPendingAttachments([]);
 
@@ -833,7 +835,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             setChatMessages(await msgRes.json());
           }
         } else {
-          console.error('Failed to create ticket:', await res.text());
+          const body = await res.json().catch(() => ({}));
+          setSendError(body.error || 'Your message couldn’t be sent. Please try again.');
+          if (text === undefined) setInputText(content);
         }
         return;
       }
@@ -860,10 +864,13 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
           return [...prev, msg];
         });
       } else {
-        console.error('Failed to send message:', await res.text());
+        const body = await res.json().catch(() => ({}));
+        setSendError(body.error || 'Your message couldn’t be sent. Please try again.');
+        if (text === undefined) setInputText(content);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
+      setSendError('Your message couldn’t be sent. Check your connection and try again.');
     }
   };
 
@@ -1240,6 +1247,13 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             {emoji}
                           </button>
                         ))}
+                      </div>
+                    )}
+
+                    {sendError && (
+                      <div className="mb-2 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-start gap-2" role="alert">
+                        <span className="flex-1">{sendError}</span>
+                        <button onClick={() => setSendError(null)} className="shrink-0 opacity-70 hover:opacity-100" aria-label="Dismiss"><X className="w-3.5 h-3.5" /></button>
                       </div>
                     )}
 
