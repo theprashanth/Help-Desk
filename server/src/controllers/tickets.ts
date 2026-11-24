@@ -868,3 +868,82 @@ async function mentionedConversationIds(agentId: string): Promise<Set<string>> {
   const msgs = await RepositoryFactory.getMessageRepository().findAll();
   return new Set(msgs.filter(m => m.isInternalNote && Array.isArray(m.metadata?.mentions) && m.metadata!.mentions.includes(agentId)).map(m => m.conversationId));
 }
+
+const label = (c: Conversation) => {
+  const n = `#${String(c.ticketNumber).replace(/^#/, '')}`;
+  return c.kind === 'issue' ? `issue ${n}${c.title ? ` "${c.title}"` : ''}`
+    : `${c.kind === 'ticket' ? 'ticket' : 'conversation'} ${n} (${c.customer?.name || 'customer'})`;
+};
+
+/** Turn a customer conversation into a customer ticket: same thread, now with a title and the ticket's place in the inbox. */
+export async function convertToTicket(req: AuthenticatedRequest, res: Response) {
+  const title = String(req.body?.title || '').trim();
+  const description = String(req.body?.description || '').trim();
+  if (!title) return res.status(400).json({ error: 'A title is required' });
+  try {
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.findById(req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if ((conv.kind || 'conversation') !== 'conversation') return res.status(400).json({ error: 'Only conversations can be converted to a ticket' });
+    if (conv.mergedInto) return res.status(400).json({ error: 'This conversation was merged into another one' });
+    // Stays shared: the customer keeps seeing their thread
+    const updated = await convRepo.update(conv.id, { kind: 'ticket', title, description: description || undefined, sharing: 'shared' });
+    if (!updated) return res.status(404).json({ error: 'Conversation not found' });
+    SocketService.broadcastConversationUpdate(updated);
+    const actor = await getActor(req);
+    await recordEvent(conv.id, 'tickets', `${actor?.name || 'A teammate'} converted this conversation into a ticket`, actor,
+      { field: 'kind', from: 'conversation', to: 'ticket' });
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** Link a conversation or ticket to a tracker issue (issueId), or unlink it (issueId: null). */
+export async function linkIssue(req: AuthenticatedRequest, res: Response) {
+  const issueId: string | null = req.body?.issueId ? String(req.body.issueId) : null;
+  try {
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.findById(req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (conv.kind === 'issue') return res.status(400).json({ error: 'An issue can\'t be linked to another issue' });
+    const issue = issueId ? await convRepo.findById(issueId) : null;
+    if (issueId && (!issue || issue.kind !== 'issue')) return res.status(404).json({ error: 'Issue not found' });
+    if ((conv.linkedIssueId || null) === issueId) return res.json(conv);
+
+    const previous = conv.linkedIssueId ? await convRepo.findById(conv.linkedIssueId) : null;
+    const updated = await convRepo.update(conv.id, { linkedIssueId: (issueId || null) as any }, { touch: false });
+    if (!updated) return res.status(404).json({ error: 'Conversation not found' });
+    SocketService.broadcastConversationUpdate(updated);
+
+    const actor = await getActor(req);
+    const who = actor?.name || 'A teammate';
+    const extra = (to: Conversation | null) => ({ field: 'linkedIssue', targetId: to?.id || null, targetTicket: to?.ticketNumber });
+    if (previous) {
+      await recordEvent(conv.id, 'tickets', `${who} unlinked this from ${label(previous)}`, actor, extra(null));
+      await recordEvent(previous.id, 'tickets', `${who} unlinked ${label(conv)}`, actor, { field: 'linkedConversation', targetId: conv.id, removed: true });
+    }
+    if (issue) {
+      await recordEvent(conv.id, 'tickets', `${who} linked this to ${label(issue)}`, actor, extra(issue));
+      await recordEvent(issue.id, 'tickets', `${who} linked ${label(conv)}`, actor, { field: 'linkedConversation', targetId: conv.id });
+    }
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** The conversations and tickets linked to an issue. */
+export async function getLinkedConversations(req: AuthenticatedRequest, res: Response) {
+  try {
+    const list = (await RepositoryFactory.getConversationRepository().findAll())
+      .filter(c => c.linkedIssueId === req.params.id)
+      .map(c => ({
+        id: c.id, ticketNumber: c.ticketNumber, kind: c.kind || 'conversation', title: c.title, status: c.status,
+        customer: { id: c.customer.id, name: c.customer.name }, updatedAt: c.updatedAt,
+      }));
+    return res.json(list);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}

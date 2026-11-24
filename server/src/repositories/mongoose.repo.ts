@@ -363,6 +363,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       channel: (doc.channel as any) || undefined,
       email: doc.email || undefined,
       language: doc.language || undefined,
+      linkedIssueId: doc.linkedIssueId || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };

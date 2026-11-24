@@ -9,7 +9,7 @@ import {
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
-  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap, Mail, Sparkles, Languages
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap, Mail, Sparkles, Languages, Wrench
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
@@ -19,6 +19,7 @@ import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snoo
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 import RichComposer, { RichComposerHandle } from './RichComposer';
 import MergeDialog from './MergeDialog';
+import { ConvertToTicketDialog, LinkIssueDialog } from './IssueDialogs';
 import CloseDialog from './CloseDialog';
 import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
@@ -215,6 +216,7 @@ export const ChatWindow: React.FC = () => {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
+  const [issueDialog, setIssueDialog] = useState<'convert' | 'link' | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -1100,6 +1102,14 @@ export const ChatWindow: React.FC = () => {
                     { icon: UserPlus, label: 'Manage participants', divider: false },
                     { icon: GitMerge, label: 'Merge into…', kbd: '⌘ ⇧ M', divider: false,
                       action: () => { setShowMergePanel(true); setShowMoreMenu(false); } },
+                    ...((ticket.kind || 'conversation') === 'conversation' && !ticket.mergedInto ? [
+                      { icon: Ticket, label: 'Convert to ticket', divider: false,
+                        action: () => { setShowMoreMenu(false); setIssueDialog('convert'); } },
+                    ] : []),
+                    ...(ticket.kind !== 'issue' ? [
+                      { icon: Wrench, label: ticket.linkedIssueId ? 'Change linked issue…' : 'Link to issue…', divider: false,
+                        action: () => { setShowMoreMenu(false); setIssueDialog('link'); } },
+                    ] : []),
                     { icon: Globe, label: 'New conversation', divider: true,
                       action: () => {
                         setShowMoreMenu(false);
@@ -1396,6 +1406,22 @@ export const ChatWindow: React.FC = () => {
           onMerged={primaryId => { setShowMergePanel(false); useStore.getState().setActiveConversationId(primaryId); }}
         />
       )}
+
+      {issueDialog && ticket && token && (issueDialog === 'convert' ? (
+        <ConvertToTicketDialog
+          conversation={ticket}
+          token={token}
+          onClose={() => setIssueDialog(null)}
+          onDone={updated => { setIssueDialog(null); useStore.getState().updateConversation(updated); }}
+        />
+      ) : (
+        <LinkIssueDialog
+          conversation={ticket}
+          token={token}
+          onClose={() => setIssueDialog(null)}
+          onDone={updated => { setIssueDialog(null); useStore.getState().updateConversation(updated); }}
+        />
+      ))}
 
       {/* Message feed */}
       <div
