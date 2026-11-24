@@ -342,3 +342,7 @@
 .rich-composer:empty::before { content: attr(data-placeholder); color: rgb(var(--ic-faint)); pointer-events: none; }
 .rich-composer strong, .rich-composer b { font-weight: 700; }
 .rich-composer code { font-family: ui-monospace, monospace; font-size: 13px; background: rgba(0,0,0,.06); padding: 1px 4px; border-radius: 4px; }
+
+/* Horizontal chip rows (e.g. suggested replies): scroll without showing a scrollbar */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }

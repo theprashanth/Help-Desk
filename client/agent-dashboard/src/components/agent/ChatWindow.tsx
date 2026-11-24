@@ -1941,7 +1941,8 @@ export const ChatWindow: React.FC = () => {
         {/* AI suggested replies while the customer is waiting */}
         {!isInternal && !inputText.trim() && !pendingMacro && !macroNotice && !showReplies && mentionQuery === null
           && suggestions?.forId === waitingOn && !!suggestions?.replies.length && (
-          <div className="absolute bottom-full left-4 right-4 mb-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          // In the layout (not floating over the messages): sits just above the reply box, with room above it
+          <div className="mt-2 mb-2 px-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted shrink-0"><Sparkles className="w-3.5 h-3.5 text-accent" /> Suggested</span>
             {suggestions.replies.map((r, i) => (
               <button key={i} title={r} onClick={() => { setInputText(r); setTimeout(() => composerRef.current?.focus(), 0); }}
