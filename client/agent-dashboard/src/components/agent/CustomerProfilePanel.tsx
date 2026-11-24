@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom';
 import { useStore } from '../../store/useStore';
 import { Customer } from '../../../../../shared/src/types';
 import { 
-  Mail, Phone, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
-  FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
+  Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
+  FileText, ChevronDown, ChevronUp, User, ExternalLink, 
   Sidebar, Link2, ShieldAlert, Sparkles, MessageSquare, Copy, Eye, Layers, UserRound
 } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
@@ -489,7 +489,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
       )}
 
       {/* ═══ SCROLLABLE CONTENT ═════════════════════════════════════════════ */}
-      <div className={!embedded && activeTab === 'copilot' ? 'flex-1 min-h-0 flex flex-col' : 'flex-1 overflow-y-auto'}>
+      <div className={!embedded && activeTab === 'copilot' ? 'flex-1 min-h-0 flex flex-col' : 'flex-1 overflow-y-auto ic-scroll-quiet'}>
         
         {(embedded || activeTab === 'details') ? (
           <>
@@ -508,7 +508,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                   <select
                     value={conv.assignedAgentId || 'unassigned'}
                     onChange={(e) => handleAssigneeChange(e.target.value)}
-                    className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${assignedAgent ? 'text-ink' : 'text-muted'}`}
+                    className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[13px] ${assignedAgent ? 'text-ink' : 'text-muted'}`}
                     title="Change assignee"
                   >
                     <option value="unassigned" className="bg-surface text-ink">Unassigned</option>
@@ -537,15 +537,15 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
               <div className="ic-detail-row">
                 <span className="ic-detail-label">Team Inbox</span>
                 <div className="ic-detail-value flex items-center gap-1 min-w-0">
-                  {currentTeam?.emoji ? <span className="w-4 text-center shrink-0">{currentTeam.emoji}</span> : <Users className="w-4 h-4 text-muted shrink-0" />}
+                  {currentTeam?.emoji && <span className="w-4 text-center shrink-0">{currentTeam.emoji}</span>}
                   {teams.length === 0 ? (
-                    <span className="truncate text-muted px-1.5" title="Create team inboxes in Settings › Teams">No teams yet</span>
+                    <span className="truncate text-muted" title="No team inboxes yet. Create them in Settings › Teams">—</span>
                   ) : (
                     <select
                       value={conv.teamId || ''}
                       disabled={isLight}
                       onChange={(e) => handleTeamChange(e.target.value)}
-                      className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${currentTeam ? 'text-ink' : 'text-muted'}`}
+                      className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer -ml-[7px] px-1 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[13px] ${currentTeam ? 'text-ink' : 'text-muted'}`}
                       title="Move to a team inbox"
                     >
                       <option value="" className="bg-surface text-ink">No team</option>
@@ -644,7 +644,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <select
                       value={conv.category}
                       onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-2 px-2 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px]"
+                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-[7px] px-1 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[13px]"
                     >
                       <option value="general" className="bg-surface text-ink">General</option>
                       <option value="bug" className="bg-surface text-ink">Bug</option>
@@ -660,7 +660,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <select
                       value={conv.priority}
                       onChange={(e) => handlePriorityChange(e.target.value)}
-                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-2 px-2 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px]"
+                      className="ic-detail-value w-full bg-transparent capitalize cursor-pointer -ml-[7px] px-1 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[13px]"
                     >
                       <option value="low" className="bg-surface text-ink">Low</option>
                       <option value="medium" className="bg-surface text-ink">Medium</option>
@@ -760,10 +760,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <span className="ic-detail-label">Email</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <InstantTooltip text={customer.email || 'No email'}>
-                        <span className="ic-detail-value flex items-center gap-2">
-                          <Mail className="w-4 h-4 text-muted shrink-0" />
-                          <span className="truncate">{customer.email || 'N/A'}</span>
-                        </span>
+                        <span className={`ic-detail-value block truncate ${customer.email ? '' : 'text-muted'}`}>{customer.email || '—'}</span>
                       </InstantTooltip>
                       {renderCopyButton(customer.email, 'email')}
                     </div>
@@ -773,10 +770,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <span className="ic-detail-label">Phone</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <InstantTooltip text={customer.phone || 'No phone'}>
-                        <span className="ic-detail-value flex items-center gap-2">
-                          <Phone className="w-4 h-4 text-muted shrink-0" />
-                          <span className="truncate">{customer.phone || 'N/A'}</span>
-                        </span>
+                        <span className={`ic-detail-value block truncate ${customer.phone ? '' : 'text-muted'}`}>{customer.phone || '—'}</span>
                       </InstantTooltip>
                       {renderCopyButton(customer.phone, 'phone')}
                     </div>
