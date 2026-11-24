@@ -2,12 +2,22 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle2, AlertCircle, KeyRound, Loader2 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { BACKEND_URL, SettingsPageHeader, SettingsFormSection } from './shared';
+import { refreshAiStatus } from '../../lib/aiFeatures';
 
 type Provider = 'anthropic' | 'openai' | 'openai_compatible';
 type Saved = {
   enabled: boolean; provider: Provider; model: string; baseUrl: string; instructions: string;
   hasApiKey: boolean; apiKeyHint: string; configured: boolean; updatedAt?: string;
+  features: Features;
 };
+type Features = { handoffSummary: boolean; suggestedReplies: boolean; autoTriage: boolean; translation: boolean; teamLanguage: string };
+const DEFAULT_FEATURES: Features = { handoffSummary: true, suggestedReplies: true, autoTriage: true, translation: false, teamLanguage: 'English' };
+const AUTOMATIONS: { key: Exclude<keyof Features, 'teamLanguage'>; label: string; hint: string }[] = [
+  { key: 'handoffSummary', label: 'Summarize bot hand-offs', hint: 'When the chat-flow bot passes a chat to the team, add an internal note with what the customer needs and what was already tried.' },
+  { key: 'suggestedReplies', label: 'Suggest replies', hint: 'While a customer is waiting, show three ready-to-send replies above the composer (using your knowledge base).' },
+  { key: 'autoTriage', label: 'Triage new conversations', hint: 'Set the priority and add matching tags from your existing tags. Only fills in what’s empty.' },
+  { key: 'translation', label: 'Translate conversations', hint: 'Show customers’ messages in your team language, and send your replies in theirs.' },
+];
 
 const PROVIDERS: { id: Provider; label: string; hint: string; models: string[]; keyUrl?: string }[] = [
   {
@@ -41,7 +51,7 @@ const AiSettings: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const agent = useStore(s => s.agent);
   const isAdmin = agent?.role === 'admin';
   const [saved, setSaved] = useState<Saved | null>(null);
-  const [draft, setDraft] = useState({ enabled: false, provider: 'anthropic' as Provider, model: '', baseUrl: '', instructions: '' });
+  const [draft, setDraft] = useState({ enabled: false, provider: 'anthropic' as Provider, model: '', baseUrl: '', instructions: '', features: DEFAULT_FEATURES });
   const [newKey, setNewKey] = useState('');
   const [removeKey, setRemoveKey] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,7 +64,7 @@ const AiSettings: React.FC<{ onBack: () => void }> = ({ onBack }) => {
 
   const load = (s: Saved) => {
     setSaved(s);
-    setDraft({ enabled: s.enabled, provider: s.provider, model: s.model, baseUrl: s.baseUrl, instructions: s.instructions });
+    setDraft({ enabled: s.enabled, provider: s.provider, model: s.model, baseUrl: s.baseUrl, instructions: s.instructions, features: { ...DEFAULT_FEATURES, ...(s.features || {}) } });
     setNewKey(''); setRemoveKey(false);
   };
 
@@ -68,7 +78,8 @@ const AiSettings: React.FC<{ onBack: () => void }> = ({ onBack }) => {
   const provider = PROVIDERS.find(p => p.id === draft.provider)!;
   const dirty = useMemo(() => !!saved && (
     draft.enabled !== saved.enabled || draft.provider !== saved.provider || draft.model !== saved.model ||
-    draft.baseUrl !== saved.baseUrl || draft.instructions !== saved.instructions || !!newKey.trim() || removeKey
+    draft.baseUrl !== saved.baseUrl || draft.instructions !== saved.instructions || !!newKey.trim() || removeKey ||
+    JSON.stringify(draft.features) !== JSON.stringify({ ...DEFAULT_FEATURES, ...(saved.features || {}) })
   ), [draft, saved, newKey, removeKey]);
 
   const body = () => ({
@@ -87,6 +98,7 @@ const AiSettings: React.FC<{ onBack: () => void }> = ({ onBack }) => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Couldn’t save');
       load(data);
+      refreshAiStatus(); // the inbox picks up the new automations
       setNotice({ ok: true, text: 'Saved' });
     } catch (e: any) {
       setNotice({ ok: false, text: e.message });
@@ -215,6 +227,27 @@ const AiSettings: React.FC<{ onBack: () => void }> = ({ onBack }) => {
                   placeholder="e.g. Refunds are processed within 5–7 business days. Always sign replies as the Chai Shots team. Never promise discounts."
                   onChange={e => set('instructions', e.target.value)} />
                 <p className="ic-help mt-1.5">{4000 - draft.instructions.length} characters left</p>
+              </SettingsFormSection>
+
+              <SettingsFormSection title="Automations" description="AI that works on its own, using the model above. Each one is a request to your provider, so it adds to your usage.">
+                {AUTOMATIONS.map(a => (
+                  <label key={a.key} className={`flex items-start gap-3 ${isAdmin ? 'cursor-pointer' : 'opacity-60'}`}>
+                    <button type="button" role="switch" aria-checked={draft.features[a.key]} disabled={!isAdmin}
+                      onClick={() => set('features', { ...draft.features, [a.key]: !draft.features[a.key] })}
+                      className={`ic-toggle mt-0.5 shrink-0 ${draft.features[a.key] ? 'ic-toggle-on' : ''} disabled:cursor-not-allowed`}>
+                      <span className="ic-toggle-knob" />
+                    </button>
+                    <span><span className="block text-[14px] font-medium text-ink">{a.label}</span><span className="block text-[13px] text-muted">{a.hint}</span></span>
+                  </label>
+                ))}
+                {draft.features.translation && (
+                  <div className="pl-[52px]">
+                    <label className="ic-label">Team language</label>
+                    <input className="ic-input w-56" value={draft.features.teamLanguage} maxLength={40} disabled={!isAdmin}
+                      onChange={e => set('features', { ...draft.features, teamLanguage: e.target.value })} placeholder="English" />
+                  </div>
+                )}
+                {!draft.enabled && <p className="ic-help">Turn on the AI assistant above for these to run.</p>}
               </SettingsFormSection>
             </>
           )}

@@ -10,7 +10,7 @@ import {
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
   createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen
 } from '../controllers/auth';
-import { getAiSettings, saveAiSettings, testAiSettings, askAi } from '../controllers/ai';
+import { getAiSettings, saveAiSettings, testAiSettings, askAi, suggestRepliesHandler, summarizeHandler, translateHandler } from '../controllers/ai';
 import { previewImport, runDataImport, listImports, downloadExport } from '../controllers/data';
 import { 
   getTickets, getTicket, createTicket, updateTicket, assignTicket, 
@@ -57,6 +57,9 @@ router.get('/ai/settings', authenticateJWT, getAiSettings);
 router.put('/ai/settings', authenticateJWT, saveAiSettings);
 router.post('/ai/test', authenticateJWT, testAiSettings);
 router.post('/ai/ask', authenticateJWT, askAi);
+router.post('/ai/suggest', authenticateJWT, requireFullSeat, suggestRepliesHandler);
+router.post('/ai/summarize', authenticateJWT, summarizeHandler);
+router.post('/ai/translate', authenticateJWT, requireFullSeat, translateHandler);
 // Settings › Data › Imports & exports (CSV uploads are sent as text/csv)
 const csvUpload = textBody({ type: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], limit: '25mb' });
 router.post('/data/imports/preview', authenticateJWT, csvUpload, previewImport);

@@ -435,6 +435,7 @@ export class JsonConversationRepository implements IConversationRepository {
         teamId: raw.teamId || undefined,
         channel: raw.channel || undefined,
         email: raw.email || undefined,
+        language: raw.language || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

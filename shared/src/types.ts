@@ -81,8 +81,18 @@ export interface AiSettings {
   baseUrl?: string;        // openai_compatible only, e.g. https://generativelanguage.googleapis.com/v1beta/openai
   apiKey?: string;         // stored server-side only
   instructions?: string;   // extra guidance added to every request (tone, policies, product facts)
+  features?: AiFeatures;
   updatedAt?: string;
   updatedBy?: string;
+}
+
+/** AI that runs on its own (Settings › AI assistant › Automations). */
+export interface AiFeatures {
+  handoffSummary: boolean;   // summarize a chat as an internal note when the bot hands it to the team
+  suggestedReplies: boolean; // suggest replies above the composer when the customer is waiting
+  autoTriage: boolean;       // set priority and add matching tags to new conversations
+  translation: boolean;      // translate customers' messages into the team language, and replies into theirs
+  teamLanguage: string;      // e.g. "English"
 }
 
 /** How the Messenger looks for customers (saved on the server, applied everywhere it's installed). */
@@ -309,6 +319,7 @@ export interface Conversation {
   teamId?: string;                 // team inbox it belongs to (Settings › Teams)
   channel?: 'messenger' | 'email'; // where the customer wrote in (default messenger)
   email?: ConversationEmail;       // email channel: subject + Message-IDs for threading
+  language?: string;               // the customer's language when it isn't the team's (AI translation), e.g. "Spanish"
   createdAt: string;
   updatedAt: string;
 }

@@ -9,7 +9,7 @@ import {
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
-  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap, Mail
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap, Mail, Sparkles, Languages
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
@@ -25,6 +25,7 @@ import CloseConversationIcon from '../ui/CloseConversationIcon';
 import TimeHover, { longTimestamp } from '../ui/TimeHover';
 import { MergedBanner } from './mergeUi';
 import SlaChip from '../ui/SlaChip';
+import { useAiStatus } from '../../lib/aiFeatures';
 import { applyMacroActions, describeMacroActions, hasMacroActions } from '../../lib/macros';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
@@ -228,6 +229,13 @@ export const ChatWindow: React.FC = () => {
   // Double-reply guard: a teammate is typing, or replied after this draft started
   const [collision, setCollision] = useState<{ who: string; kind: 'typing' | 'replied'; at?: string; text?: string; files?: Attachment[] } | null>(null);
   const presenceHere = useStore((state) => (activeConversationId ? state.presence[activeConversationId] : undefined));
+  // AI (Settings › AI assistant): suggested replies, translation in/out, originals shown on demand
+  const aiStatus = useAiStatus();
+  const [suggestions, setSuggestions] = useState<{ forId: string; replies: string[] } | null>(null);
+  const [translateOut, setTranslateOut] = useState(true);
+  const [translating, setTranslating] = useState(false);
+  const [showOriginal, setShowOriginal] = useState<Set<string>>(new Set());
+  const toggleOriginal = (id: string) => setShowOriginal(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   // Macro picked from "/" whose actions run when this draft is sent
   const [pendingMacro, setPendingMacro] = useState<SavedReply | null>(null);
   const [macroNotice, setMacroNotice] = useState<{ text: string; error?: boolean } | null>(null);
@@ -237,6 +245,31 @@ export const ChatWindow: React.FC = () => {
     const t = setTimeout(() => setMacroNotice(null), 4000);
     return () => clearTimeout(t);
   }, [macroNotice]);
+  // The customer's latest message, if they're the one waiting (automatic messages don't count)
+  const waitingOn = (() => {
+    const AUTO = ['auto_reply', 'bot', 'bot_choice', 'csat_request', 'customer_event', 'event'];
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.sender.type === 'system' || m.isInternalNote || m.sender.id === 'bot' || AUTO.includes(m.metadata?.type)) continue;
+      return m.sender.type === 'customer' ? m.id : null;
+    }
+    return null;
+  })();
+  useEffect(() => {
+    if (!waitingOn || !activeConversationId || !aiStatus.configured || !aiStatus.features.suggestedReplies || isLight) return;
+    if (suggestions?.forId === waitingOn) return;
+    let cancelled = false;
+    fetch(`${BACKEND_URL}/api/ai/suggest`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ conversationId: activeConversationId }),
+    }).then(r => (r.ok ? r.json() : { replies: [] }))
+      .then(d => { if (!cancelled) setSuggestions({ forId: waitingOn, replies: Array.isArray(d.replies) ? d.replies : [] }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingOn, activeConversationId, aiStatus.configured, aiStatus.features.suggestedReplies, isLight]);
+  useEffect(() => { setSuggestions(null); setTranslateOut(true); }, [activeConversationId]);
+
   const runMacroActions = async (macro: SavedReply, conv: Conversation | null) => {
     if (!conv || !macro.actions) return;
     const r = await applyMacroActions(conv, macro.actions, { token, agentId: agent?.id });
@@ -537,6 +570,29 @@ export const ChatWindow: React.FC = () => {
     }
     draftStartedAtRef.current = null;
 
+    // Translation: send the reply in the customer's language, keeping what the teammate wrote
+    let outgoing = text;
+    let original: { text: string; language: string } | undefined;
+    if (!isInternal && translateOut && aiStatus.features.translation && ticket?.language && text.trim()) {
+      if (translating) return; // already on its way
+      setTranslating(true);
+      try {
+        const tr = await fetch(`${BACKEND_URL}/api/ai/translate`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ conversationId: activeConversationId, text }),
+        });
+        const d = await tr.json();
+        if (!tr.ok) throw new Error(d.error || 'Translation failed');
+        outgoing = d.text;
+        original = { text, language: aiStatus.features.teamLanguage };
+      } catch (e: any) {
+        setMacroNotice({ text: `Not sent: ${e.message}. Turn off translation to send as written.`, error: true });
+        return;
+      } finally {
+        setTranslating(false);
+      }
+    }
+
     try {
       const res = await fetch(`${BACKEND_URL}/api/messages`, {
         method: 'POST',
@@ -552,9 +608,10 @@ export const ChatWindow: React.FC = () => {
             name: agent.name,
             avatar: agent.avatar
           },
-          content: text,
+          content: outgoing,
           attachments: files || [],
           isInternalNote: isInternal,
+          ...(original ? { metadata: { original } } : {}),
           // Teammates still @mentioned in the note's text
           ...(isInternal ? (() => {
             const ids = Array.from(draftMentionsRef.current.entries()).filter(([, name]) => text.includes(`@${name}`)).map(([id]) => id);
@@ -915,6 +972,11 @@ export const ChatWindow: React.FC = () => {
           <PresenceIndicator viewers={othersIn(presenceHere, agent?.id)} />
           {/* SLA countdown for the reply the customer is waiting on */}
           <SlaChip conv={ticket} size="md" />
+          {ticket.language && (
+            <span title={`The customer writes in ${ticket.language}`} className="inline-flex items-center gap-1 h-6 px-2 rounded-full bg-ink/[0.06] text-muted text-[12.5px] shrink-0">
+              <Languages className="w-3.5 h-3.5" /> {ticket.language}
+            </span>
+          )}
 
           {/* Right Action Buttons */}
           <div className={`flex items-center gap-1.5 shrink-0 ${isLight ? 'hidden' : ''}`}>
@@ -1418,7 +1480,15 @@ export const ChatWindow: React.FC = () => {
                         : 'bg-bubble-customer'
                     }`}
                   >
-                    {m.content && formatMarkdown(m.content)}
+                    {m.content && (m.metadata?.translation && !showOriginal.has(m.id)
+                      ? formatMarkdown(m.metadata.translation.text)
+                      : formatMarkdown(m.content))}
+                    {m.metadata?.translation && (
+                      <button onClick={() => toggleOriginal(m.id)} className="mt-1.5 flex items-center gap-1 text-[12px] text-muted hover:text-ink">
+                        <Languages className="w-3 h-3" />
+                        {showOriginal.has(m.id) ? `Original (${m.metadata.translation.from}) · Show translation` : `Translated from ${m.metadata.translation.from} · Show original`}
+                      </button>
+                    )}
                     
                     {/* File Attachments */}
                     {m.attachments && m.attachments.length > 0 && (
@@ -1537,12 +1607,20 @@ export const ChatWindow: React.FC = () => {
                   {/* Render indicators for internal note */}
                   {m.isInternalNote && (
                     <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink/70 mb-1">
-                      <Lock className="w-3.5 h-3.5" /> Internal note
+                      {m.metadata?.type === 'ai_summary'
+                        ? <><Sparkles className="w-3.5 h-3.5 text-accent" /> AI summary · internal</>
+                        : <><Lock className="w-3.5 h-3.5" /> Internal note</>}
                     </div>
                   )}
 
                   {/* Markdown parser content */}
-                  {m.content && formatMarkdown(m.content)}
+                  {m.content && (m.metadata?.original && showOriginal.has(m.id) ? formatMarkdown(m.metadata.original.text) : formatMarkdown(m.content))}
+                  {m.metadata?.original && (
+                    <button onClick={() => toggleOriginal(m.id)} className="mt-1.5 flex items-center gap-1 text-[12px] text-muted hover:text-ink">
+                      <Languages className="w-3 h-3" />
+                      {showOriginal.has(m.id) ? `What you wrote (${m.metadata.original.language}) · Show what was sent` : 'Sent translated · Show what you wrote'}
+                    </button>
+                  )}
 
                   {/* File Attachments */}
                   {m.attachments && m.attachments.length > 0 && (
@@ -1806,6 +1884,20 @@ export const ChatWindow: React.FC = () => {
           </div>
         )}
 
+        {/* AI suggested replies while the customer is waiting */}
+        {!isInternal && !inputText.trim() && !pendingMacro && !macroNotice && !showReplies && mentionQuery === null
+          && suggestions?.forId === waitingOn && !!suggestions?.replies.length && (
+          <div className="absolute bottom-full left-4 right-4 mb-2 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted shrink-0"><Sparkles className="w-3.5 h-3.5 text-accent" /> Suggested</span>
+            {suggestions.replies.map((r, i) => (
+              <button key={i} title={r} onClick={() => { setInputText(r); setTimeout(() => composerRef.current?.focus(), 0); }}
+                className="max-w-[260px] shrink-0 truncate h-8 px-3 rounded-full border border-line bg-surface text-[13px] text-ink hover:bg-subtle shadow-sm">
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
+
         {(pendingMacro || macroNotice) && !showReplies && mentionQuery === null && (
           <div className="absolute bottom-full left-4 right-4 mb-2 flex justify-start pointer-events-none">
             {pendingMacro ? (
@@ -1894,6 +1986,12 @@ export const ChatWindow: React.FC = () => {
 
             <div className="text-[12px] text-faint flex items-center gap-1.5 min-w-0 whitespace-nowrap overflow-hidden">
               {isLight ? 'Light seat · internal notes only'
+                : !isInternal && aiStatus.features.translation && ticket.language ? (
+                  <button onClick={() => setTranslateOut(v => !v)} className={`inline-flex items-center gap-1.5 truncate rounded-full px-2 h-6 ${translateOut ? 'bg-subtle text-ink' : 'text-muted line-through'}`}
+                    title={translateOut ? `Your reply is translated into ${ticket.language} before it's sent. Click to send as written.` : 'Click to translate your reply again'}>
+                    <Languages className={`w-3.5 h-3.5 ${translating ? 'animate-pulse' : ''}`} /> {translating ? `Translating to ${ticket.language}…` : translateOut ? `Sending in ${ticket.language}` : `Translate to ${ticket.language}`}
+                  </button>
+                )
                 : ticket.channel === 'email' && !isInternal && ticket.email?.address ? <span className="inline-flex items-center gap-1.5 truncate"><Mail className="w-3.5 h-3.5" /> Replies are emailed to {ticket.email.address}</span>
                 : <>Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies</>}
             </div>
@@ -1970,10 +2068,10 @@ export const ChatWindow: React.FC = () => {
 
             <button
               onClick={() => handleSendMessage()}
-              disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading}
+              disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading || translating}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[14px] font-semibold text-ink hover:bg-ink/[0.06] disabled:text-faint disabled:pointer-events-none transition-colors"
             >
-              {isInternal ? 'Add note' : 'Send'}
+              {isInternal ? 'Add note' : translating ? 'Translating…' : 'Send'}
               <Send className="w-3.5 h-3.5" />
             </button>
           </div>
