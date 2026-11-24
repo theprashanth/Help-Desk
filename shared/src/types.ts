@@ -38,6 +38,7 @@ export interface Workspace {
   csatEnabled?: boolean;           // ask customers to rate resolved conversations (default true)
   defaultTeamId?: string;          // new customer conversations go to this team inbox (Settings › Teams)
   customerAttributes?: CustomAttributeDef[]; // custom people data (Settings › People data)
+  email?: EmailSettings;           // Settings › Channels › Email (passwords never leave the server)
   snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
   // Settings > Office hours
   replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
@@ -306,6 +307,8 @@ export interface Conversation {
   csatRequestedAt?: string;        // when the Messenger last asked for a rating
   sla?: ConversationSla;           // the reply the customer is waiting on (Settings › SLAs)
   teamId?: string;                 // team inbox it belongs to (Settings › Teams)
+  channel?: 'messenger' | 'email'; // where the customer wrote in (default messenger)
+  email?: ConversationEmail;       // email channel: subject + Message-IDs for threading
   createdAt: string;
   updatedAt: string;
 }
@@ -328,6 +331,89 @@ export interface SlaPolicy {
   enabledAt?: string;      // only conversations waiting since then are measured
   firstResponseMinutes: Record<TicketPriority, number>;
   nextResponseMinutes: Record<TicketPriority, number>;
+}
+
+/** Email threading for a conversation that came in (or continues) by email. */
+export interface ConversationEmail {
+  subject: string;
+  address: string;          // the customer's email address
+  threadIds: string[];      // Message-IDs in this thread (ours and theirs), newest last
+}
+
+/**
+ * Settings › Channels › Email. SMTP sends agent replies, missed-reply alerts and transcripts;
+ * inbound mail arrives by IMAP polling or by a forwarding webhook and is threaded into tickets.
+ */
+export interface EmailSettings {
+  enabled: boolean;
+  fromName?: string;
+  fromAddress?: string;
+  smtp?: { host: string; port: number; secure: boolean; user?: string; password?: string };
+  inbound?: {
+    mode: 'none' | 'imap' | 'webhook';
+    imap?: { host: string; port: number; secure: boolean; user: string; password?: string; mailbox?: string };
+    webhookToken?: string;
+    lastPolledAt?: string;
+    lastError?: string | null;
+  };
+  missedReplyAlerts?: boolean;       // email customers replies they haven't seen (default true)
+  missedReplyDelayMinutes?: number;  // wait this long first (default 5)
+  transcripts?: boolean;             // email the transcript when a conversation is closed (default true)
+  lastSentAt?: string;
+  lastError?: string | null;
+  enabledAt?: string;
+}
+
+/** Knowledge base: a group of articles (e.g. "Billing"). */
+export interface HelpCollection {
+  id: string;
+  workspaceId?: string;
+  name: string;
+  description?: string;
+  emoji?: string;
+  order: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Knowledge base article. Published ones show in the Messenger and inform Ask AI. */
+export interface HelpArticle {
+  id: string;
+  workspaceId?: string;
+  title: string;
+  body: string;               // markdown
+  collectionId?: string;
+  state: 'draft' | 'published';
+  authorId?: string;
+  authorName?: string;
+  views: number;
+  helpful: number;
+  notHelpful: number;
+  publishedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Proactive (outbound) message shown in the Messenger: a chat message or a banner at the top of the page. */
+export interface OutboundMessage {
+  id: string;
+  workspaceId?: string;
+  name: string;               // internal name
+  kind: 'chat' | 'banner';
+  body: string;               // markdown
+  senderId?: string;          // chat: teammate it comes from
+  link?: { label: string; url: string }; // banner: optional button
+  bannerStyle?: 'info' | 'promo';
+  audience: {
+    people: 'everyone' | 'leads' | 'users';
+    pageUrl?: { op: 'contains' | 'equals' | 'starts_with'; value: string };
+    attribute?: { key: string; value: string };
+  };
+  frequency: 'once' | 'every_page';  // once per person, or on every matching page until dismissed
+  state: 'live' | 'paused';
+  stats?: { sent: number; opened: number; replied: number; dismissed: number };
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /** Customer satisfaction (CSAT): 1 = terrible … 5 = amazing. */

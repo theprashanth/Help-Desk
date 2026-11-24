@@ -31,7 +31,8 @@
   var frameReady = false;
   var pending = [];        // messages waiting for the iframe
   var open = false;
-  var layout = { position: 'right', showLauncher: true, hidden: false };
+  var layout = { position: 'right', showLauncher: true, hidden: false, preview: false };
+  var bannerEl = null;     // proactive banner drawn across the top of the host page
 
   function send(type, extra) {
     var msg = { source: 'chai-samosa-host', type: type };
@@ -50,6 +51,10 @@
     if (open) {
       s.width = Math.min(window.innerWidth, 432) + 'px';
       s.height = Math.min(window.innerHeight, 696) + 'px';
+    } else if (layout.preview) {
+      // A proactive message pops up above the launcher
+      s.width = Math.min(window.innerWidth, 340) + 'px';
+      s.height = '300px';
     } else {
       s.width = '88px';
       s.height = '88px';
@@ -82,9 +87,62 @@
       layout.position = d.position === 'left' ? 'left' : 'right';
       layout.showLauncher = d.showLauncher !== false;
       layout.hidden = !!d.hidden;
+      layout.preview = !!d.preview;
       size();
+    } else if (d.type === 'banner') {
+      showBanner(d.banner || null);
     }
   });
+
+  // ── Proactive banner (the Messenger decides what to show; it's drawn here, on the host page) ──
+  function showBanner(b) {
+    if (bannerEl) { bannerEl.remove(); bannerEl = null; document.documentElement.style.removeProperty('--chai-samosa-banner'); }
+    if (!b || !b.body) return;
+    var promo = b.style === 'promo';
+    var el = document.createElement('div');
+    el.setAttribute('role', 'status');
+    var st = el.style;
+    st.position = 'fixed'; st.top = '0'; st.left = '0'; st.right = '0'; st.zIndex = '2147483001';
+    st.display = 'flex'; st.alignItems = 'center'; st.gap = '12px'; st.padding = '10px 16px';
+    st.font = '14px/1.4 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif';
+    st.background = promo ? (/^#[0-9a-f]{6}$/i.test(b.color || '') ? b.color : '#1a1a1a') : '#ffffff';
+    st.color = promo ? '#ffffff' : '#1a1a1a';
+    st.boxShadow = '0 1px 3px rgba(0,0,0,.12)';
+    var text = document.createElement('span');
+    text.style.flex = '1'; text.style.textAlign = 'center';
+    text.textContent = String(b.body).replace(/\*\*(.+?)\*\*/g, '$1'); // plain text only on the host page
+    el.appendChild(text);
+    if (b.link && /^https?:\/\//i.test(b.link.url || '')) {
+      var a = document.createElement('a');
+      a.href = b.link.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      a.textContent = b.link.label || 'Learn more';
+      a.style.color = 'inherit'; a.style.fontWeight = '600'; a.style.textDecoration = 'underline';
+      a.addEventListener('click', function () { send('banner-clicked', { id: b.id }); });
+      el.appendChild(a);
+    }
+    var x = document.createElement('button');
+    x.type = 'button'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '\u2715';
+    x.style.cssText = 'background:none;border:0;color:inherit;opacity:.7;cursor:pointer;font-size:14px;padding:4px';
+    x.addEventListener('click', function () { showBanner(null); send('banner-dismissed', { id: b.id }); });
+    el.appendChild(x);
+    (document.body || document.documentElement).appendChild(el);
+    bannerEl = el;
+  }
+
+  // Single-page apps: tell the Messenger when the URL changes (page-based proactive messages)
+  var lastUrl = location.href;
+  function pageChanged() {
+    if (location.href === lastUrl) return;
+    lastUrl = location.href;
+    send('page', { page: { url: location.href, title: document.title } });
+  }
+  ['pushState', 'replaceState'].forEach(function (fn) {
+    var orig = history[fn];
+    if (typeof orig !== 'function') return;
+    history[fn] = function () { var r = orig.apply(this, arguments); setTimeout(pageChanged, 0); return r; };
+  });
+  window.addEventListener('popstate', pageChanged);
+  window.addEventListener('hashchange', pageChanged);
   window.addEventListener('resize', size);
 
   function boot(s) {
@@ -99,7 +157,7 @@
       case 'boot': boot(arg); break;
       case 'update':
         settings = Object.assign({}, settings || {}, arg || {});
-        send('update', { settings: arg || {} });
+        send('update', { settings: arg || {}, page: { url: location.href, title: document.title } });
         break;
       case 'shutdown':
         // e.g. on logout: forget the visitor so the next person on this device starts fresh

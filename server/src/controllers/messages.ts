@@ -9,6 +9,7 @@ import { recordEvent, getActor } from '../services/events';
 import { refreshSla } from '../services/sla';
 import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
+import { deliverAgentReply } from '../services/email';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
 async function customerOwnsConversation(req: AuthenticatedRequest, conversationId: string): Promise<boolean> {
@@ -160,6 +161,10 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     }
     if (updatedConv) {
       SocketService.broadcastConversationUpdate(updatedConv);
+    }
+    // Email conversations: the teammate's reply goes out by email (threaded); failures become an event
+    if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && (updatedConv || conv).channel === 'email') {
+      deliverAgentReply(updatedConv || conv, createdMsg).catch(() => {});
     }
     // Customer wrote → their clock may start; a teammate replied → it stops
     if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);

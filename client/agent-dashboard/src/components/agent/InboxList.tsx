@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import {
   Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
-  AlarmClock, Timer, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
+  AlarmClock, Timer, Mail, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
   ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User,
   Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
   Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
@@ -826,6 +826,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       <span className={`text-[15px] truncate ${
                         hasUnread ? 'font-semibold text-ink' : 'font-normal text-ink/70'
                       }`}>
+                        {c.channel === 'email' && <Mail className="inline w-3.5 h-3.5 mr-1 -mt-0.5 text-muted" aria-label="Email" />}
                         {c.kind === 'issue' ? (c.title || c.ticketNumber) : c.customer.name}
                       </span>
                       {/* Teammates who have it open right now */}

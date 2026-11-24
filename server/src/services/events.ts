@@ -128,6 +128,11 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
       { field: 'status', from: before.status, to: after.status });
     await postCustomerStateLine(after, before.status, after.status);
     if (after.status === 'resolved') await requestRating(after);
+    // Settings › Email: closing a Messenger conversation emails the customer its transcript
+    if (after.status === 'closed' && before.status !== 'closed') {
+      const { sendTranscript } = await import('./email');
+      sendTranscript(after).catch(() => {});
+    }
   }
   const wasSnoozed = !!before.snoozedUntil;
   const isSnoozedNow = !!after.snoozedUntil;

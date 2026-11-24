@@ -342,6 +342,9 @@ export class JsonConversationRepository implements IConversationRepository {
         attributes: conv.attributes || {},
         sharing: conv.sharing || 'shared',
         bot: conv.bot,
+        teamId: conv.teamId,
+        channel: conv.channel,
+        email: conv.email,
         createdAt: now,
         updatedAt: now
       };
@@ -430,6 +433,8 @@ export class JsonConversationRepository implements IConversationRepository {
         csatRequestedAt: raw.csatRequestedAt || undefined,
         sla: raw.sla || undefined,
         teamId: raw.teamId || undefined,
+        channel: raw.channel || undefined,
+        email: raw.email || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
