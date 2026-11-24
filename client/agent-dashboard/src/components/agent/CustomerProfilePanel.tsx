@@ -14,6 +14,7 @@ import { StatusPill, statusOf, aboutText } from './mergeUi';
 import AskAiPanel from './AskAiPanel';
 import CustomerOrgFields from './CustomerOrgFields';
 import { useTeams } from '../../lib/teams';
+import { TrackerLinks } from './IssueLinks';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -277,6 +278,9 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
   // Retrieve current active conversation
   const conv = conversations.find(c => c.id === activeConversationId) || (fetchedConv?.id === activeConversationId ? fetchedConv : undefined);
   const currentTeam = teams.find(t => t.id === conv?.teamId);
+  // Links opens by itself for issues and for chats linked to one
+  const hasLinks = conv?.kind === 'issue' || !!conv?.linkedIssueId;
+  useEffect(() => { if (hasLinks) setLinksOpen(true); }, [activeConversationId, hasLinks]);
 
   // Retrieve current active conversation's customer
   useEffect(() => {
@@ -570,12 +574,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
 
               {linksOpen && (
                 <div className="mt-2 flex flex-col">
-                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
-                    <span>Tracker ticket</span>
-                    <button className="ic-icon-btn w-8 h-8">
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {token && <TrackerLinks conv={conv} token={token} readOnly={isLight} onUpdated={updateConversation} />}
                   <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
                     <span>Back-office tickets</span>
                     <button className="ic-icon-btn w-8 h-8">

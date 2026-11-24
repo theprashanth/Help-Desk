@@ -158,6 +158,13 @@ export async function bulkUpdate(req: AuthenticatedRequest, res: Response) {
       }
     }
     if (action === 'delete' && done.length) {
+      // Deleted issues: the conversations linked to them are unlinked
+      const gone = new Set(done);
+      for (const c of await convRepo.findAll()) {
+        if (!c.linkedIssueId || !gone.has(c.linkedIssueId)) continue;
+        const after = await convRepo.update(c.id, { linkedIssueId: null as any }, { touch: false });
+        if (after) SocketService.broadcastConversationUpdate(after);
+      }
       await logAudit(req, 'data.conversations_deleted', `Deleted ${done.length} conversation${done.length === 1 ? '' : 's'}`, { details: { ids: done.slice(0, 50) } });
     }
     return res.json({ action, updated: done.length, ids: done, failed });

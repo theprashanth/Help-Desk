@@ -436,6 +436,7 @@ export class JsonConversationRepository implements IConversationRepository {
         channel: raw.channel || undefined,
         email: raw.email || undefined,
         language: raw.language || undefined,
+        linkedIssueId: raw.linkedIssueId || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

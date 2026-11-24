@@ -309,6 +309,7 @@ export interface Conversation {
   createdByAgentId?: string;      // set when a teammate creates it manually
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
+  linkedIssueId?: string;          // conversations/tickets: the tracker issue this report belongs to
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
