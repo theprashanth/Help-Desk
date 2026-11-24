@@ -1401,7 +1401,7 @@ export const ChatWindow: React.FC = () => {
       <div
         ref={feedRef}
         onScroll={e => { const el = e.currentTarget; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160; }}
-        className={`flex-1 overflow-y-auto px-8 pt-8 ${showSuggestions ? 'pb-4' : 'pb-8'} flex flex-col gap-4`}
+        className={`flex-1 overflow-y-auto px-6 pt-5 ${showSuggestions ? 'pb-3' : 'pb-5'} flex flex-col gap-2.5`}
       >
         {visibleMessages.map((m, idx) => {
           // Conversation event row (status, assignment, priority, ...)
@@ -1530,7 +1530,7 @@ export const ChatWindow: React.FC = () => {
                 <div className="flex flex-col min-w-0">
                   {/* Bubble */}
                   <div
-                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.55] whitespace-pre-wrap break-words text-ink ${
+                    className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.4] whitespace-pre-wrap break-words text-ink ${
                       chatColorTheme === 'classic'
                         ? 'bg-surface border border-line'
                         : 'bg-bubble-customer'
@@ -1652,7 +1652,7 @@ export const ChatWindow: React.FC = () => {
               <div className="flex flex-col items-end min-w-0 relative">
                 {/* Message box */}
                 <div
-                  className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.55] whitespace-pre-wrap break-words text-ink transition-shadow ${
+                  className={`px-4 py-2.5 rounded-2xl text-[14px] leading-[1.4] whitespace-pre-wrap break-words text-ink transition-shadow ${
                     m.isInternalNote
                       ? 'bg-note border border-note-line'
                       : chatColorTheme === 'classic'

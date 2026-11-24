@@ -508,7 +508,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                   <select
                     value={conv.assignedAgentId || 'unassigned'}
                     onChange={(e) => handleAssigneeChange(e.target.value)}
-                    className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${assignedAgent ? 'text-ink' : 'text-muted'}`}
+                    className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${assignedAgent ? 'text-ink' : 'text-muted'}`}
                     title="Change assignee"
                   >
                     <option value="unassigned" className="bg-surface text-ink">Unassigned</option>
@@ -545,7 +545,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                       value={conv.teamId || ''}
                       disabled={isLight}
                       onChange={(e) => handleTeamChange(e.target.value)}
-                      className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${currentTeam ? 'text-ink' : 'text-muted'}`}
+                      className={`flex-1 min-w-0 truncate bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:ring-0 focus:outline-none text-[14px] ${currentTeam ? 'text-ink' : 'text-muted'}`}
                       title="Move to a team inbox"
                     >
                       <option value="" className="bg-surface text-ink">No team</option>

@@ -228,7 +228,7 @@
 
   /* ---- Detail rows (label / value) in details sidebar ---- */
   .ic-detail-row {
-    @apply grid grid-cols-[112px_1fr] items-center gap-3 min-h-[36px] text-[14px];
+    @apply grid grid-cols-[112px_1fr] items-center gap-3 min-h-[30px] text-[14px];
   }
   .ic-detail-label {
     @apply text-muted truncate;
@@ -237,7 +237,7 @@
     @apply text-ink truncate min-w-0;
   }
   .ic-detail-section {
-    @apply border-b border-line px-5 py-4;
+    @apply border-b border-line px-5 py-3;
   }
   .ic-detail-section-title {
     @apply flex items-center gap-2.5 text-[15px] font-semibold text-ink;

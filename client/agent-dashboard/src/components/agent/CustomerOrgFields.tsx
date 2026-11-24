@@ -136,14 +136,14 @@ const AttributeRow: React.FC<{
   else if (def.type === 'boolean') {
     control = (
       <select value={value === undefined ? '' : value ? 'true' : 'false'} onChange={e => onSave(e.target.value === '' ? null : e.target.value === 'true')}
-        className="flex-1 min-w-0 bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:outline-none text-[14px] text-ink" aria-label={def.label}>
+        className="flex-1 min-w-0 bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:outline-none text-[14px] text-ink" aria-label={def.label}>
         <option value="">—</option><option value="true">Yes</option><option value="false">No</option>
       </select>
     );
   } else if (def.type === 'list') {
     control = (
       <select value={value === undefined ? '' : String(value)} onChange={e => onSave(e.target.value || null)}
-        className="flex-1 min-w-0 bg-transparent cursor-pointer px-1.5 h-8 rounded-lg hover:bg-subtle border-none focus:outline-none text-[14px] text-ink" aria-label={def.label}>
+        className="flex-1 min-w-0 bg-transparent cursor-pointer px-1.5 h-7 rounded-lg hover:bg-subtle border-none focus:outline-none text-[14px] text-ink" aria-label={def.label}>
         <option value="">—</option>
         {(def.options || []).map(o => <option key={o} value={o}>{o}</option>)}
       </select>
@@ -153,12 +153,12 @@ const AttributeRow: React.FC<{
       <input ref={inputRef} type={def.type === 'number' ? 'number' : def.type === 'date' ? 'date' : 'text'} value={draft}
         onChange={e => setDraft(e.target.value)} onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') setEditing(false); }}
-        className="ic-input h-8 flex-1 min-w-0 text-[14px]" aria-label={def.label} />
+        className="ic-input h-7 flex-1 min-w-0 text-[14px]" aria-label={def.label} />
     );
   } else {
     control = (
       <button onClick={() => { setDraft(value === undefined ? '' : String(value)); setEditing(true); }}
-        className={`ic-detail-value text-left px-1.5 h-8 rounded-lg hover:bg-subtle flex-1 min-w-0 truncate ${shown ? '' : 'text-muted'}`} title={`Edit ${def.label}`}>
+        className={`ic-detail-value text-left px-1.5 h-7 rounded-lg hover:bg-subtle flex-1 min-w-0 truncate ${shown ? '' : 'text-muted'}`} title={`Edit ${def.label}`}>
         {shown || 'Add…'}
       </button>
     );

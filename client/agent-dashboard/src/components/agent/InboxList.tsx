@@ -789,7 +789,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       setActiveConversationId(c.id);
                     }
                   }}
-                  className={`w-full px-3 py-3 rounded-xl text-left flex items-start gap-3 relative cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-link/40 ${
+                  className={`w-full px-3 py-2 rounded-xl text-left flex items-start gap-3 relative cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-link/40 ${
                     isActive 
                       ? 'bg-surface shadow-card' 
                       : isSelected ? 'bg-link/[0.06]' : 'hover:bg-ink/[0.03]'
@@ -822,7 +822,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
 
                   {/* Body info */}
                   <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                    <div className="flex justify-between items-center gap-2 min-w-0 h-6">
+                    <div className="flex justify-between items-center gap-2 min-w-0 h-5">
                       <span className={`text-[15px] truncate ${
                         hasUnread ? 'font-semibold text-ink' : 'font-normal text-ink/70'
                       }`}>
@@ -887,7 +887,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                     </div>
 
                     {/* Category badge */}
-                    <div className="flex items-center gap-1.5 mt-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
                       <span className={`ic-badge capitalize shrink-0 ${categoryBadge}`}>
                         {c.category.replace('_', ' ')}
                       </span>
