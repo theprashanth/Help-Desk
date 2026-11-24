@@ -93,6 +93,8 @@ export const ChatWindow: React.FC = () => {
   const conversations = useStore((state) => state.conversations);
   const token = useStore((state) => state.token);
   const agent = useStore((state) => state.agent);
+  // Light seats are read-only: internal notes only, no conversation actions
+  const isLight = agent?.role === 'light';
   const chatColorTheme = useStore((state) => (state as any).chatColorTheme);
   
   const [ticket, setTicket] = useState<Conversation | null>(null);
@@ -110,6 +112,7 @@ export const ChatWindow: React.FC = () => {
   }, [replyDraft, activeConversationId]);
   
   const [isInternal, setIsInternal] = useState(false); // Toggle internal note vs public message
+  useEffect(() => { if (isLight && !isInternal) setIsInternal(true); }, [isLight, isInternal]);
   const [uploading, setUploading] = useState(false);
   // Files attached to the draft; sent together with the text when you press Send
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -914,7 +917,7 @@ export const ChatWindow: React.FC = () => {
           <SlaChip conv={ticket} size="md" />
 
           {/* Right Action Buttons */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className={`flex items-center gap-1.5 shrink-0 ${isLight ? 'hidden' : ''}`}>
             {/* ★ Star / Priority flag */}
             <button
               onClick={handleStarToggle}
@@ -1866,8 +1869,10 @@ export const ChatWindow: React.FC = () => {
             {/* Public Reply vs Internal Note mode switch */}
             <div className="flex items-center gap-0.5">
               <button
-                onClick={() => setIsInternal(false)}
-                className={`flex items-center gap-1.5 h-7 px-2.5 text-[14px] rounded-full transition-colors ${
+                onClick={() => !isLight && setIsInternal(false)}
+                disabled={isLight}
+                title={isLight ? 'Light seats can add internal notes but not reply to customers' : undefined}
+                className={`flex items-center gap-1.5 h-7 px-2.5 text-[14px] rounded-full transition-colors disabled:opacity-40 disabled:pointer-events-none ${
                   !isInternal
                     ? 'font-semibold text-ink bg-subtle'
                     : 'font-medium text-muted hover:text-ink hover:bg-ink/[0.05]'
@@ -1888,7 +1893,7 @@ export const ChatWindow: React.FC = () => {
             </div>
 
             <div className="text-[12px] text-faint flex items-center gap-1.5 min-w-0 whitespace-nowrap overflow-hidden">
-              Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies
+              {isLight ? 'Light seat · internal notes only' : <>Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies</>}
             </div>
           </div>
 

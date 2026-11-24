@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Agent, Conversation, Message, Tag, SavedReply, SnoozePreset } from '../../../../shared/src/types';
+import { Agent, Conversation, Message, Tag, SavedReply, SnoozePreset, Team } from '../../../../shared/src/types';
 import { Socket } from 'socket.io-client';
 import { matchesView, matchesState, statusesFor, StateFilter } from '../lib/inboxViews';
 
@@ -79,6 +79,10 @@ interface AppState {
 
   // Tags & Saved Replies
   tags: Tag[];
+  // Team inboxes (Settings › Teams)
+  teams: Team[];
+  defaultTeamId: string | null;
+  setTeams: (teams: Team[], defaultTeamId: string | null) => void;
   savedReplies: SavedReply[];
   setTags: (tags: Tag[]) => void;
   setSavedReplies: (replies: SavedReply[]) => void;
@@ -283,6 +287,9 @@ export const useStore = create<AppState>((set) => ({
 
   // Tags & Saved Replies
   tags: [],
+  teams: [],
+  defaultTeamId: null,
+  setTeams: (teams, defaultTeamId) => set({ teams, defaultTeamId }),
   savedReplies: [],
   setTags: (tags) => set({ tags }),
   setSavedReplies: (savedReplies) => set({ savedReplies }),

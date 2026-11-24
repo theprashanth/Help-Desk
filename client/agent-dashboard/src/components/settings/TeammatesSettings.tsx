@@ -9,8 +9,8 @@ import { BACKEND_URL, SettingsPageHeader, PersonAvatar } from './shared';
 
 type Teammate = Agent & { online?: boolean };
 
-const ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', support_agent: 'Support agent' };
-const PERMISSION_LABEL: Record<UserRole, string> = { admin: 'Complete access', support_agent: 'Inbox access' };
+const ROLE_LABEL: Record<UserRole, string> = { admin: 'Admin', support_agent: 'Support agent', light: 'Light' };
+const PERMISSION_LABEL: Record<UserRole, string> = { admin: 'Complete access', support_agent: 'Inbox access', light: 'Read-only + notes' };
 const INTRO_KEY = 'settings_teammates_intro_dismissed';
 
 function csvCell(v: string): string {
@@ -327,6 +327,7 @@ export default function TeammatesSettings({ onBack }: { onBack: () => void }) {
                               >
                                 <option value="admin">Admin</option>
                                 <option value="support_agent">Support agent</option>
+                                <option value="light">Light (read-only)</option>
                               </select>
                             ) : (
                               <span className="text-ink">{ROLE_LABEL[t.role] || t.role}</span>
@@ -450,7 +451,13 @@ export default function TeammatesSettings({ onBack }: { onBack: () => void }) {
               <select className="ic-select" value={form.role} onChange={e => setForm({ ...form, role: e.target.value as UserRole })}>
                 <option value="support_agent">Support agent — Inbox access</option>
                 <option value="admin">Admin — Complete access</option>
+                <option value="light">Light — Read-only, internal notes only</option>
               </select>
+              <p className="ic-help mt-1.5">
+                {form.role === 'admin' ? 'Everything, including workspace settings, teammates, data and the audit log.'
+                  : form.role === 'light' ? 'Can see every conversation and add internal notes, but can’t reply to customers or change conversations. Never auto-assigned.'
+                  : 'Replies to and manages conversations, macros and customers. No workspace settings, data imports/exports or deleting conversations.'}
+              </p>
             </div>
             <div>
               <label className="ic-label">Password <span className="text-faint font-normal">(optional)</span></label>

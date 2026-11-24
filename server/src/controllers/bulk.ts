@@ -4,6 +4,7 @@ import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { recordEvent, recordUpdateEvents, getActor } from '../services/events';
 import { Conversation } from '../../../shared/src/types';
+import { logAudit } from '../services/audit';
 
 const STATUSES = ['open', 'waiting', 'resolved', 'closed', 'archived'];
 const PRIORITIES = ['none', 'low', 'medium', 'high', 'critical'];
@@ -155,6 +156,9 @@ export async function bulkUpdate(req: AuthenticatedRequest, res: Response) {
       } catch (e: any) {
         failed.push({ id, error: e.message });
       }
+    }
+    if (action === 'delete' && done.length) {
+      await logAudit(req, 'data.conversations_deleted', `Deleted ${done.length} conversation${done.length === 1 ? '' : 's'}`, { details: { ids: done.slice(0, 50) } });
     }
     return res.json({ action, updated: done.length, ids: done, failed });
   } catch (err: any) {

@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { AiProvider, AiSettings, Workspace } from '../../../shared/src/types';
 import { AiError, AskTurn, DEFAULT_MODELS, complete, systemPrompt, transcriptOf } from '../services/ai';
+import { logAudit } from '../services/audit';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'openai_compatible'];
@@ -70,6 +71,7 @@ export async function saveAiSettings(req: AuthenticatedRequest, res: Response) {
   let ai: AiSettings;
   try { ai = nextSettings(ws.ai, req.body, req.user.id); } catch (e: any) { return res.status(e.status || 400).json({ error: e.message }); }
   const updated = await RepositoryFactory.getWorkspaceRepository().update(ws.id, { ai });
+  await logAudit(req, 'settings.ai', req.body?.apiKey ? 'Changed AI assistant settings and API key' : 'Changed AI assistant settings', { details: { provider: ai.provider, enabled: ai.enabled } });
   return res.json(publicSettings(updated || { ...ws, ai }));
 }
 

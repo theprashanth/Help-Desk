@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
 import {
   Plus, Search, PenLine, Users, UserX, BarChart3, ChevronDown, ChevronRight,
-  MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare, AtSign
+  MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare, AtSign, UsersRound
 } from 'lucide-react';
+import { useTeams } from '../../lib/teams';
 import { Agent } from '../../../../../shared/src/types';
 
 export interface InboxCounts {
@@ -13,6 +14,7 @@ export interface InboxCounts {
   unassigned: number;
   byAgent: Record<string, number>;
   byKind: Record<string, number>;
+  byTeam?: Record<string, number>;
   bot?: { active: number; resolved: number };
   mentions?: { unread: number; conversationIds: string[] };
 }
@@ -52,6 +54,8 @@ export const InboxNavPanel: React.FC<Props> = ({
   const [typeQuery, setTypeQuery] = useState('');
   const [teammatesOpen, setTeammatesOpen] = useState(true);
   const [viewsOpen, setViewsOpen] = useState(true);
+  const [teamsOpen, setTeamsOpen] = useState(true);
+  const teams = useTeams();
   const [botOpen, setBotOpen] = useState(true);
 
   const closeMenus = () => { setCreateOpen(false); setTicketMenuOpen(false); setTypeQuery(''); };
@@ -79,7 +83,7 @@ export const InboxNavPanel: React.FC<Props> = ({
         <h1 className="ic-title">Inbox</h1>
         <button
           onClick={() => (createOpen ? closeMenus() : setCreateOpen(true))}
-          className={`ic-icon-btn ${createOpen ? 'bg-ink/10' : ''}`}
+          className={`ic-icon-btn ${createOpen ? 'bg-ink/10' : ''} ${me.role === 'light' ? 'hidden' : ''}`}
           title="Create a conversation or ticket"
         >
           <Plus className="w-[18px] h-[18px]" />
@@ -175,6 +179,19 @@ export const InboxNavPanel: React.FC<Props> = ({
                   ? <img src={a.avatar} alt="" className="w-[18px] h-[18px] rounded-full object-cover" />
                   : <span className="w-[18px] h-[18px] rounded-full bg-subtle text-[10px] font-semibold flex items-center justify-center">{a.name.charAt(0)}</span>,
                 counts?.byAgent?.[a.id] ?? 0))
+        )}
+
+        {/* Team inboxes (Settings › Teams) */}
+        {teams.length > 0 && (
+          <>
+            <button onClick={() => setTeamsOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+              <span>Team inboxes</span>
+              {teamsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
+            </button>
+            {teamsOpen && teams.map(t => item(`team:${t.id}`, t.name,
+              t.emoji ? <span className="text-[15px] leading-none">{t.emoji}</span> : <UsersRound className="w-[16px] h-[16px]" />,
+              counts?.byTeam?.[t.id] ?? 0))}
+          </>
         )}
 
         {/* Views by type */}

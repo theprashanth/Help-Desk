@@ -8,6 +8,7 @@ import { workspaceIdOf } from './workspace';
 import {
   INTEGRATION_EVENTS, IntegrationKind, buildSlackPayload, sendSlack, sendWebhook, recordDelivery, withIntegrationsLock,
 } from '../services/notifications';
+import { logAudit } from '../services/audit';
 
 const SLACK_URL_RE = /^https:\/\/hooks\.slack\.com\/(services|workflows|triggers)\//;
 
@@ -151,6 +152,7 @@ export async function updateSlack(req: AuthenticatedRequest, res: Response) {
       if (events !== undefined) next.events = events;
       return { ...current, slack: next };
     });
+    await logAudit(req, 'integration.slack', webhookUrl ? 'Connected or changed the Slack integration' : 'Changed Slack notification settings');
     return res.json(publicIntegrations(updated));
   } catch (err) {
     return handleError(res, err);
@@ -191,6 +193,7 @@ export async function updateWebhook(req: AuthenticatedRequest, res: Response) {
       if (events !== undefined) next.events = events;
       return { ...current, webhook: next };
     });
+    await logAudit(req, 'integration.webhook', url ? 'Connected or changed the webhook' : 'Changed webhook settings');
     return res.json(publicIntegrations(updated));
   } catch (err) {
     return handleError(res, err);

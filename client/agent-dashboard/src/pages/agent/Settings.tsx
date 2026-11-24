@@ -7,7 +7,7 @@ import {
   MessageSquare, Puzzle, Globe, ChevronRight,
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer, UsersRound, ScrollText, Contact
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
@@ -15,6 +15,9 @@ import { describeMacroActions } from '../../lib/macros';
 import ProfileSettings from '../../components/settings/ProfileSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import SlaSettings from '../../components/settings/SlaSettings';
+import TeamsSettings from '../../components/settings/TeamsSettings';
+import PeopleDataSettings from '../../components/settings/PeopleDataSettings';
+import AuditLogSettings from '../../components/settings/AuditLogSettings';
 import GeneralSettings from '../../components/settings/GeneralSettings';
 import IntegrationsSettings from '../../components/settings/IntegrationsSettings';
 import MessengerSettings, { MessengerTab } from '../../components/settings/MessengerSettings';
@@ -25,10 +28,10 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -846,6 +849,9 @@ export const Settings: React.FC = () => {
     teammates: 'Teammates',
     officeHours: 'Office hours',
     sla: 'SLAs',
+    teams: 'Teams',
+    peopleData: 'People data',
+    audit: 'Audit log',
     messenger: 'Messenger Live Chat',
     chatFlow: 'Chat flow',
     integrations: 'Integrations',
@@ -868,11 +874,13 @@ export const Settings: React.FC = () => {
             <SettingsNavGroup label="Workspace" open={openGroups.workspace} onToggle={() => toggleGroup('workspace')}>
               <SettingsNavItem icon={SlidersHorizontal} label="General" active={section === 'general'} onClick={() => setSection('general')} />
               <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
+              <SettingsNavItem icon={UsersRound} label="Teams" active={section === 'teams'} onClick={() => setSection('teams')} />
               <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
               <SettingsNavItem icon={Timer} label="SLAs" active={section === 'sla'} onClick={() => setSection('sla')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
+              <SettingsNavItem icon={ScrollText} label="Audit log" active={section === 'audit'} onClick={() => setSection('audit')} />
               <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => {}} soon />
             </SettingsNavGroup>
 
@@ -888,6 +896,7 @@ export const Settings: React.FC = () => {
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Data" open={openGroups.data} onToggle={() => toggleGroup('data')}>
+              <SettingsNavItem icon={Contact} label="People data" active={section === 'peopleData'} onClick={() => setSection('peopleData')} />
               <SettingsNavItem icon={ArrowUpDown} label="Imports & exports" active={section === 'data'} onClick={() => setSection('data')} />
             </SettingsNavGroup>
 
@@ -904,6 +913,9 @@ export const Settings: React.FC = () => {
         {section === 'teammates' && <TeammatesSettings onBack={() => setSection('home')} />}
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
         {section === 'sla' && <SlaSettings onBack={() => setSection('home')} />}
+        {section === 'teams' && <TeamsSettings onBack={() => setSection('home')} />}
+        {section === 'peopleData' && <PeopleDataSettings onBack={() => setSection('home')} />}
+        {section === 'audit' && <AuditLogSettings onBack={() => setSection('home')} />}
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}
         {section === 'integrations' && <IntegrationsSettings onBack={() => setSection('home')} />}
         {section === 'ai' && <AiSettings onBack={() => setSection('home')} />}

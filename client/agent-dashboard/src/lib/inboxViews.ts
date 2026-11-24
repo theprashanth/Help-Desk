@@ -20,7 +20,7 @@ export const STATE_FILTERS: { key: StateFilter; label: string }[] = [
 ];
 
 export const isInboxView = (id: string) =>
-  ['yours', 'created', 'all', 'unassigned', 'mentions', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:');
+  ['yours', 'created', 'all', 'unassigned', 'mentions', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:') || id.startsWith('team:');
 
 export const isBotView = (id: string) => id === 'bot' || id.startsWith('bot:');
 
@@ -47,6 +47,7 @@ export function viewParams(view: string, myId?: string): string {
   if (view === 'unassigned') return 'assignedAgentId=unassigned';
   if (view.startsWith('agent:')) return `assignedAgentId=${encodeURIComponent(view.slice(6))}`;
   if (view.startsWith('kind:')) return `kind=${encodeURIComponent(view.slice(5))}`;
+  if (view.startsWith('team:')) return `team=${encodeURIComponent(view.slice(5))}`;
   if (view === 'mentions') return 'mentions=me';
   if (view === 'bot') return 'bot=handled';
   if (view === 'bot:active') return 'bot=active';
@@ -61,6 +62,7 @@ export function matchesView(c: Conversation, view: string, myId?: string): boole
   if (view === 'unassigned') return !c.assignedAgentId;
   if (view.startsWith('agent:')) return c.assignedAgentId === view.slice(6);
   if (view.startsWith('kind:')) return (c.kind || 'conversation') === view.slice(5);
+  if (view.startsWith('team:')) return c.teamId === view.slice(5);
   if (view === 'mentions') return mentionedConversationIds.has(c.id);
   if (view === 'bot') return !!c.bot && c.bot.state !== 'handoff';
   if (view === 'bot:active') return c.bot?.state === 'menu' || c.bot?.state === 'confirm';

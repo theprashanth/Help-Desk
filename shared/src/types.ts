@@ -1,7 +1,8 @@
 export type TicketStatus = 'open' | 'waiting' | 'resolved' | 'closed' | 'archived' | 'merged';
 export type TicketPriority = 'none' | 'low' | 'medium' | 'high' | 'critical'; // critical is shown as "Urgent"
 export type TicketCategory = 'general' | 'bug' | 'payment' | 'subscription' | 'refund' | 'feature_request' | 'other';
-export type UserRole = 'admin' | 'support_agent';
+/** admin = everything; support_agent = conversations, no workspace settings or data; light = read-only, internal notes only. */
+export type UserRole = 'admin' | 'support_agent' | 'light';
 /** conversation = customer chat, ticket = customer ticket, issue = internal tracker ticket */
 export type ConversationKind = 'conversation' | 'ticket' | 'issue';
 
@@ -32,9 +33,11 @@ export interface Workspace {
   timezone?: string;               // IANA; office hours use this zone
   showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
   attributionText?: string;        // custom attribution text (default "Powered by Chai Samosa")
-  showStateToCustomer?: boolean;
+  showStateToCustomer?: boolean;   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
   sla?: SlaPolicy;                 // response-time targets (Settings › SLAs)
-  csatEnabled?: boolean;           // ask customers to rate resolved conversations (default true)   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
+  csatEnabled?: boolean;           // ask customers to rate resolved conversations (default true)
+  defaultTeamId?: string;          // new customer conversations go to this team inbox (Settings › Teams)
+  customerAttributes?: CustomAttributeDef[]; // custom people data (Settings › People data)
   snoozeOptions?: SnoozePreset[];  // custom snooze list (default list used when empty)
   // Settings > Office hours
   replyTimeNotice?: boolean;       // auto-tell customers the reply time when they start a conversation (default true)
@@ -181,6 +184,62 @@ export interface Customer {
   notes: string[]; // local inline notes or note IDs
   blocked?: boolean;     // can't send messages or start conversations (Block user)
   blockedAt?: string;
+  companyId?: string;    // the company this person belongs to
+  attributes?: Record<string, string | number | boolean>; // custom attributes (Settings › People data)
+}
+
+/** A custom field on people, defined once in Settings › People data and filled in per person. */
+export interface CustomAttributeDef {
+  key: string;           // stable id, e.g. "plan" (letters, digits, underscores)
+  label: string;         // "Plan"
+  type: 'text' | 'number' | 'boolean' | 'date' | 'list';
+  options?: string[];    // list type: the choices
+  archived?: boolean;    // hidden from the profile, values kept
+}
+
+/** A company people belong to (B2B support: see every conversation from the same account). */
+export interface Company {
+  id: string;
+  workspaceId?: string;
+  name: string;
+  website?: string;
+  plan?: string;
+  size?: number;         // number of employees
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** How a team inbox hands out new conversations. */
+export type AssignmentMethod = 'manual' | 'round_robin' | 'balanced';
+
+/** A team inbox (Settings › Teams). Conversations belong to a team and, optionally, a teammate. */
+export interface Team {
+  id: string;
+  workspaceId?: string;
+  name: string;
+  emoji?: string;
+  memberIds: string[];
+  assignment: {
+    method: AssignmentMethod;  // manual: stays unassigned; round_robin: take turns; balanced: fewest open conversations
+    capacity?: number;         // max open conversations per teammate before they're skipped (empty = no limit)
+    lastAssignedId?: string;   // round robin: who got the last one
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** Workspace audit log (Settings › Audit log): who changed settings, teammates or data, and when. */
+export interface AuditEntry {
+  id: string;
+  workspaceId?: string;
+  action: string;        // e.g. "settings.updated", "teammate.role_changed", "data.exported"
+  summary: string;       // "Changed SLA targets"
+  actor: { id: string; name: string } | null;
+  target?: string;       // what it was done to, e.g. a teammate's name
+  details?: Record<string, unknown>;
+  ip?: string;
+  createdAt?: string;
 }
 
 export interface MessageReaction {
@@ -246,6 +305,7 @@ export interface Conversation {
   rating?: ConversationRating;     // CSAT: the customer's rating after it was resolved
   csatRequestedAt?: string;        // when the Messenger last asked for a rating
   sla?: ConversationSla;           // the reply the customer is waiting on (Settings › SLAs)
+  teamId?: string;                 // team inbox it belongs to (Settings › Teams)
   createdAt: string;
   updatedAt: string;
 }

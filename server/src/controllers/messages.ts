@@ -57,6 +57,7 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     if (sender?.type !== 'customer' || isInternalNote) {
       // Agent replies and internal notes: only a logged-in teammate, and always as themselves
       if (!req.user) return res.status(401).json({ error: 'Only teammates can send replies or notes' });
+      if (req.user.role === 'light' && !isInternalNote) return res.status(403).json({ error: 'Your Light seat can add internal notes but not reply to customers.', code: 'light_seat' });
       const me = await RepositoryFactory.getUserRepository().findById(req.user.id);
       sender = { type: 'agent', id: req.user.id, name: me?.name || sender?.name || 'Agent', ...(me?.avatar ? { avatar: me.avatar } : {}) };
     } else if (!req.user && sender.id !== conv.customer.id) {

@@ -152,6 +152,21 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
   if ((before.title || '') !== (after.title || '') && after.title) {
     await recordEvent(id, 'attributes', `${who} changed the title to "${after.title}"`, actor, { field: 'title', to: after.title });
   }
+  if ((before.teamId || '') !== (after.teamId || '')) {
+    const { teamsRepo } = await import('./teams');
+    const team = after.teamId ? await teamsRepo.get(after.teamId) : null;
+    await recordEvent(id, 'assignment', team ? `${who} moved this to the ${team.name} team inbox` : `${who} removed this from its team inbox`, actor,
+      { field: 'teamId', to: after.teamId || null, targetName: team?.name });
+  }
+  if ((before.assignedAgentId || '') !== (after.assignedAgentId || '')) {
+    const assignee = after.assignedAgentId ? await RepositoryFactory.getUserRepository().findById(after.assignedAgentId) : null;
+    const auto = (before.teamId || '') !== (after.teamId || '') && !!assignee;
+    await recordEvent(id, 'assignment',
+      !assignee ? `${who} unassigned this conversation`
+        : auto ? `Auto-assigned to ${assignee.name} (team rule)`
+        : actor && actor.id === assignee.id ? `${who} assigned themselves` : `${who} assigned ${assignee.name}`,
+      auto ? undefined : actor, { targetId: assignee?.id || null, targetName: assignee?.name, auto });
+  }
   const beforeTags = before.tags || [];
   const afterTags = after.tags || [];
   for (const t of afterTags.filter(t => !beforeTags.includes(t))) {

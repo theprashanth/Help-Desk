@@ -8,6 +8,7 @@ import { ReplyTime, SnoozePreset, Workspace } from '../../../shared/src/types';
 import { isOpenAt, nextOpening, validateOfficeHours, isValidTimeZone, REPLY_TIMES } from '../services/officeHours';
 import { SocketService } from '../services/socket';
 import { slaPolicyOf, PRIORITIES, checkSlas } from '../services/sla';
+import { logAudit, changedKeys } from '../services/audit';
 
 export function workspaceIdOf(req: AuthenticatedRequest): string {
   return req.workspaceId || req.user?.workspaceId || 'default_workspace';
@@ -84,6 +85,7 @@ export async function updateOfficeHours(req: AuthenticatedRequest, res: Response
     if (typeof replyTimeNotice === 'boolean') updates.replyTimeNotice = replyTimeNotice;
     const updated = await RepositoryFactory.getWorkspaceRepository().update(workspaceIdOf(req), updates);
     if (!updated) return res.status(404).json({ error: 'Workspace not found' });
+    await logAudit(req, 'settings.office_hours', 'Changed office hours', { details: { replyTime, timezone: checked.value.timezone } });
     return res.json(officeHoursResponse(updated));
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -249,8 +251,13 @@ export async function updateWorkspace(req: AuthenticatedRequest, res: Response) 
     if (updates.timezone && current.officeHours && current.officeHours.timezone !== updates.timezone) {
       updates.officeHours = { ...current.officeHours, timezone: updates.timezone };
     }
+    const changed = changedKeys(current as any, updates as any);
     const updated = await repo.update(id, updates);
     if (!updated) return res.status(404).json({ error: 'Workspace not found' });
+    if (changed.length) {
+      const LABELS: Record<string, string> = { name: 'workspace name', customerFacingName: 'customer-facing name', timezone: 'time zone', showAttribution: 'attribution', attributionText: 'attribution text', showStateToCustomer: 'customer state lines', csatEnabled: 'CSAT', snoozeOptions: 'snooze options', sla: 'SLAs', officeHours: 'office hours' };
+      await logAudit(req, changed.includes('sla') && changed.length === 1 ? 'settings.sla' : 'settings.general', `Changed ${changed.map(k => LABELS[k] || k).join(', ')}`, { details: { fields: changed } });
+    }
     if (updates.sla) checkSlas().catch(() => {}); // apply new targets to open conversations now
     return res.json(workspaceSettingsResponse(updated));
   } catch (err: any) {
