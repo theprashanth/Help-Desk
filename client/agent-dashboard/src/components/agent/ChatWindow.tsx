@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, SavedReply } from '../../../../../shared/src/types';
@@ -87,6 +87,10 @@ const formatRelativeTime = (dateString: string) => {
   return `${diffDays}d`;
 };
 
+
+/** Messages of recently opened conversations, so switching back shows them at once (refreshed in the background). */
+const messageCache = new Map<string, Message[]>();
+const MESSAGE_CACHE_MAX = 40;
 
 export const ChatWindow: React.FC = () => {
   const snoozeOptions = useSnoozeOptions();
@@ -217,6 +221,10 @@ export const ChatWindow: React.FC = () => {
   const socket = useSocket();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const messagesForRef = useRef<string | null>(null); // which conversation `messages` belongs to
+  const jumpToBottomRef = useRef(true);                // next render: jump straight to the latest message
+  const nearBottomRef = useRef(true);                  // the reader is at (or close to) the latest message
   const composerRef = useRef<RichComposerHandle>(null);
   const typingTimeoutRef = useRef<any>(null);
   // @mentions in notes: teammate picker + who was mentioned in this draft
@@ -284,6 +292,7 @@ export const ChatWindow: React.FC = () => {
     if (!activeConversationId) {
       setTicket(null);
       setMessages([]);
+      messagesForRef.current = null;
       return;
     }
     const t = conversations.find(c => c.id === activeConversationId);
@@ -308,13 +317,26 @@ export const ChatWindow: React.FC = () => {
 
     socket.emit('join', activeConversationId);
 
+    // Show this conversation right away: its cached messages (or nothing) instead of the previous chat's,
+    // opened at the latest message
+    const convId = activeConversationId;
+    if (messagesForRef.current !== convId) {
+      messagesForRef.current = convId;
+      jumpToBottomRef.current = true;
+      nearBottomRef.current = true;
+      setMessages(messageCache.get(convId) || []);
+    }
+
     const fetchMessages = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/messages/${activeConversationId}`, {
+        const res = await fetch(`${BACKEND_URL}/api/messages/${convId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) {
           const data: Message[] = await res.json();
+          if (messagesForRef.current !== convId) return; // switched away meanwhile
+          // Fresh copy replaces the cached one; stay at the bottom if that's where the reader is
+          if (nearBottomRef.current) jumpToBottomRef.current = true;
           setMessages(data);
           
           // Mark seen on agent side
@@ -392,12 +414,37 @@ export const ChatWindow: React.FC = () => {
     };
   }, [activeConversationId, token, socket]);
 
-  // Scroll to bottom
+  // Keep the cache in step with what's on screen
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    const id = messagesForRef.current;
+    if (!id || id !== activeConversationId) return;
+    messageCache.delete(id);
+    messageCache.set(id, messages);
+    if (messageCache.size > MESSAGE_CACHE_MAX) messageCache.delete(messageCache.keys().next().value!);
+  }, [messages, activeConversationId]);
+
+  // Opening a conversation: jump straight to the latest message before the screen paints (no scrolling
+  // through the history). New messages afterwards glide in only if the reader is already at the bottom.
+  useLayoutEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    if (jumpToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+      if (messages.length) jumpToBottomRef.current = false;
+      nearBottomRef.current = true;
+    } else if (nearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }
-  }, [messages, customerTyping]);
+  }, [messages, customerTyping, activeConversationId]);
+
+  // Images load after the first paint and push content down: stay pinned to the bottom while they do
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!el) return;
+    const onLoad = () => { if (nearBottomRef.current) el.scrollTop = el.scrollHeight; };
+    el.addEventListener('load', onLoad, true);
+    return () => el.removeEventListener('load', onLoad, true);
+  }, [activeConversationId]);
 
   // Input changes & saved replies triggers
   const handleInputChange = (val: string) => {
@@ -593,6 +640,8 @@ export const ChatWindow: React.FC = () => {
       }
     }
 
+    // Your own message: show it, even if you'd scrolled up (it can arrive over the socket before the response)
+    jumpToBottomRef.current = true;
     try {
       const res = await fetch(`${BACKEND_URL}/api/messages`, {
         method: 'POST',
@@ -824,7 +873,8 @@ export const ChatWindow: React.FC = () => {
     if (!focusMessageId || !messages.some(x => x.id === focusMessageId)) return;
     const el = document.getElementById(`msg-${focusMessageId}`);
     if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      nearBottomRef.current = false; // reading an older message: don't snap back to the bottom
+      el.scrollIntoView({ behavior: 'auto', block: 'center' });
       setHighlightMsgId(focusMessageId);
       setTimeout(() => setHighlightMsgId(null), 2400);
     }
@@ -1346,7 +1396,11 @@ export const ChatWindow: React.FC = () => {
       )}
 
       {/* Message feed */}
-      <div className="flex-1 overflow-y-auto px-8 py-8 flex flex-col gap-4">
+      <div
+        ref={feedRef}
+        onScroll={e => { const el = e.currentTarget; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160; }}
+        className="flex-1 overflow-y-auto px-8 py-8 flex flex-col gap-4"
+      >
         {visibleMessages.map((m, idx) => {
           // Conversation event row (status, assignment, priority, ...)
           if (isEvent(m)) {

@@ -22,14 +22,17 @@ async function customerOwnsConversation(req: AuthenticatedRequest, conversationI
 
 export async function getMessages(req: AuthenticatedRequest, res: Response) {
   const { conversationId } = req.params;
-  const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
-  const skip = req.query.skip ? parseInt(req.query.skip as string) : 0;
+  const limit = Math.min(1000, Math.max(1, req.query.limit ? parseInt(req.query.limit as string) || 300 : 300));
 
   try {
     if (!req.user && !(await customerOwnsConversation(req, conversationId))) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
     const msgRepo = RepositoryFactory.getMessageRepository();
+    // The newest `limit` messages, oldest first (an explicit ?skip= still pages from the start)
+    const skip = req.query.skip !== undefined
+      ? Math.max(0, parseInt(req.query.skip as string) || 0)
+      : Math.max(0, (await msgRepo.countMessages(conversationId)) - limit);
     const list = await msgRepo.findByConversationId(conversationId, limit, skip);
     // Customers (no agent token) never see internal notes or conversation events
     const visible = req.user ? list : list.filter(m => !m.isInternalNote && (m.sender?.type !== 'system' || CUSTOMER_SYSTEM_TYPES.includes(m.metadata?.type)));
