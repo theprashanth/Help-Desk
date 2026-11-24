@@ -10,7 +10,7 @@ import { refreshSla } from '../services/sla';
 import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
 import { deliverAgentReply } from '../services/email';
-import { inBackground, translateCustomerMessage } from '../services/aiAssist';
+import { inBackground, translateCustomerMessage, onCustomerTyped } from '../services/aiAssist';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
 async function customerOwnsConversation(req: AuthenticatedRequest, conversationId: string): Promise<boolean> {
@@ -182,6 +182,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     // AI translation of the customer's message for the team (Settings › AI assistant)
     if (sender.type === 'customer' && !isInternalNote && content) {
       inBackground('translation', () => translateCustomerMessage(conversationId, createdMsg.id));
+      // Bot chats: the customer's first typed message is when the hand-off summary and triage can say something useful
+      if (conv.bot) inBackground('hand-off', () => onCustomerTyped(conversationId, createdMsg.id));
     }
     // Customer wrote → their clock may start; a teammate replied → it stops
     if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);

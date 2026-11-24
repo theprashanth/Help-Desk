@@ -208,6 +208,38 @@ export async function translateReply(conversationId: string, text: string): Prom
   return { text: translated.trim(), language: conv.language };
 }
 
+// ── Bot hand-off ───────────────────────────────────────────────────────────
+
+/** Something the customer typed themselves (not a chat-flow button or details answer). */
+const isTyped = (m: Message) => m.sender.type === 'customer' && !m.isInternalNote && m.metadata?.type !== 'bot_choice' && !!m.content?.trim();
+
+/**
+ * The bot handed a chat to the team. Summarize and triage only once the customer has said what
+ * they need: now if they've already typed something, otherwise on their first typed message
+ * (see onCustomerTyped). Tapping "Other" alone gives the AI nothing to work with.
+ */
+export async function afterBotHandoff(conversationId: string): Promise<void> {
+  const messages = await RepositoryFactory.getMessageRepository().findByConversationId(conversationId, 100_000);
+  if (!messages.some(isTyped)) return; // wait for their first message
+  await summarizeHandoffOnce(conversationId, messages);
+  await triageConversation(conversationId);
+}
+
+/** A customer typed in a chat the bot handled: if it's their first typed message, summarize and triage now. */
+export async function onCustomerTyped(conversationId: string, messageId: string): Promise<void> {
+  const conv = await RepositoryFactory.getConversationRepository().findById(conversationId);
+  if (!conv?.bot) return; // only chats that started with the bot
+  const messages = await RepositoryFactory.getMessageRepository().findByConversationId(conversationId, 100_000);
+  if (messages.some(m => m.id !== messageId && isTyped(m))) return; // not their first typed message
+  await summarizeHandoffOnce(conversationId, messages);
+  await triageConversation(conversationId);
+}
+
+async function summarizeHandoffOnce(conversationId: string, messages: Message[]) {
+  if (messages.some(m => m.metadata?.type === 'ai_summary' && m.metadata?.reason === 'handoff')) return;
+  await summarizeConversation(conversationId, { reason: 'handoff' });
+}
+
 /** Run an AI side task without holding up the request; failures only go to the log. */
 export function inBackground(label: string, task: () => Promise<unknown>) {
   task().catch(err => console.warn(`[AI] ${label} skipped: ${err?.message || err}`));
