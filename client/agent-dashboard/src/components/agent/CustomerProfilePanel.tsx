@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../../store/useStore';
 import { Customer } from '../../../../../shared/src/types';
 import { 
-  Mail, Phone, Globe, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
+  Mail, Phone, Monitor, Tag as TagIcon, Plus, X, Edit2, Check, 
   FileText, ChevronDown, ChevronUp, User, Users, ExternalLink, 
   Sidebar, Link2, ShieldAlert, Sparkles, MessageSquare, Copy, Eye, Layers, UserRound
 } from 'lucide-react';
@@ -16,14 +17,42 @@ import { useTeams } from '../../lib/teams';
 
 const BACKEND_URL = 'http://localhost:3000';
 
+/**
+ * Hover tooltip with the full value. Drawn on top of everything (portal) and kept inside the window,
+ * so long values such as a User ID are never cut off by the sidebar's edge; very long values wrap.
+ */
 const InstantTooltip: React.FC<{ children: React.ReactNode; text: string }> = ({ children, text }) => {
+  const ref = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; below: boolean } | null>(null);
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || !text) return;
+    setPos({ left: r.left + r.width / 2, top: r.top, below: r.top < 48 });
+  };
+  // After it renders, slide it back inside the window if it would stick out at either side
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    if (!pos || !tip) return;
+    const w = tip.offsetWidth;
+    const margin = 8;
+    const left = Math.min(Math.max(pos.left - w / 2, margin), window.innerWidth - w - margin);
+    tip.style.left = `${left}px`;
+    tip.style.visibility = 'visible';
+  }, [pos]);
   return (
-    <div className="relative group/tooltip min-w-0">
+    <div ref={ref} className="relative min-w-0" onMouseEnter={show} onMouseLeave={() => setPos(null)}>
       {children}
-      {text && (
-        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 bg-ink text-on-ink text-[12px] font-medium rounded-md shadow-pop opacity-0 pointer-events-none group-hover/tooltip:opacity-100 transition-opacity duration-100 whitespace-nowrap">
+      {pos && text && createPortal(
+        <div
+          ref={tipRef}
+          role="tooltip"
+          style={{ position: 'fixed', top: pos.below ? pos.top + 28 : pos.top - 6, transform: pos.below ? undefined : 'translateY(-100%)', visibility: 'hidden' }}
+          className="z-[80] max-w-[min(360px,calc(100vw-16px))] px-2.5 py-1.5 bg-ink text-on-ink text-[12px] leading-snug font-medium rounded-md shadow-pop pointer-events-none break-all"
+        >
           {text}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -423,7 +452,8 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
     const tz = customer.session?.timezone;
     if (!tz) return '';
     try {
-      return new Date(clock).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', timeZone: tz });
+      // "1:28 PM", like Intercom (not the browser's 24-hour format)
+      return new Date(clock).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz });
     } catch { return ''; }
   })();
 
@@ -761,10 +791,9 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                   <div className="ic-detail-row group relative">
                     <span className="ic-detail-label">Location</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
-                      <InstantTooltip text={`${localTime ? localTime + ' local time · ' : ''}${customer.session?.country || 'Unknown'}`}>
-                        <span className="ic-detail-value flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-muted shrink-0" />
-                          <span className="truncate">{localTime ? `${localTime} · ` : ''}{customer.session?.country || 'Unknown'}</span>
+                      <InstantTooltip text={`${localTime ? localTime + ' · ' : ''}${customer.session?.country || 'Unknown'}`}>
+                        <span className="ic-detail-value block truncate">
+                          {localTime ? `${localTime} · ` : ''}{customer.session?.country || 'Unknown'}
                         </span>
                       </InstantTooltip>
                       {renderCopyButton(customer.session?.country, 'location')}
