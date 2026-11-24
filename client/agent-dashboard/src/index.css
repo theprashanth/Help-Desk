@@ -197,7 +197,7 @@
     @apply flex items-end gap-7 border-b border-line px-5;
   }
   .ic-tab {
-    @apply relative pb-3 pt-1 text-[15px] font-medium text-muted hover:text-ink transition-colors whitespace-nowrap;
+    @apply relative pb-3 pt-1 text-[14px] font-medium text-muted hover:text-ink transition-colors whitespace-nowrap;
   }
   .ic-tab-active {
     @apply text-ink after:absolute after:left-0 after:right-0 after:-bottom-px after:h-[2px] after:rounded-full after:bg-accent;
@@ -228,7 +228,7 @@
 
   /* ---- Detail rows (label / value) in details sidebar ---- */
   .ic-detail-row {
-    @apply grid grid-cols-[112px_1fr] items-center gap-3 min-h-[36px] text-[14px];
+    @apply grid grid-cols-[112px_1fr] items-center gap-3 min-h-[30px] text-[13px];
   }
   .ic-detail-label {
     @apply text-muted truncate;
@@ -237,11 +237,19 @@
     @apply text-ink truncate min-w-0;
   }
   .ic-detail-section {
-    @apply border-b border-line px-5 py-4;
+    @apply border-b border-line px-5 py-3;
   }
   .ic-detail-section-title {
-    @apply flex items-center gap-2.5 text-[15px] font-semibold text-ink;
+    @apply flex items-center gap-2 text-[14px] font-semibold text-ink;
   }
+  /* Section icons: 16px like Intercom (overrides the 18px set on each icon) */
+  .ic-detail-section-title > svg { width: 16px; height: 16px; }
+  /* Sidebar scrolling without a permanent scrollbar (it appears while hovering the panel) */
+  .ic-scroll-quiet { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+  .ic-scroll-quiet:hover { scrollbar-color: rgb(var(--ic-faint, 160 160 160) / 0.5) transparent; }
+  .ic-scroll-quiet::-webkit-scrollbar { width: 6px; }
+  .ic-scroll-quiet::-webkit-scrollbar-thumb { background: transparent; border-radius: 3px; }
+  .ic-scroll-quiet:hover::-webkit-scrollbar-thumb { background: rgba(128, 128, 128, 0.35); }
 
   /* ---- Menus / popovers ---- */
   .ic-menu {
@@ -342,3 +350,7 @@
 .rich-composer:empty::before { content: attr(data-placeholder); color: rgb(var(--ic-faint)); pointer-events: none; }
 .rich-composer strong, .rich-composer b { font-weight: 700; }
 .rich-composer code { font-family: ui-monospace, monospace; font-size: 13px; background: rgba(0,0,0,.06); padding: 1px 4px; border-radius: 4px; }
+
+/* Horizontal chip rows (e.g. suggested replies): scroll without showing a scrollbar */
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
