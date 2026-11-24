@@ -3,6 +3,7 @@ import { tenantStorage } from '../context/tenant.context';
 import { SocketService, AGENTS_ROOM } from './socket';
 import { recordUpdateEvents } from './events';
 import { checkSlas } from './sla';
+import { checkEmail } from './email';
 
 /**
  * Background jobs, every 30 seconds. SLA clocks are refreshed and breaches recorded (services/sla.ts).
@@ -35,6 +36,7 @@ export function startScheduler() {
     running = true;
     try { await wakeSnoozed(); } catch (err: any) { console.error('[Scheduler] Snooze wake-up failed:', err.message); }
     try { await checkSlas(); } catch (err: any) { console.error('[Scheduler] SLA check failed:', err.message); }
+    try { await checkEmail(); } catch (err: any) { console.error('[Scheduler] Email check failed:', err.message); }
     finally { running = false; }
   };
   setTimeout(tick, 5000);

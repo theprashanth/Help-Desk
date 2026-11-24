@@ -7,7 +7,7 @@ import {
   MessageSquare, Puzzle, Globe, ChevronRight,
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
-  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer, UsersRound, ScrollText, Contact
+  Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer, UsersRound, ScrollText, Contact, BookOpen, Megaphone
 } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
@@ -16,6 +16,9 @@ import ProfileSettings from '../../components/settings/ProfileSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import SlaSettings from '../../components/settings/SlaSettings';
 import TeamsSettings from '../../components/settings/TeamsSettings';
+import EmailSettings from '../../components/settings/EmailSettings';
+import KnowledgeBaseSettings from '../../components/settings/KnowledgeBaseSettings';
+import OutboundSettings from '../../components/settings/OutboundSettings';
 import PeopleDataSettings from '../../components/settings/PeopleDataSettings';
 import AuditLogSettings from '../../components/settings/AuditLogSettings';
 import GeneralSettings from '../../components/settings/GeneralSettings';
@@ -28,10 +31,10 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit';
+type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['email', 'help', 'outbound', 'teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -836,7 +839,7 @@ export const Settings: React.FC = () => {
 
   // Purely visual: which sidebar groups are expanded
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    workspace: true, channels: true, inbox: true, data: true, personal: true,
+    workspace: true, channels: true, engage: true, inbox: true, data: true, personal: true,
   });
   const toggleGroup = (key: string) => setOpenGroups(g => ({ ...g, [key]: !g[key] }));
 
@@ -852,6 +855,9 @@ export const Settings: React.FC = () => {
     teams: 'Teams',
     peopleData: 'People data',
     audit: 'Audit log',
+    email: 'Email',
+    help: 'Knowledge base',
+    outbound: 'Proactive messages',
     messenger: 'Messenger Live Chat',
     chatFlow: 'Chat flow',
     integrations: 'Integrations',
@@ -887,8 +893,13 @@ export const Settings: React.FC = () => {
             <SettingsNavGroup label="Channels" open={openGroups.channels} onToggle={() => toggleGroup('channels')}>
               <SettingsNavItem icon={MessageSquare} label="Messenger Live Chat" active={section === 'messenger'} onClick={() => { setMessengerTab('overview'); setSection('messenger'); }} />
               <SettingsNavItem icon={Workflow} label="Chat flow" active={section === 'chatFlow'} onClick={() => setSection('chatFlow')} />
-              <SettingsNavItem icon={Mail} label="Email" active={false} onClick={() => {}} soon />
+              <SettingsNavItem icon={Mail} label="Email" active={section === 'email'} onClick={() => setSection('email')} />
               <SettingsNavItem icon={Phone} label="Phone" active={false} onClick={() => {}} soon />
+            </SettingsNavGroup>
+
+            <SettingsNavGroup label="Self-service & outreach" open={openGroups.engage} onToggle={() => toggleGroup('engage')}>
+              <SettingsNavItem icon={BookOpen} label="Knowledge base" active={section === 'help'} onClick={() => setSection('help')} />
+              <SettingsNavItem icon={Megaphone} label="Proactive messages" active={section === 'outbound'} onClick={() => setSection('outbound')} />
             </SettingsNavGroup>
 
             <SettingsNavGroup label="Inbox" open={openGroups.inbox} onToggle={() => toggleGroup('inbox')}>
@@ -914,6 +925,9 @@ export const Settings: React.FC = () => {
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
         {section === 'sla' && <SlaSettings onBack={() => setSection('home')} />}
         {section === 'teams' && <TeamsSettings onBack={() => setSection('home')} />}
+        {section === 'email' && <EmailSettings onBack={() => setSection('home')} />}
+        {section === 'help' && <KnowledgeBaseSettings onBack={() => setSection('home')} />}
+        {section === 'outbound' && <OutboundSettings onBack={() => setSection('home')} />}
         {section === 'peopleData' && <PeopleDataSettings onBack={() => setSection('home')} />}
         {section === 'audit' && <AuditLogSettings onBack={() => setSection('home')} />}
         {section === 'general' && <GeneralSettings onBack={() => setSection('home')} />}

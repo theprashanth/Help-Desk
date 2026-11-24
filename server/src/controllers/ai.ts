@@ -4,6 +4,7 @@ import { RepositoryFactory } from '../repositories/factory';
 import { AiProvider, AiSettings, Workspace } from '../../../shared/src/types';
 import { AiError, AskTurn, DEFAULT_MODELS, complete, systemPrompt, transcriptOf } from '../services/ai';
 import { logAudit } from '../services/audit';
+import { relevantArticles } from './help';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'openai_compatible'];
@@ -129,8 +130,14 @@ export async function askAi(req: AuthenticatedRequest, res: Response) {
 
   try {
     const name = (ws.customerFacingName || '').trim() || ws.name;
-    const answer = await complete(ai, systemPrompt(name, conv, transcriptOf(conv, messages), ai.instructions), turns);
-    return res.json({ answer, action: action === 'draft' ? 'draft' : 'ask', model: ai.model });
+    // Knowledge base: the published articles closest to the question and the customer's latest messages
+    const lastCustomer = messages.filter(m => m.sender.type === 'customer' && !m.isInternalNote).slice(-3).map(m => m.content).join(' ');
+    const articles = await relevantArticles(`${q} ${lastCustomer}`, 3);
+    const kb = articles.length
+      ? `\n\nHelp center articles from this workspace's knowledge base. Prefer them over guessing, and name the article you used (e.g. "See: <title>"):\n${articles.map(a => `### ${a.title}\n${a.body.slice(0, 3000)}`).join('\n\n')}`
+      : '';
+    const answer = await complete(ai, systemPrompt(name, conv, transcriptOf(conv, messages), ai.instructions) + kb, turns);
+    return res.json({ answer, action: action === 'draft' ? 'draft' : 'ask', model: ai.model, articles: articles.map(a => ({ id: a.id, title: a.title })) });
   } catch (e: any) {
     return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message });
   }

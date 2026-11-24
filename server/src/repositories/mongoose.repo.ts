@@ -68,6 +68,7 @@ const mapWorkspace = (doc: any): Workspace => ({
   showStateToCustomer: doc.showStateToCustomer,
   csatEnabled: doc.csatEnabled,
   defaultTeamId: doc.defaultTeamId || undefined,
+  email: doc.email || undefined,
   customerAttributes: doc.customerAttributes || undefined,
   sla: doc.sla || undefined,
   ai: doc.ai || undefined,
@@ -359,6 +360,8 @@ export class MongooseConversationRepository implements IConversationRepository {
       csatRequestedAt: doc.csatRequestedAt || undefined,
       sla: doc.sla || undefined,
       teamId: doc.teamId || undefined,
+      channel: (doc.channel as any) || undefined,
+      email: doc.email || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -400,6 +403,9 @@ export class MongooseConversationRepository implements IConversationRepository {
       attributes: conv.attributes || {},
       sharing: conv.sharing || 'shared',
       bot: conv.bot,
+      teamId: conv.teamId,
+      channel: conv.channel,
+      email: conv.email,
     });
     await doc.save();
     return this.buildConversationObject(doc);

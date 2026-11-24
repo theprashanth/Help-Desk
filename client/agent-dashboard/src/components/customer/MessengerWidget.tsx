@@ -4,6 +4,8 @@ import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance
 import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight } from 'lucide-react';
 import TimeHover from '../ui/TimeHover';
 import CsatCard from './CsatCard';
+import { createPortal } from 'react-dom';
+import { HelpCenter, HelpHomeCard, ArticleSuggestions, HelpView } from './HelpCenter';
 import { shortAgo } from '../../lib/timeAgo';
 
 /** What the customer sees: no internal notes or team events, but customer-facing state lines ("Ticket resolved"). */
@@ -121,7 +123,15 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [resetNonce, setResetNonce] = useState(0);           // bumps on shutdown (logout)
   const parentOriginRef = useRef<string | null>(null);
   const [isOpen, setIsOpen] = useState(fullscreen);
-  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'all'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'all' | 'help'>('home');
+  const [helpView, setHelpView] = useState<HelpView>({ kind: 'home' });
+  const openHelp = (v: HelpView) => { setHelpView(v); setActiveTab('help'); };
+  // Proactive messages (Settings › Proactive messages): a chat message popping up from the launcher, or a page banner
+  type Outbound = { id: string; kind: 'chat' | 'banner'; body: string; link?: { label: string; url: string }; bannerStyle: 'info' | 'promo'; sender: { name: string; avatar?: string } | null };
+  const [outboundChat, setOutboundChat] = useState<Outbound | null>(null);     // preview above the launcher
+  const [pendingOutbound, setPendingOutbound] = useState<Outbound | null>(null); // opened: the reply starts a conversation
+  const [banner, setBanner] = useState<Outbound | null>(null);
+  const [hostUrl, setHostUrl] = useState('');
   const [guestId, setGuestId] = useState('');
   // Every request names the app (workspace) and, once known, this visitor's User id — the server only
   // returns a conversation to the customer it belongs to.
@@ -415,10 +425,18 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       if (type === 'boot') {
         parentOriginRef.current = e.origin; // the browser guarantees this is the real host site
         hostPageRef.current = { host: new URL(e.origin).host, url: typeof page?.url === 'string' ? page.url : e.origin };
+        setHostUrl(hostPageRef.current.url);
         setIdentity(identityFromSettings(settings));
         setBooted(true);
       } else if (type === 'update') {
-        setIdentity(prev => ({ ...prev, ...identityFromSettings(settings) }));
+        if (settings) setIdentity(prev => ({ ...prev, ...identityFromSettings(settings) }));
+        if (typeof page?.url === 'string') setHostUrl(page.url);
+      } else if (type === 'page') {
+        if (typeof page?.url === 'string') setHostUrl(page.url); // the host page navigated (single-page apps)
+      } else if (type === 'banner-dismissed' || type === 'banner-clicked') {
+        const id = e.data.id;
+        if (typeof id === 'string') outboundEventRef.current(id, type === 'banner-dismissed' ? 'dismissed' : 'opened');
+        if (type === 'banner-dismissed') setBanner(null);
       } else if (type === 'shutdown') {
         setIdentity({});
         resetVisitor();
@@ -434,9 +452,54 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   }, [embedded, resetVisitor]);
 
   // Tell the host how big the iframe must be (closed = just the launcher, open = the panel)
+  const showPreview = !!outboundChat && !isOpen;
   useEffect(() => {
-    if (booted) postToHost({ type: 'resize', open: isOpen, position: look.launcherPosition, showLauncher: look.showLauncher, hidden: blocked });
-  }, [booted, isOpen, look.launcherPosition, look.showLauncher, blocked, postToHost]);
+    if (booted) postToHost({ type: 'resize', open: isOpen, preview: showPreview, position: look.launcherPosition, showLauncher: look.showLauncher, hidden: blocked });
+  }, [booted, isOpen, showPreview, look.launcherPosition, look.showLauncher, blocked, postToHost]);
+
+  // ── Proactive messages ───────────────────────────────────────────────────
+  const outboundEventRef = useRef<(id: string, event: 'opened' | 'dismissed') => void>(() => {});
+  outboundEventRef.current = (id, event) => {
+    api(`/api/messenger/outbound/${id}/event`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId: guestIdRef.current, event }) }).catch(() => {});
+  };
+  const pageUrl = embedded ? hostUrl : (typeof window !== 'undefined' ? window.location.href : '');
+  useEffect(() => {
+    if (!booted || blocked || !guestId || (embedded && !pageUrl)) return;
+    let cancelled = false;
+    api('/api/messenger/outbound', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customerId: guestId, url: pageUrl }) })
+      .then(r => (r.ok ? r.json() : []))
+      .then((list: Outbound[]) => {
+        if (cancelled || !Array.isArray(list)) return;
+        const chat = list.find(m => m.kind === 'chat');
+        if (chat) setOutboundChat(prev => prev || chat);
+        setBanner(list.find(m => m.kind === 'banner') || null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [booted, blocked, guestId, pageUrl, embedded, api]);
+  // Embedded: the host page draws the banner (outside the iframe)
+  useEffect(() => {
+    if (!embedded || !booted) return;
+    postToHost({ type: 'banner', banner: banner ? { id: banner.id, body: banner.body, link: banner.link, style: banner.bannerStyle, color: look.themeColor } : null });
+  }, [banner, embedded, booted, postToHost, look.themeColor]);
+  const openOutboundChat = () => {
+    if (!outboundChat) return;
+    outboundEventRef.current(outboundChat.id, 'opened');
+    setPendingOutbound(outboundChat);
+    setOutboundChat(null);
+    setActiveConv(null);
+    setChatMessages([]);
+    setFlowIntake(null);
+    setFlowError(null);
+    setIsPendingNewConv(true);
+    setActiveTab('chat');
+    setIsOpen(true);
+  };
+  const dismissOutboundChat = () => {
+    if (!outboundChat) return;
+    outboundEventRef.current(outboundChat.id, 'dismissed');
+    setOutboundChat(null);
+  };
 
   // Boot check: is the Messenger allowed on this site, and does the logged-in identity verify?
   const hostPageRef = useRef<{ host: string; url: string } | null>(null);
@@ -771,6 +834,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   };
 
   const startNewConversation = () => {
+    setPendingOutbound(null);
     setActiveConv(null);
     setChatMessages([]);
     setIsPendingNewConv(true);
@@ -810,6 +874,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             phone: store.get('customer_guest_phone') || undefined,
             initialMessage: content,
             initialAttachments: attachments,
+            ...(pendingOutbound ? { outboundId: pendingOutbound.id } : {}),
             messageMetadata: getDeviceMetadata(),
             session: {
               browser: parseBrowser(),
@@ -831,6 +896,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
           setLocalConversations(prev => [conv, ...prev]);
           setActiveConv(conv);
           setIsPendingNewConv(false);
+          setPendingOutbound(null);
           // Fetch the messages that now include the initial message
           const msgRes = await api(`/api/messages/${conv.id}`);
           if (msgRes.ok) {
@@ -981,7 +1047,11 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                 {activeTab !== 'home' && (
                   <button
                     title="Back"
-                    onClick={() => { setActiveTab('home'); setIsPendingNewConv(false); setFlowIntake(null); setFlowError(null); }}
+                    onClick={() => {
+                      // In the help center, go up one level first
+                      if (activeTab === 'help' && helpView.kind !== 'home') { setHelpView({ kind: 'home' }); return; }
+                      setActiveTab('home'); setIsPendingNewConv(false); setPendingOutbound(null); setFlowIntake(null); setFlowError(null);
+                    }}
                     className="p-1 rounded-full hover:bg-white/10 mr-1 transition-colors"
                   >
                     <ArrowLeft className="w-5 h-5" />
@@ -1047,6 +1117,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                     Start a New Chat
                   </button>
 
+                  {/* Knowledge base: search + popular articles */}
+                  <HelpHomeCard api={api} themeColor={themeColor} onOpen={openHelp} />
+
                   {/* Recent conversations: the latest two; the rest under "See all" */}
                   {sortedConversations.length > 0 && (
                     <div className="flex flex-col gap-2.5 text-left mt-2 border-t border-slate-100 dark:border-slate-800/80 pt-5">
@@ -1065,6 +1138,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                   )}
                 </div>
                 </div>
+              ) : activeTab === 'help' ? (
+                <HelpCenter api={api} themeColor={themeColor} view={helpView} onNavigate={setHelpView} onAskTeam={startNewConversation} />
               ) : activeTab === 'all' ? (
                 /* All conversations */
                 <div className="p-4 flex flex-col gap-3">
@@ -1124,6 +1199,13 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                         </>
                       );
                     })()}
+
+                    {isPendingNewConv && pendingOutbound && (
+                      <div className="flex flex-col max-w-[85%] self-start items-start">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 mb-1 px-1">{pendingOutbound.sender?.name || look.brandName}</span>
+                        <div className={`p-3 rounded-2xl rounded-tl-none text-sm ${recipientBubbleClass}`}>{formatMarkdown(pendingOutbound.body)}</div>
+                      </div>
+                    )}
 
                     {chatMessages.map((m, idx) => {
                       // Ticket state lines: in progress / waiting on you / resolved / closed (Settings › General)
@@ -1278,6 +1360,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                       </div>
                     )}
 
+                    {isPendingNewConv && !pendingOutbound && !flowIntake && (
+                      <ArticleSuggestions api={api} text={inputText} onOpen={id => openHelp({ kind: 'article', id })} />
+                    )}
+
                     {sendError && (
                       <div className="mb-2 px-3 py-2 rounded-xl bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-300 text-xs flex items-start gap-2" role="alert">
                         <span className="flex-1">{sendError}</span>
@@ -1389,6 +1475,35 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Proactive chat message, popping up from the launcher */}
+      {showPreview && outboundChat && (
+        <div className="mb-3 w-[300px] max-w-[calc(100vw-24px)] relative">
+          <button onClick={dismissOutboundChat} aria-label="Dismiss" className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-slate-700 text-white flex items-center justify-center shadow z-10"><X className="w-3.5 h-3.5" /></button>
+          <button onClick={openOutboundChat} className="w-full text-left rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl p-4">
+            <span className="flex items-center gap-2 mb-1.5">
+              {outboundChat.sender?.avatar
+                ? <img src={outboundChat.sender.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+                : <span className="w-6 h-6 rounded-full text-white text-[11px] font-semibold flex items-center justify-center uppercase" style={{ background: themeColor }}>{(outboundChat.sender?.name || look.brandName).charAt(0)}</span>}
+              <span className="text-xs text-slate-500">{outboundChat.sender?.name || look.brandName}</span>
+            </span>
+            <span className="block text-sm text-slate-800 dark:text-slate-100 line-clamp-4">{formatMarkdown(outboundChat.body)}</span>
+          </button>
+        </div>
+      )}
+
+      {/* Page banner: drawn here in the demo; embedded, the host page draws it (messenger.js) */}
+      {!embedded && !fullscreen && banner && typeof document !== 'undefined' && createPortal(
+        <div className={`fixed top-0 inset-x-0 z-[60] px-4 py-2.5 flex items-center gap-3 text-sm shadow ${banner.bannerStyle === 'promo' ? 'text-white' : 'bg-white text-slate-800 border-b border-slate-200'}`}
+          style={banner.bannerStyle === 'promo' ? { background: themeColor } : undefined} role="status">
+          <span className="flex-1 min-w-0 text-center">{formatMarkdown(banner.body)}</span>
+          {banner.link && (
+            <a href={banner.link.url} target="_blank" rel="noreferrer" onClick={() => outboundEventRef.current(banner.id, 'opened')} className="shrink-0 font-semibold underline">{banner.link.label}</a>
+          )}
+          <button onClick={() => { outboundEventRef.current(banner.id, 'dismissed'); setBanner(null); }} aria-label="Dismiss banner" className="shrink-0 opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
+        </div>,
+        document.body,
+      )}
 
       {/* Floating launcher bubble — uses themeColor (hidden in mobile apps or when turned off) */}
       {look.showLauncher && (

@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Copy, Check, CornerDownLeft, Loader2, RotateCcw, Settings2, Sparkles } from 'lucide-react';
+import { ArrowUp, Copy, Check, CornerDownLeft, Loader2, RotateCcw, Settings2, Sparkles, BookOpen } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { RichText } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Turn = { id: number; role: 'user' | 'assistant'; content: string; draft?: boolean; error?: boolean };
+type Turn = { id: number; role: 'user' | 'assistant'; content: string; draft?: boolean; error?: boolean; articles?: { id: string; title: string }[] };
 type Status = { enabled: boolean; configured: boolean; provider: string; model: string } | null;
 
 const QUICK: { label: string; question: string; action: 'ask' | 'draft' }[] = [
@@ -63,7 +63,7 @@ export const AskAiPanel: React.FC<{ conversationId: string }> = ({ conversationI
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Ask AI failed');
-      setTurns(prev => [...prev, { id: ++seq, role: 'assistant', content: data.answer, draft: action === 'draft' }]);
+      setTurns(prev => [...prev, { id: ++seq, role: 'assistant', content: data.answer, draft: action === 'draft', articles: Array.isArray(data.articles) ? data.articles : [] }]);
     } catch (e: any) {
       setTurns(prev => [...prev, { id: ++seq, role: 'assistant', content: e.message, error: true }]);
     } finally {
@@ -135,6 +135,12 @@ export const AskAiPanel: React.FC<{ conversationId: string }> = ({ conversationI
               </div>
             )}
             <div className="whitespace-pre-wrap"><RichText text={t.content} /></div>
+            {!!t.articles?.length && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+                <BookOpen className="w-3.5 h-3.5" /> From the knowledge base:
+                {t.articles.map(a => <span key={a.id} className="ic-badge h-6 px-2 text-[12px] text-ink">{a.title}</span>)}
+              </div>
+            )}
             {!t.error && (
               <div className="flex items-center gap-1 mt-2.5 -mb-1">
                 <button

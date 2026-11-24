@@ -8,6 +8,7 @@ import { refreshSla } from '../services/sla';
 import { routeNewConversation, teamsRepo, pickFromTeam } from '../services/teams';
 import { companiesRepo, cleanAttributeValues } from './org';
 import { logAudit } from '../services/audit';
+import { outboundForReply, markOutboundReplied } from './outbound';
 import { toCustomerView, isCustomerVisible, computeCustomerSnippet, plainText } from '../services/conversationView';
 import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
@@ -78,7 +79,7 @@ export async function getTicket(req: AuthenticatedRequest, res: Response) {
 }
 
 export async function createTicket(req: AuthenticatedRequest, res: Response) {
-  const { customerId: requestedId, externalUserId, userHash, name, email, phone, priority, category, initialMessage, initialAttachments, session, messageMetadata } = req.body;
+  const { customerId: requestedId, externalUserId, userHash, name, email, phone, priority, category, initialMessage, initialAttachments, session, messageMetadata, outboundId } = req.body;
   // Files the customer attached to their first message (uploaded first via /api/attachments/upload)
   const firstAttachments = Array.isArray(initialAttachments)
     ? initialAttachments
@@ -142,6 +143,20 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       assignedAgentId,
       ...(route.teamId ? { teamId: route.teamId } : {})
     });
+
+    // Replying to a proactive chat message: that message opens the conversation, from its sender
+    const outbound = typeof requestedId === 'string' ? await outboundForReply(outboundId, requestedId) : null;
+    if (outbound) {
+      const opener = await msgRepo.create({
+        conversationId: newConv.id,
+        sender: { type: 'agent', id: outbound.senderId, name: outbound.senderName, ...(outbound.senderAvatar ? { avatar: outbound.senderAvatar } : {}) },
+        content: outbound.message.body, attachments: [], isInternalNote: false, seen: true, delivered: true, reactions: [],
+        metadata: { outboundId: outbound.message.id },
+      });
+      SocketService.broadcastMessageNew(opener);
+      await recordEvent(newConv.id, 'other', `Started by replying to the proactive message “${outbound.message.name}”`, undefined, { field: 'outbound', outboundId: outbound.message.id });
+      await markOutboundReplied(outbound.message.id, requestedId, newConv.id);
+    }
 
     // Save initial message if provided (text and/or attachments)
     if (initialMessage || firstAttachments.length) {

@@ -28,6 +28,7 @@ export interface IWorkspaceDoc extends Document {
   csatEnabled?: boolean;
   defaultTeamId?: string;
   customerAttributes?: any[];
+  email?: any;
   sla?: any;
   ai?: any;
   dataImports?: any[];
@@ -57,6 +58,7 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   showStateToCustomer: { type: Boolean },
   csatEnabled: { type: Boolean },
   defaultTeamId: { type: String },
+  email: { type: Schema.Types.Mixed },
   customerAttributes: { type: Schema.Types.Mixed },
   sla: { type: Schema.Types.Mixed },
   ai: { type: Schema.Types.Mixed }
@@ -195,6 +197,8 @@ export interface IConversationDoc extends Document {
   csatRequestedAt?: string;
   sla?: any;
   teamId?: string;
+  channel?: string;
+  email?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -224,7 +228,9 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   rating: { type: Schema.Types.Mixed },
   csatRequestedAt: { type: String },
   sla: { type: Schema.Types.Mixed },
-  teamId: { type: String, index: true }
+  teamId: { type: String, index: true },
+  channel: { type: String },
+  email: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

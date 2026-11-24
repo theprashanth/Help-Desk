@@ -1,6 +1,9 @@
 import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction } from '../controllers/chatFlow';
 import { Router, text as textBody } from 'express';
 import { authenticateJWT, optionalJWT, requireFullSeat, requireAdmin } from '../middleware/auth';
+import { getEmailSettings, saveEmailSettings, sendTestEmail, pollNow, inboundWebhook } from '../controllers/emailChannel';
+import { listHelpAdmin, searchHelpAdmin, createCollection, updateCollection, deleteCollection, createArticle, updateArticle, deleteArticle, helpHome, helpSearch, helpCollection, helpArticle, helpFeedback } from '../controllers/help';
+import { listOutbound, createOutbound, updateOutbound, deleteOutbound, matchOutbound, outboundEvent } from '../controllers/outbound';
 import { listTeams, createTeam, updateTeam, deleteTeam, setDefaultTeam, getAttributeDefs, saveAttributeDefs, listCompanies, getCompany, createCompany, updateCompany, deleteCompany, getAuditLog } from '../controllers/org';
 import { upload } from '../middleware/upload';
 import { 
@@ -130,6 +133,36 @@ router.post('/companies', authenticateJWT, requireFullSeat, createCompany);
 router.put('/companies/:id', authenticateJWT, requireFullSeat, updateCompany);
 router.delete('/companies/:id', authenticateJWT, requireAdmin, deleteCompany);
 router.get('/audit-log', authenticateJWT, requireAdmin, getAuditLog);
+
+// --- Phase D: email channel, knowledge base, proactive messages ---
+router.get('/email/settings', authenticateJWT, getEmailSettings);
+router.put('/email/settings', authenticateJWT, requireAdmin, saveEmailSettings);
+router.post('/email/test', authenticateJWT, requireAdmin, sendTestEmail);
+router.post('/email/poll', authenticateJWT, requireAdmin, pollNow);
+// Public: forwarding / inbound-parse services post incoming mail here (JSON, or the raw message)
+router.post('/email/inbound/:token', textBody({ type: ['text/plain', 'message/rfc822'], limit: '10mb' }), inboundWebhook);
+
+router.get('/help/admin', authenticateJWT, listHelpAdmin);
+router.get('/help/admin/search', authenticateJWT, searchHelpAdmin);
+router.post('/help/collections', authenticateJWT, requireFullSeat, createCollection);
+router.put('/help/collections/:id', authenticateJWT, requireFullSeat, updateCollection);
+router.delete('/help/collections/:id', authenticateJWT, requireAdmin, deleteCollection);
+router.post('/help/articles', authenticateJWT, requireFullSeat, createArticle);
+router.put('/help/articles/:id', authenticateJWT, requireFullSeat, updateArticle);
+router.delete('/help/articles/:id', authenticateJWT, requireFullSeat, deleteArticle);
+// Public (Messenger): published articles only
+router.get('/help/home', requireKnownWorkspace, helpHome);
+router.get('/help/search', requireKnownWorkspace, helpSearch);
+router.get('/help/collections/:id', requireKnownWorkspace, helpCollection);
+router.get('/help/articles/:id', requireKnownWorkspace, helpArticle);
+router.post('/help/articles/:id/feedback', requireKnownWorkspace, helpFeedback);
+
+router.get('/outbound', authenticateJWT, listOutbound);
+router.post('/outbound', authenticateJWT, requireAdmin, createOutbound);
+router.put('/outbound/:id', authenticateJWT, requireAdmin, updateOutbound);
+router.delete('/outbound/:id', authenticateJWT, requireAdmin, deleteOutbound);
+router.post('/messenger/outbound', requireKnownWorkspace, matchOutbound);          // public
+router.post('/messenger/outbound/:id/event', requireKnownWorkspace, outboundEvent); // public
 
 // --- Saved Replies Routes ---
 router.get('/saved-replies', authenticateJWT, getSavedReplies);

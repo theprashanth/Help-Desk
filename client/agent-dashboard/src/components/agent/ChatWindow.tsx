@@ -9,7 +9,7 @@ import {
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
-  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap
+  ChevronRight, UserCheck, ArrowUpDown, SlidersHorizontal, Ticket, MoreVertical, Square, CheckSquare, Bot, Zap, Mail
 } from 'lucide-react';
 import { ConversationEventCategory } from '../../../../../shared/src/types';
 import { getDeviceInfo, DeviceIcon } from '../../lib/device';
@@ -1893,7 +1893,9 @@ export const ChatWindow: React.FC = () => {
             </div>
 
             <div className="text-[12px] text-faint flex items-center gap-1.5 min-w-0 whitespace-nowrap overflow-hidden">
-              {isLight ? 'Light seat · internal notes only' : <>Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies</>}
+              {isLight ? 'Light seat · internal notes only'
+                : ticket.channel === 'email' && !isInternal && ticket.email?.address ? <span className="inline-flex items-center gap-1.5 truncate"><Mail className="w-3.5 h-3.5" /> Replies are emailed to {ticket.email.address}</span>
+                : <>Type <kbd className="ic-kbd font-sans">/</kbd> for saved replies</>}
             </div>
           </div>
 
