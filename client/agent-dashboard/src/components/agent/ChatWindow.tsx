@@ -277,6 +277,8 @@ export const ChatWindow: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waitingOn, activeConversationId, aiStatus.configured, aiStatus.features.suggestedReplies, isLight]);
   useEffect(() => { setSuggestions(null); setTranslateOut(true); }, [activeConversationId]);
+  const showSuggestions = !isInternal && !inputText.trim() && !pendingMacro && !macroNotice && !showReplies && mentionQuery === null
+    && suggestions?.forId === waitingOn && !!suggestions?.replies.length;
 
   const runMacroActions = async (macro: SavedReply, conv: Conversation | null) => {
     if (!conv || !macro.actions) return;
@@ -1399,7 +1401,7 @@ export const ChatWindow: React.FC = () => {
       <div
         ref={feedRef}
         onScroll={e => { const el = e.currentTarget; nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 160; }}
-        className="flex-1 overflow-y-auto px-8 py-8 flex flex-col gap-4"
+        className={`flex-1 overflow-y-auto px-8 pt-8 ${showSuggestions ? 'pb-4' : 'pb-8'} flex flex-col gap-4`}
       >
         {visibleMessages.map((m, idx) => {
           // Conversation event row (status, assignment, priority, ...)
@@ -1939,10 +1941,9 @@ export const ChatWindow: React.FC = () => {
         )}
 
         {/* AI suggested replies while the customer is waiting */}
-        {!isInternal && !inputText.trim() && !pendingMacro && !macroNotice && !showReplies && mentionQuery === null
-          && suggestions?.forId === waitingOn && !!suggestions?.replies.length && (
-          // In the layout (not floating over the messages): sits just above the reply box, with room above it
-          <div className="mt-2 mb-2 px-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+        {showSuggestions && suggestions && (
+          // In the layout (not floating over the messages): sits just above the reply box
+          <div className="mt-0.5 mb-2 px-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <span className="inline-flex items-center gap-1 text-[12px] font-medium text-muted shrink-0"><Sparkles className="w-3.5 h-3.5 text-accent" /> Suggested</span>
             {suggestions.replies.map((r, i) => (
               <button key={i} title={r} onClick={() => { setInputText(r); setTimeout(() => composerRef.current?.focus(), 0); }}
