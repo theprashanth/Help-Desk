@@ -10,6 +10,7 @@ import { refreshSla } from '../services/sla';
 import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
 import { deliverAgentReply } from '../services/email';
+import { inBackground, translateCustomerMessage, onCustomerTyped } from '../services/aiAssist';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
 async function customerOwnsConversation(req: AuthenticatedRequest, conversationId: string): Promise<boolean> {
@@ -70,12 +71,24 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       if (who?.blocked) return res.status(403).json({ error: "You can't send messages to this team right now.", code: 'blocked' });
     }
 
+    // Only known metadata from clients (system types like events, CSAT or bot messages are server-made):
+    // device info from the Messenger, @mentions in notes, and the original text of a translated reply.
+    const raw = req.body.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : {};
+    const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : undefined);
+    let metadata: Record<string, any> | undefined = {};
+    for (const k of ['platform', 'channel', 'browser', 'os']) if (raw[k] !== undefined) metadata[k] = str(raw[k], 60);
+    if (raw.sourceUrl !== undefined) metadata.sourceUrl = str(raw.sourceUrl, 2000);
     // @mentions only live in internal notes, as a short list of teammate ids
-    let metadata = req.body.metadata;
-    if (metadata && typeof metadata === 'object' && 'mentions' in metadata) {
-      const ids = Array.isArray(metadata.mentions) ? metadata.mentions.filter((x: unknown) => typeof x === 'string').slice(0, 20) : [];
-      metadata = { ...metadata, mentions: isInternalNote && req.user ? Array.from(new Set(ids)) : undefined };
+    if (Array.isArray(raw.mentions) && isInternalNote && req.user) {
+      const ids = Array.from(new Set(raw.mentions.filter((x: unknown) => typeof x === 'string').slice(0, 20)));
+      if (ids.length) metadata.mentions = ids;
     }
+    // A teammate's reply sent in the customer's language: keep what they wrote
+    if (raw.original && typeof raw.original === 'object' && req.user && sender?.type !== 'customer' && !isInternalNote) {
+      metadata.original = { text: str(raw.original.text, 20_000) || '', language: str(raw.original.language, 40) || '' };
+    }
+    for (const k of Object.keys(metadata)) if (metadata[k] === undefined) delete metadata[k];
+    if (!Object.keys(metadata).length) metadata = undefined;
 
     const createdMsg = await msgRepo.create({
       conversationId,
@@ -165,6 +178,12 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     // Email conversations: the teammate's reply goes out by email (threaded); failures become an event
     if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && (updatedConv || conv).channel === 'email') {
       deliverAgentReply(updatedConv || conv, createdMsg).catch(() => {});
+    }
+    // AI translation of the customer's message for the team (Settings › AI assistant)
+    if (sender.type === 'customer' && !isInternalNote && content) {
+      inBackground('translation', () => translateCustomerMessage(conversationId, createdMsg.id));
+      // Bot chats: the customer's first typed message is when the hand-off summary and triage can say something useful
+      if (conv.bot) inBackground('hand-off', () => onCustomerTyped(conversationId, createdMsg.id));
     }
     // Customer wrote → their clock may start; a teammate replied → it stops
     if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);

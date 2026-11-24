@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   ArrowLeft, Search, CornerUpLeft, StickyNote, CheckCircle2, Hourglass, CircleDot, AlarmClock, UserCheck, UserPlus,
   UserX, ArrowUpDown, Zap, GitMerge, Inbox as InboxIcon, AtSign, PenLine, Users, BarChart3, Settings as SettingsIcon,
-  MessageSquare, Bot, Keyboard, Plus, Ticket,
+  MessageSquare, Bot, Keyboard, Plus, Ticket, Sparkles,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { Agent, Conversation, MacroActions, SavedReply } from '../../../../../shared/src/types';
@@ -241,6 +241,13 @@ export const CommandPalette: React.FC<{
         { id: 'priority', group: g, label: 'Change priority…', icon: <ArrowUpDown className={ic} />, kbd: ['P'], run: () => { setPage('priority'); }, keepOpen: true },
         { id: 'macro', group: g, label: 'Run a macro…', icon: <Zap className={ic} />, kbd: ['M'], keywords: 'saved reply', run: () => { setPage('macro'); }, keepOpen: true },
       );
+      list.push({ id: 'ai-summary', group: g, label: 'Summarize with AI', hint: 'Adds an internal note', icon: <Sparkles className={ic} />, keywords: 'ai summary recap',
+        run: async () => {
+          setNotice({ text: 'Summarizing…' });
+          const r = await fetch(`${BACKEND_URL}/api/ai/summarize`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ conversationId: conv.id }) });
+          const d = await r.json().catch(() => ({}));
+          setNotice(r.ok ? { text: 'Summary added as a note' } : { text: d.error || 'Couldn’t summarize', error: true });
+        } });
       if (!conv.mergedInto) list.push({ id: 'merge', group: g, label: 'Merge into…', icon: <GitMerge className={ic} />, kbd: ['⌘', '⇧', 'M'], run: () => sendChat('merge') });
     }
 

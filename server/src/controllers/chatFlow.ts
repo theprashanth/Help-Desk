@@ -14,6 +14,7 @@ import {
 } from '../services/chatFlow';
 import { ChatFlow, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
 import { logAudit } from '../services/audit';
+import { inBackground, afterBotHandoff } from '../services/aiAssist';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const isAdmin = (req: AuthenticatedRequest, res: Response) => {
@@ -291,6 +292,9 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
         notifyIntegrations(wsId, 'conversation.created', { conversation: updated });
         await sendReplyTimeNotice(updated, wsId);
         await refreshSla(updated.id); // the customer now waits for a person
+        // AI: a summary note and priority/tags, once the customer has said what they need
+        const id = updated.id;
+        inBackground('hand-off', () => afterBotHandoff(id));
       }
     }
     return res.json(toCustomerView(updated || conv));

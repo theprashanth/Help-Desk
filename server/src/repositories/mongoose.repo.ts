@@ -362,6 +362,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       teamId: doc.teamId || undefined,
       channel: (doc.channel as any) || undefined,
       email: doc.email || undefined,
+      language: doc.language || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };

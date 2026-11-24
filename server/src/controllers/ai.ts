@@ -5,6 +5,7 @@ import { AiProvider, AiSettings, Workspace } from '../../../shared/src/types';
 import { AiError, AskTurn, DEFAULT_MODELS, complete, systemPrompt, transcriptOf } from '../services/ai';
 import { logAudit } from '../services/audit';
 import { relevantArticles } from './help';
+import { featuresOf, suggestReplies, summarizeConversation, translateReply } from '../services/aiAssist';
 
 const wsIdOf = (req: AuthenticatedRequest) => req.workspaceId || req.user?.workspaceId || 'default_workspace';
 const PROVIDERS: AiProvider[] = ['anthropic', 'openai', 'openai_compatible'];
@@ -22,6 +23,7 @@ function publicSettings(ws: Workspace) {
     hasApiKey: !!key,
     apiKeyHint: key ? `…${key.slice(-4)}` : '',
     configured: !!ai?.enabled && (!!key || ai?.provider === 'openai_compatible') && !!(ai?.model || DEFAULT_MODELS[ai?.provider || 'anthropic']),
+    features: featuresOf(ai),
     updatedAt: ai?.updatedAt,
   };
 }
@@ -60,7 +62,18 @@ function nextSettings(current: AiSettings | undefined, body: any, userId?: strin
   }
   const instructions = typeof body?.instructions === 'string' ? body.instructions.slice(0, 4000) : (current?.instructions || '');
   const enabled = typeof body?.enabled === 'boolean' ? body.enabled : !!current?.enabled;
-  return { enabled, provider, model: model || DEFAULT_MODELS[provider], baseUrl: provider === 'openai_compatible' ? baseUrl : undefined, apiKey, instructions, updatedAt: new Date().toISOString(), updatedBy: userId };
+  const features = featuresOf(current);
+  if (body?.features && typeof body.features === 'object') {
+    for (const k of ['handoffSummary', 'suggestedReplies', 'autoTriage', 'translation'] as const) {
+      if (typeof body.features[k] === 'boolean') features[k] = body.features[k];
+    }
+    if (body.features.teamLanguage !== undefined) {
+      const l = String(body.features.teamLanguage).trim();
+      if (!/^[A-Za-z][A-Za-z ()-]{1,39}$/.test(l)) throw new AiError('Team language must be a language name, e.g. English', 400);
+      features.teamLanguage = l;
+    }
+  }
+  return { enabled, provider, model: model || DEFAULT_MODELS[provider], baseUrl: provider === 'openai_compatible' ? baseUrl : undefined, apiKey, instructions, features, updatedAt: new Date().toISOString(), updatedBy: userId };
 }
 
 /** PUT /api/ai/settings — admins only. */
@@ -141,4 +154,31 @@ export async function askAi(req: AuthenticatedRequest, res: Response) {
   } catch (e: any) {
     return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message });
   }
+}
+
+/** POST /api/ai/suggest { conversationId } — up to 3 replies while the customer is waiting. */
+export async function suggestRepliesHandler(req: AuthenticatedRequest, res: Response) {
+  const id = req.body?.conversationId;
+  if (typeof id !== 'string') return res.status(400).json({ error: 'conversationId is required' });
+  try { return res.json({ replies: await suggestReplies(id) }); }
+  catch (e: any) { return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message, replies: [] }); }
+}
+
+/** POST /api/ai/summarize { conversationId } — add an AI summary as an internal note. */
+export async function summarizeHandler(req: AuthenticatedRequest, res: Response) {
+  const id = req.body?.conversationId;
+  if (typeof id !== 'string') return res.status(400).json({ error: 'conversationId is required' });
+  try {
+    const note = await summarizeConversation(id, { reason: 'manual' });
+    if (!note) return res.status(409).json({ error: 'Ask AI isn’t set up, or there’s nothing to summarize yet.' });
+    return res.status(201).json(note);
+  } catch (e: any) { return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message }); }
+}
+
+/** POST /api/ai/translate { conversationId, text } — a reply in the customer's language. */
+export async function translateHandler(req: AuthenticatedRequest, res: Response) {
+  const { conversationId, text } = req.body || {};
+  if (typeof conversationId !== 'string' || typeof text !== 'string' || !text.trim()) return res.status(400).json({ error: 'conversationId and text are required' });
+  try { return res.json(await translateReply(conversationId, text)); }
+  catch (e: any) { return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message }); }
 }

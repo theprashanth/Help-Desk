@@ -199,6 +199,7 @@ export interface IConversationDoc extends Document {
   teamId?: string;
   channel?: string;
   email?: any;
+  language?: string;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -230,7 +231,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   sla: { type: Schema.Types.Mixed },
   teamId: { type: String, index: true },
   channel: { type: String },
-  email: { type: Schema.Types.Mixed }
+  email: { type: Schema.Types.Mixed },
+  language: { type: String }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

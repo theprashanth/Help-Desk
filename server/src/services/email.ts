@@ -236,6 +236,9 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
     if (reopen) await recordEvent(conv.id, 'status', `Reopened because the customer replied by email (was ${conv.status === 'waiting' ? 'Waiting on customer' : conv.status === 'resolved' ? 'Resolved' : 'Closed'})`, undefined, { field: 'status', from: conv.status, to: 'open' });
     notifyIntegrations(ws.id, 'message.customer', { conversation: updated || conv, message: msg });
     await refreshSla(conv.id);
+    const { inBackground, translateCustomerMessage } = await import('./aiAssist');
+    const cid = conv.id;
+    inBackground('translation', () => translateCustomerMessage(cid, msg.id));
     return { conversationId: conv.id, created: false };
   }
 
@@ -276,6 +279,9 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
   SocketService.broadcastConversationNew(fresh);
   notifyIntegrations(ws.id, 'conversation.created', { conversation: fresh, message: msg });
   await refreshSla(conv.id);
+  const { inBackground, translateCustomerMessage, triageConversation } = await import('./aiAssist');
+  const newId = conv.id;
+  inBackground('new email', async () => { await translateCustomerMessage(newId, msg.id); await triageConversation(newId); });
   return { conversationId: conv.id, created: true };
 }
 

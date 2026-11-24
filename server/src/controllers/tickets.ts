@@ -14,6 +14,7 @@ import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
 import { resolveCustomerId } from '../services/customerIdentity';
 import { verifyUserHash } from '../services/messenger';
+import { inBackground, translateCustomerMessage, triageConversation } from '../services/aiAssist';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -173,12 +174,15 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
         seen: false,
         delivered: true,
         // Device the customer wrote from (sent by the widget); fall back to the session info
-        metadata: messageMetadata || {
-          platform: /ios|ipad|iphone/i.test(session?.os || '') ? 'ios' : /android/i.test(session?.os || '') ? 'android' : 'web',
-          sourceUrl: session?.currentPage,
-          browser: session?.browser,
-          os: session?.os
-        }
+        metadata: messageMetadata && typeof messageMetadata === 'object'
+          ? Object.fromEntries(['platform', 'channel', 'browser', 'os', 'sourceUrl']
+              .filter(k => typeof messageMetadata[k] === 'string').map(k => [k, String(messageMetadata[k]).slice(0, k === 'sourceUrl' ? 2000 : 60)]))
+          : {
+              platform: /ios|ipad|iphone/i.test(session?.os || '') ? 'ios' : /android/i.test(session?.os || '') ? 'android' : 'web',
+              sourceUrl: session?.currentPage,
+              browser: session?.browser,
+              os: session?.os
+            }
       });
       // Retrieve updated conversation with correct last message snippet
       const updatedConv = await convRepo.findById(newConv.id);
@@ -187,6 +191,11 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       // Tell the customer when to expect a reply (Settings > Office hours)
       await sendReplyTimeNotice(newConv, req.workspaceId || 'default_workspace');
       await refreshSla(newConv.id);
+      // AI (Settings › AI assistant): translate the first message, then set priority/tags
+      if (initialMessage) inBackground('new conversation', async () => {
+        await translateCustomerMessage(newConv.id, firstMessage.id);
+        await triageConversation(newConv.id);
+      });
       if (assignedAgentId) {
         const assignee = await RepositoryFactory.getUserRepository().findById(assignedAgentId);
         await recordEvent(newConv.id, 'assignment', `Auto-assigned to ${assignee?.name || 'a teammate'}${route.reason ? ` (${route.reason})` : ''}`, undefined,
