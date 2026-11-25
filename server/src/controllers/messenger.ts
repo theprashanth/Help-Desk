@@ -3,6 +3,7 @@ import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { MessengerAppearance, Workspace } from '../../../shared/src/types';
+import { identityRequired } from '../services/customerIdentity';
 import {
   appearanceOf, ensureIdentitySecret, newIdentitySecret, verifyUserHash, normaliseDomain, hostAllowed, recordInstallation, dashboardHost,
 } from '../services/messenger';
@@ -19,7 +20,7 @@ function settingsResponse(ws: Workspace) {
   return {
     appId: appIdOf(ws),
     appearance: appearanceOf(ws),
-    identityVerification: { enforced: !!ws.identityEnforced, secretConfigured: !!ws.identitySecret },
+    identityVerification: { enforced: identityRequired(ws), secretConfigured: !!ws.identitySecret },
     allowedDomains: ws.allowedDomains || [],
     installations: ws.installations || [],
   };
@@ -134,15 +135,30 @@ export async function removeInstallation(req: AuthenticatedRequest, res: Respons
 export async function messengerPing(req: AuthenticatedRequest, res: Response) {
   const ws = await RepositoryFactory.getWorkspaceRepository().findById(wsIdOf(req));
   if (!ws) return res.status(404).json({ error: 'Unknown app id' });
-  const { host, url, kind, platform, userId, userHash } = req.body || {};
+  const { host, url, kind, platform, userId, userHash, customerId, name, email, phone } = req.body || {};
   const h = typeof host === 'string' ? host.trim().toLowerCase().slice(0, 253) : '';
   if (!h) return res.status(400).json({ error: 'host is required' });
   if (!hostAllowed(ws, h)) return res.json({ allowed: false });
 
-  let identity: 'none' | 'verified' | 'unverified' | 'rejected' = 'none';
-  if (typeof userId === 'string' && userId.trim()) {
-    if (verifyUserHash(ws.identitySecret, userId.trim(), userHash)) identity = 'verified';
-    else identity = ws.identityEnforced ? 'rejected' : 'unverified';
+  const ident = await import('../services/customerIdentity');
+  const identity = ident.checkIdentity(ws, userId, userHash);
+  // A signed-in user: find their contact, bring their details up to date, and move this browser's guest
+  // chats onto it. The Messenger then uses that contact's id (same history on every device).
+  let canonicalId: string | undefined;
+  if (identity === 'verified' || identity === 'unverified') {
+    const custRepo = RepositoryFactory.getCustomerRepository();
+    const external = String(userId).trim().slice(0, 200);
+    let linked = await custRepo.findByExternalId(external);
+    if (!linked && typeof customerId === 'string' && customerId) {
+      // This browser's guest becomes the signed-in person (no other contact has their id yet)
+      const guest = await custRepo.findById(customerId);
+      if (guest && !guest.externalId) linked = await custRepo.update(guest.id, { externalId: external });
+    }
+    if (linked) {
+      linked = await ident.syncProfile(linked, { name, email, phone });
+      await ident.adoptGuest(customerId, linked);
+      canonicalId = linked.id;
+    }
   }
   // The dashboard's own preview/demo isn't a customer installation
   if (h !== dashboardHost()) await recordInstallation(ws.id, {
@@ -153,7 +169,7 @@ export async function messengerPing(req: AuthenticatedRequest, res: Response) {
     identified: identity === 'verified' || identity === 'unverified',
     verified: identity === 'verified',
   });
-  return res.json({ allowed: true, identity, enforced: !!ws.identityEnforced });
+  return res.json({ allowed: true, identity, enforced: ident.identityRequired(ws), ...(canonicalId ? { customerId: canonicalId } : {}) });
 }
 
 // ── Messenger (public): this visitor's conversations, known issues, translated text ──

@@ -572,6 +572,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         platform: isMobile ? (params.get('platform') || 'mobile') : 'web',
         userId: identity.userId,
         userHash: identity.userHash,
+        // Signed-in users: the server updates their details and moves this browser's guest chats to them
+        customerId: guestIdRef.current || undefined,
+        name: identity.name, email: identity.email, phone: identity.phone,
       }),
     })
       .then(r => (r.ok ? r.json() : null))
@@ -581,11 +584,22 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         if (res.identity === 'rejected') {
           console.warn('[Chai Samosa] Identity verification failed (missing or wrong user_hash). Continuing as an anonymous visitor.');
           setIdentity({});
+          return;
+        }
+        // The signed-in person's contact: use its id from now on (their history on every device)
+        if (typeof res.customerId === 'string' && res.customerId !== guestIdRef.current) {
+          const from = guestIdRef.current;
+          const previous: string[] = JSON.parse(store.get(`guest_conv_ids_${from}`) || '[]');
+          const merged: string[] = JSON.parse(store.get(`guest_conv_ids_${res.customerId}`) || '[]');
+          store.set(`guest_conv_ids_${res.customerId}`, JSON.stringify([...new Set([...merged, ...previous])]));
+          store.set('customer_guest_id', res.customerId);
+          guestIdRef.current = res.customerId;
+          setGuestId(res.customerId);
         }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, identity.userId, identity.userHash]);
+  }, [booted, identity.userId, identity.userHash, identity.name, identity.email, identity.phone]);
 
   // Private real-time channel for this visitor (their messages, typing, read receipts)
   useEffect(() => {

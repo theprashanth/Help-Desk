@@ -112,7 +112,7 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     const { customerId: requestedId, externalUserId, userHash, session } = req.body || {};
     const answers = (req.body?.answers && typeof req.body.answers === 'object') ? req.body.answers : {};
 
-    if (typeof externalUserId === 'string' && externalUserId.trim() && ws.identityEnforced && !verifyUserHash(ws.identitySecret, externalUserId.trim(), userHash)) {
+    if ((await import('../services/customerIdentity')).checkIdentity(ws, externalUserId, userHash) === 'rejected') {
       return res.status(401).json({ error: 'Identity verification failed', code: 'identity_verification_failed' });
     }
 
