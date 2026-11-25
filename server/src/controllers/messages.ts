@@ -9,7 +9,7 @@ import { recordEvent, getActor } from '../services/events';
 import { refreshSla } from '../services/sla';
 import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
-import { deliverAgentReply } from '../services/email';
+import { deliverAgentReply, repliesByEmail } from '../services/email';
 import { inBackground, translateCustomerMessage, onCustomerTyped } from '../services/aiAssist';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
@@ -178,8 +178,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     if (updatedConv) {
       SocketService.broadcastConversationUpdate(updatedConv);
     }
-    // Email conversations: the teammate's reply goes out by email (threaded); failures become an event
-    if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && (updatedConv || conv).channel === 'email') {
+    // Email conversations (and participants on CC): the teammate's reply goes out by email (threaded); failures become an event
+    if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && repliesByEmail(updatedConv || conv)) {
       deliverAgentReply(updatedConv || conv, createdMsg).catch(() => {});
     }
     // AI translation of the customer's message for the team (Settings › AI assistant)
@@ -227,7 +227,7 @@ export async function sendAgentReply(
   const updated = await convRepo.update(conv.id, update);
   SocketService.broadcastMessageNew(msg);
   if (updated) SocketService.broadcastConversationUpdate(updated);
-  if ((updated || conv).channel === 'email') deliverAgentReply(updated || conv, msg).catch(() => {});
+  if (repliesByEmail(updated || conv)) deliverAgentReply(updated || conv, msg).catch(() => {});
   await refreshSla(conv.id);
   return msg;
 }

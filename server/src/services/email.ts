@@ -66,7 +66,7 @@ async function patchEmail(wsId: string, patch: Partial<EmailSettings>) {
 
 // ── Sending ────────────────────────────────────────────────────────────────
 
-const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+export const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 /** Markdown-ish text → simple, safe HTML (bold, italic, links, line breaks). */
 export function textToHtml(text: string): string {
   return esc(text)
@@ -77,7 +77,7 @@ export function textToHtml(text: string): string {
     .replace(/\n/g, '<br>');
 }
 
-function layout(ws: Workspace, inner: string): string {
+export function layout(ws: Workspace, inner: string): string {
   const brand = esc(ws.customerFacingName?.trim() || ws.name);
   return `<!doctype html><html><body style="margin:0;padding:24px;background:#f6f6f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a">
 <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e6e6e9;border-radius:14px;padding:24px">${inner}</div>
@@ -88,7 +88,7 @@ const domainOf = (addr?: string) => (addr && addr.includes('@') ? addr.split('@'
 export const tagFor = (conv: Pick<Conversation, 'ticketNumber'>) => `[${conv.ticketNumber}]`;
 
 export async function sendMail(ws: Workspace, opts: {
-  to: string; subject: string; text: string; html: string; inReplyTo?: string; references?: string[];
+  to: string; cc?: string[]; subject: string; text: string; html: string; inReplyTo?: string; references?: string[];
 }): Promise<string> {
   const e = emailSettingsOf(ws);
   if (!canSend(e)) throw new Error('Email isn’t set up. Add SMTP details in Settings › Channels › Email.');
@@ -101,7 +101,7 @@ export async function sendMail(ws: Workspace, opts: {
   try {
     await transport.sendMail({
       from: { name: e.fromName || ws.customerFacingName || ws.name, address: e.fromAddress! },
-      to: opts.to, subject: opts.subject, text: opts.text, html: opts.html, messageId,
+      to: opts.to, ...(opts.cc?.length ? { cc: opts.cc } : {}), subject: opts.subject, text: opts.text, html: opts.html, messageId,
       ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
       ...(opts.references?.length ? { references: opts.references.slice(-20) } : {}),
     });
@@ -115,26 +115,42 @@ export async function sendMail(ws: Workspace, opts: {
   }
 }
 
-/** A teammate replied in an email conversation: email it to the customer, threaded. */
+/** Who gets a teammate's public reply by email, if anyone. */
+export const repliesByEmail = (conv: Conversation) =>
+  (conv.channel === 'email' && !!conv.email?.address) || !!conv.participants?.length;
+
+/**
+ * A teammate replied: email it, threaded.
+ *  - Email conversations: to the customer, with any participants on CC.
+ *  - Messenger conversations with participants: to the participants (the customer sees it in the Messenger).
+ */
 export async function deliverAgentReply(conv: Conversation, msg: Message): Promise<void> {
-  if (conv.channel !== 'email' || !conv.email?.address || msg.isInternalNote) return;
+  if (msg.isInternalNote || !repliesByEmail(conv)) return;
   const ws = await RepositoryFactory.getWorkspaceRepository().findById(conv.workspaceId || tenantStorage.getStore() || 'default_workspace');
   if (!ws) return;
-  const subject = /^re:/i.test(conv.email.subject) ? conv.email.subject : `Re: ${conv.email.subject}`;
+  const viaEmail = conv.channel === 'email' && !!conv.email?.address;
+  const participants = (conv.participants || []).filter(a => a !== conv.email?.address);
+  const baseSubject = viaEmail ? conv.email!.subject : (conv.title || `Your conversation with ${ws.customerFacingName?.trim() || ws.name}`);
+  const subject0 = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
+  const threadIds = viaEmail ? conv.email!.threadIds : (conv.participantThreadIds || []);
   const files = (msg.attachments || []).map(a => `\n${a.name}: ${absoluteUrl(a.url)}`).join('');
+  const to = viaEmail ? conv.email!.address : participants.join(', ');
+  const cc = viaEmail ? participants : [];
   try {
     const id = await sendMail(ws, {
-      to: conv.email.address,
-      subject: subject.includes(tagFor(conv)) ? subject : `${subject} ${tagFor(conv)}`,
+      to, cc,
+      subject: subject0.includes(tagFor(conv)) ? subject0 : `${subject0} ${tagFor(conv)}`,
       text: `${plainText(msg.content)}${files}\n\n— ${msg.sender.name}`,
       html: layout(ws, `<div style="font-size:15px;line-height:1.55">${textToHtml(msg.content)}</div>${files ? `<p style="font-size:13px;color:#555">${textToHtml(files.trim())}</p>` : ''}<p style="margin-top:18px;font-size:14px;color:#555">— ${esc(msg.sender.name)}</p>`),
-      inReplyTo: conv.email.threadIds[conv.email.threadIds.length - 1],
-      references: conv.email.threadIds,
+      inReplyTo: threadIds[threadIds.length - 1],
+      references: threadIds,
     });
-    await RepositoryFactory.getMessageRepository().update(msg.id, { metadata: { ...(msg.metadata || {}), email: { messageId: id, sentAt: new Date().toISOString() } } });
-    await RepositoryFactory.getConversationRepository().update(conv.id, { email: { ...conv.email, threadIds: [...conv.email.threadIds, id].slice(-50) } }, { touch: false });
+    await RepositoryFactory.getMessageRepository().update(msg.id, { metadata: { ...(msg.metadata || {}), email: { messageId: id, sentAt: new Date().toISOString(), ...(cc.length || !viaEmail ? { participants } : {}) } } });
+    const convRepo = RepositoryFactory.getConversationRepository();
+    if (viaEmail) await convRepo.update(conv.id, { email: { ...conv.email!, threadIds: [...threadIds, id].slice(-50) } }, { touch: false });
+    else await convRepo.update(conv.id, { participantThreadIds: [...threadIds, id].slice(-50) }, { touch: false });
   } catch (err: any) {
-    await recordEvent(conv.id, 'other', `Couldn’t email this reply to ${conv.email.address}: ${err.message}`, undefined, { field: 'email', error: true });
+    await recordEvent(conv.id, 'other', `Couldn’t email this reply to ${[to, ...cc].filter(Boolean).join(', ')}: ${err.message}`, undefined, { field: 'email', error: true });
   }
 }
 
@@ -193,6 +209,10 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
   if (!ws) return null;
   const own = emailSettingsOf(ws).fromAddress?.toLowerCase();
   if (own && mail.from.address === own) return null; // our own mail looping back
+  // A reply in a side conversation (an email thread with someone outside the team) is filed as a note there
+  const { fileSideReply } = await import('./sideConversations');
+  const sideConvId = await fileSideReply(mail);
+  if (sideConvId) return { conversationId: sideConvId, created: false };
   const body = stripQuoted(mail.text || '').slice(0, 20_000) || '(empty email)';
   const convRepo = RepositoryFactory.getConversationRepository();
   const msgRepo = RepositoryFactory.getMessageRepository();
@@ -200,14 +220,43 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
 
   // Duplicate delivery (IMAP + webhook, retries): ignore a Message-ID we've already filed
   const all = await convRepo.findAll();
-  if (mail.messageId && all.some(c => c.email?.threadIds.includes(mail.messageId!))) return null;
+  if (mail.messageId && all.some(c => c.email?.threadIds.includes(mail.messageId!) || c.participantThreadIds?.includes(mail.messageId!))) return null;
 
   // 1) Thread by headers, 2) by "[#41153]" in the subject; only for that conversation's customer
   const ids = new Set([mail.inReplyTo, ...(mail.references || [])].filter(Boolean) as string[]);
   const tag = TAG_RE.exec(mail.subject)?.[1];
   const sameCustomer = (c: Conversation) => (c.email?.address || c.customer.email || '').toLowerCase() === mail.from.address;
-  let conv = all.find(c => !c.mergedInto && c.email?.threadIds.some(id => ids.has(id)) && sameCustomer(c))
-    || (tag ? all.find(c => !c.mergedInto && c.ticketNumber === `#${tag}` && sameCustomer(c)) : undefined);
+  const isParticipant = (c: Conversation) => !!c.participants?.includes(mail.from.address);
+  const threadOf = (c: Conversation) => [...(c.email?.threadIds || []), ...(c.participantThreadIds || [])];
+  let conv = all.find(c => !c.mergedInto && threadOf(c).some(id => ids.has(id)) && (sameCustomer(c) || isParticipant(c)))
+    || (tag ? all.find(c => !c.mergedInto && c.ticketNumber === `#${tag}` && (sameCustomer(c) || isParticipant(c))) : undefined);
+
+  // A participant (someone CC'd on the conversation) answered
+  if (conv && !sameCustomer(conv) && isParticipant(conv)) {
+    const viaEmail = conv.channel === 'email';
+    const who = mail.from.name ? `${mail.from.name} (${mail.from.address})` : mail.from.address;
+    // Email conversations: part of the thread everyone's on. Messenger conversations: a note for the team,
+    // so the customer doesn't see someone else's email in their chat
+    const msg = await msgRepo.create({
+      conversationId: conv.id,
+      sender: viaEmail ? { type: 'customer', id: conv.customer.id, name: who } : { type: 'agent', id: `participant:${mail.from.address}`, name: who },
+      content: viaEmail ? body : `Email reply from ${who}:\n\n${body}`,
+      attachments: [], isInternalNote: !viaEmail, seen: false, delivered: true, reactions: [],
+      metadata: { participant: mail.from.address, email: { messageId: mail.messageId, subject: mail.subject, from: mail.from.address } },
+    });
+    const updated = await convRepo.update(conv.id, {
+      unreadCountAgent: (conv.unreadCountAgent || 0) + 1,
+      lastMessageSnippet: `${viaEmail ? '' : '[Note] '}${plainText(body).slice(0, 180)}`,
+      ...(viaEmail
+        ? { email: { ...conv.email!, threadIds: [...(conv.email?.threadIds || []), ...(mail.messageId ? [mail.messageId] : [])].slice(-50) } }
+        : { participantThreadIds: [...(conv.participantThreadIds || []), ...(mail.messageId ? [mail.messageId] : [])].slice(-50) }),
+      ...((conv.status === 'resolved' || conv.status === 'closed' || conv.status === 'waiting') && viaEmail ? { status: 'open' } : {}),
+    });
+    SocketService.broadcastMessageNew(msg);
+    if (updated) SocketService.broadcastConversationUpdate(updated);
+    if (viaEmail) await refreshSla(conv.id);
+    return { conversationId: conv.id, created: false };
+  }
 
   if (conv) {
     const msg = await msgRepo.create({

@@ -311,6 +311,8 @@ export interface Conversation {
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   linkedIssueId?: string;          // conversations/tickets: the tracker issue this report belongs to
   reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
+  participants?: string[];         // extra people (email addresses) who get every teammate reply by email
+  participantThreadIds?: string[]; // Messenger conversations: Message-IDs of the participants' email thread
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
@@ -577,4 +579,24 @@ export interface ClientToServerEvents {
   'leave': (room: string) => void;
   'typing': (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => void;
   'seen': (payload: { conversationId: string; role: 'customer' | 'agent' }) => void;
+}
+
+/**
+ * A side conversation: an email thread with someone outside the team (a supplier, another department)
+ * started from a conversation. Its messages are internal notes in that conversation (metadata.side),
+ * so the customer never sees them.
+ */
+export interface SideConversation {
+  id: string;
+  workspaceId?: string;
+  conversationId: string;
+  number: number;              // 1, 2, … within the conversation (subject tag "[#41153/2]")
+  to: string;                  // their email address
+  subject: string;
+  threadIds: string[];         // Message-IDs, newest last
+  createdBy?: { id: string; name: string };
+  lastMessageAt?: string;
+  messageCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }

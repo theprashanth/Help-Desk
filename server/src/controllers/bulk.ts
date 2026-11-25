@@ -158,6 +158,7 @@ export async function bulkUpdate(req: AuthenticatedRequest, res: Response) {
       }
     }
     if (action === 'delete' && done.length) {
+      await (await import('../services/sideConversations')).deleteSideConversationsFor(done);
       // Deleted issues: the conversations linked to them are unlinked
       const gone = new Set(done);
       for (const c of await convRepo.findAll()) {

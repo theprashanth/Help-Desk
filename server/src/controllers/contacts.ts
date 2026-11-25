@@ -159,6 +159,7 @@ export async function deleteContact(req: AuthenticatedRequest, res: Response) {
     for (const c of await convRepo.findAll()) {
       if (c.mergedInto && gone.has((c.mergedInto as any).id)) await convRepo.update(c.id, { mergedInto: null } as any, { touch: false });
     }
+    await (await import('../services/sideConversations')).deleteSideConversationsFor(gone);
     await custRepo.delete(customer.id);
     await logAudit(req, 'data.contact_deleted', `Deleted contact ${customer.name}${customer.email ? ` (${customer.email})` : ''} and ${convs.length} conversation${convs.length === 1 ? '' : 's'}`,
       { target: customer.id, details: { conversations: convs.length } });

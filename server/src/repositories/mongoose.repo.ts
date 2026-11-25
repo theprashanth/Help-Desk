@@ -369,6 +369,8 @@ export class MongooseConversationRepository implements IConversationRepository {
       email: doc.email || undefined,
       language: doc.language || undefined,
       linkedIssueId: doc.linkedIssueId || undefined,
+      participants: doc.participants?.length ? doc.participants : undefined,
+      participantThreadIds: doc.participantThreadIds?.length ? doc.participantThreadIds : undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };

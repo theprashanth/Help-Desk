@@ -448,6 +448,8 @@ export class JsonConversationRepository implements IConversationRepository {
         email: raw.email || undefined,
         language: raw.language || undefined,
         linkedIssueId: raw.linkedIssueId || undefined,
+        participants: raw.participants?.length ? raw.participants : undefined,
+        participantThreadIds: raw.participantThreadIds?.length ? raw.participantThreadIds : undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

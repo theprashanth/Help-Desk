@@ -19,6 +19,7 @@ import {
   createManualTicket, getInboxCounts, searchCustomers,
   convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
+import { setParticipants, getSideConversations, createSideConversation, replySide } from '../controllers/participants';
 import { listContacts, exportContacts, getContact, deleteContact, mergeContacts } from '../controllers/contacts';
 import { 
   getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
@@ -130,6 +131,10 @@ router.put('/tickets/:id/issue', authenticateJWT, requireFullSeat, linkIssue); /
 router.get('/tickets/:id/linked', authenticateJWT, getLinkedConversations); // an issue's linked conversations
 router.post('/tickets/:id/broadcast', authenticateJWT, requireFullSeat, broadcastIssueUpdate); // message every linked conversation
 router.post('/tickets/:id/broadcast/draft', authenticateJWT, requireFullSeat, draftIssueBroadcast); // AI draft of that message
+router.put('/tickets/:id/participants', authenticateJWT, requireFullSeat, setParticipants); // CC'd on every reply
+router.get('/tickets/:id/side-conversations', authenticateJWT, getSideConversations);
+router.post('/tickets/:id/side-conversations', authenticateJWT, requireFullSeat, createSideConversation); // email someone outside the team
+router.post('/side-conversations/:sid/reply', authenticateJWT, requireFullSeat, replySide);
 router.put('/customers/:customerId', authenticateJWT, requireFullSeat, updateCustomerProfile);
 router.get('/customers/:customerId/tickets', authenticateJWT, getCustomerTickets);
 router.post('/tickets/:id/merge', authenticateJWT, requireFullSeat, mergeTickets);

@@ -21,10 +21,11 @@ import RichComposer, { RichComposerHandle } from './RichComposer';
 import MergeDialog from './MergeDialog';
 import { ConvertToTicketDialog, LinkIssueDialog, IssueBroadcastDialog } from './IssueDialogs';
 import { KnownIssueBar, linkedCounts, broadcastSummary } from './IssueLinks';
+import { ParticipantsDialog } from './EmailThreads';
 import CloseDialog from './CloseDialog';
 import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
-import TimeHover, { longTimestamp } from '../ui/TimeHover';
+import TimeHover, { longTimestamp, TimeZoneContext } from '../ui/TimeHover';
 import { MergedBanner } from './mergeUi';
 import SlaChip from '../ui/SlaChip';
 import { useAiStatus } from '../../lib/aiFeatures';
@@ -218,6 +219,13 @@ export const ChatWindow: React.FC = () => {
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [issueDialog, setIssueDialog] = useState<'convert' | 'link' | null>(null);
+  const [showParticipants, setShowParticipants] = useState(false);
+  // "Show timestamp in customer timezone": remembered for every conversation on this device
+  const [customerTimes, setCustomerTimes] = useState(() => { try { return localStorage.getItem('ts_customer_tz') === '1'; } catch { return false; } });
+  const toggleCustomerTimes = () => setCustomerTimes(v => {
+    try { localStorage.setItem('ts_customer_tz', v ? '0' : '1'); } catch { /* private mode */ }
+    return !v;
+  });
   // Resolving an issue that still has open reports offers to message those customers
   const [issueBroadcast, setIssueBroadcast] = useState<{ total: number; open: number } | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -1021,7 +1029,9 @@ export const ChatWindow: React.FC = () => {
     return cat?.prefix ? `${cat.prefix}: ${text}` : text;
   };
 
+  const customerZone = ticket.customer?.session?.timezone;
   return (
+    <TimeZoneContext.Provider value={customerTimes && customerZone ? customerZone : undefined}>
     <div className="ic-panel flex-1 min-w-0 h-full flex flex-col relative">
       {/* ═══ HEADER ═══════════════════════════════════════════════════════ */}
       <div className="flex flex-col shrink-0 bg-surface">
@@ -1106,7 +1116,9 @@ export const ChatWindow: React.FC = () => {
               {showMoreMenu && (
                 <div className="ic-menu absolute top-full right-0 mt-2 w-[300px]">
                   {[
-                    { icon: UserPlus, label: 'Manage participants', divider: false },
+                    ...(ticket.kind !== 'issue' ? [{ icon: UserPlus, label: 'Manage participants', divider: false,
+                      hint: ticket.participants?.length ? ticket.participants.join(', ') : 'CC people on your replies by email',
+                      action: () => { setShowMoreMenu(false); setShowParticipants(true); } }] : []),
                     { icon: GitMerge, label: 'Merge into…', kbd: '⌘ ⇧ M', divider: false,
                       action: () => { setShowMergePanel(true); setShowMoreMenu(false); } },
                     ...((ticket.kind || 'conversation') === 'conversation' && !ticket.mergedInto ? [
@@ -1127,7 +1139,9 @@ export const ChatWindow: React.FC = () => {
                     { icon: FileDown, label: 'Export conversation as PDF', divider: false,
                       action: () => { setShowMoreMenu(false); if (token) exportAsPdf([ticket], token); } },
                     { icon: Activity, label: 'Show conversation events', kbd: '⌘ E', divider: true, submenu: true },
-                    { icon: Clock, label: 'Show timestamp in customer timezone', divider: false },
+                    { icon: Clock, label: 'Show timestamp in customer timezone', divider: false, checked: customerTimes,
+                      hint: customerZone ? customerZone.replace(/_/g, ' ') : 'Their timezone isn’t known yet',
+                      action: () => { setShowMoreMenu(false); toggleCustomerTimes(); } },
                     { icon: isBlocked ? BellOff : Ban, label: isBlocked ? 'Unblock user' : 'Block user',
                       danger: true, divider: false,
                       action: () => { setShowMoreMenu(false); toggleBlocked(); }
@@ -1171,9 +1185,11 @@ export const ChatWindow: React.FC = () => {
                         onMouseEnter={() => setShowEventsSubmenu(false)}
                         onClick={item.action || (() => setShowMoreMenu(false))}
                         className={`ic-menu-item ${item.danger ? 'text-red-600 dark:text-red-400' : ''}`}
+                        title={item.hint}
                       >
                         <item.icon className="w-4 h-4 shrink-0 opacity-80" />
                         <span className="flex-1 truncate">{item.label}</span>
+                        {item.checked && <Check className="w-4 h-4 shrink-0 text-accent" />}
                         {item.kbd && (
                           <span className="flex items-center gap-1 shrink-0">
                             {item.kbd.split(' ').map((k: string, ki: number) => <kbd key={ki} className="ic-kbd font-sans">{k}</kbd>)}
@@ -1443,6 +1459,15 @@ export const ChatWindow: React.FC = () => {
         />
       )}
 
+      {showParticipants && ticket && token && (
+        <ParticipantsDialog
+          conversation={ticket}
+          token={token}
+          onClose={() => setShowParticipants(false)}
+          onDone={updated => { setShowParticipants(false); useStore.getState().updateConversation(updated); }}
+        />
+      )}
+
       {/* Linked to an issue: say so before anyone starts investigating */}
       {ticket?.linkedIssueId && token && <KnownIssueBar issueId={ticket.linkedIssueId} token={token} />}
 
@@ -1536,7 +1561,7 @@ export const ChatWindow: React.FC = () => {
                       View conversation
                     </button>
                     <TimeHover iso={m.createdAt} className="text-[12px] text-faint">
-                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', ...(customerTimes && customerZone ? { timeZone: customerZone } : {}) })}
                     </TimeHover>
                   </div>
                 </div>
@@ -1714,7 +1739,11 @@ export const ChatWindow: React.FC = () => {
                     <div className="flex items-center gap-1.5 text-[13px] font-medium text-ink/70 mb-1">
                       {m.metadata?.type === 'ai_summary'
                         ? <><Sparkles className="w-3.5 h-3.5 text-accent" /> AI summary · internal</>
-                        : <><Lock className="w-3.5 h-3.5" /> Internal note</>}
+                        : m.metadata?.side
+                          ? <><Mail className="w-3.5 h-3.5" /> Side conversation #{m.metadata.side.number} · {m.metadata.side.direction === 'in' ? 'from' : 'to'} {m.metadata.side.address}</>
+                          : m.metadata?.participant
+                            ? <><Mail className="w-3.5 h-3.5" /> Participant's email · internal</>
+                            : <><Lock className="w-3.5 h-3.5" /> Internal note</>}
                     </div>
                   )}
 
@@ -2184,6 +2213,7 @@ export const ChatWindow: React.FC = () => {
       </div>
       )}
     </div>
+    </TimeZoneContext.Provider>
   );
 };
 

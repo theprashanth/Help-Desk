@@ -32,7 +32,7 @@ export function toCustomerView(conv: Conversation): Conversation {
   const legacySnippet = conv.lastMessageSnippet && !conv.lastMessageSnippet.startsWith('[Note]')
     ? conv.lastMessageSnippet
     : '';
-  const { createdByAgentId: _c, attributes: _a, unreadCountAgent: _u, linkedIssueId: _l, ...rest } = conv;
+  const { createdByAgentId: _c, attributes: _a, unreadCountAgent: _u, linkedIssueId: _l, participantThreadIds: _p, ...rest } = conv;
   return {
     ...rest,
     unreadCountAgent: 0,
