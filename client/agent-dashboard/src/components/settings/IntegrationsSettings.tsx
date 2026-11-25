@@ -31,7 +31,7 @@ const PAYLOAD_EXAMPLE = `{
   "workspaceId": "default_workspace",
   "createdAt": "2026-01-01T10:00:00.000Z",
   "conversation": {
-    "id": "conv_123",
+    "id": "215476903761458",
     "ticketNumber": "#41042",
     "status": "open",
     "priority": "none",

@@ -326,7 +326,10 @@ export class JsonConversationRepository implements IConversationRepository {
     return transaction(async () => {
       const rawConversations = await readJson<any[]>(this.file, []);
       const ticketNumber = nextTicketNumber(rawConversations.map(c => c.ticketNumber));
-      const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      // Conversation IDs are 15-digit numbers (e.g. 215476903761458), unique across every workspace
+      const taken = new Set(rawConversations.map(c => c.id));
+      let id = '';
+      do { id = String(100_000_000_000_000 + Math.floor(Math.random() * 900_000_000_000_000)); } while (taken.has(id));
       const now = new Date().toISOString();
       const workspaceId = getActiveWorkspaceId();
     
