@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../../store/useStore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { tabFromPath, pathForTab, settingsPath } from '../../lib/agentRoutes';
 import InboxList from '../../components/agent/InboxList';
 import ChatWindow from '../../components/agent/ChatWindow';
 import CustomerProfilePanel from '../../components/agent/CustomerProfilePanel';
@@ -14,7 +15,7 @@ import { CreateTicketPanel } from '../../components/agent/CreateTicketPanel';
 import ProfileMenu, { ThemePref } from '../../components/agent/ProfileMenu';
 import { SearchPanel } from '../../components/agent/SearchPanel';
 import CommandPalette from '../../components/agent/CommandPalette';
-import { isBotView, isInboxView, KIND_LABELS, StateFilter, mentionedConversationIds } from '../../lib/inboxViews';
+import { isBotView, isInboxView, KIND_LABELS, StateFilter, mentionedConversationIds, matchesView } from '../../lib/inboxViews';
 import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
@@ -34,7 +35,16 @@ const AgentAvatar: React.FC<{ agent: { name: string; avatar?: string }; classNam
       </span>;
 
 export const Inbox: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('yours'); // inbox view id (yours, created, all, unassigned, agent:<id>, kind:<kind>) or analytics | settings | testing
+  // The screen comes from the address (lib/agentRoutes): an inbox view id (yours, all, agent:<id>, kind:<kind>…),
+  // 'search', or contacts | analytics | settings | testing. Changing it changes the address.
+  const location = useLocation();
+  const routeTo = useNavigate();
+  const activeTab = tabFromPath(location.pathname);
+  const setActiveTab = (next: string | ((current: string) => string)) => {
+    const tab = typeof next === 'function' ? next(tabFromPath(window.location.pathname)) : next;
+    const path = pathForTab(tab);
+    if (path !== window.location.pathname) routeTo(path);
+  };
   const [darkMode, setDarkMode] = useState(false);
   
   const token = useStore((state) => state.token);
@@ -104,11 +114,12 @@ export const Inbox: React.FC = () => {
     };
   }, [token, socket]);
 
-  // Deep links from "Copy link": /agent/inbox?conversation=<id>&message=<id>
+  // Deep links: "Copy link" (/agent/inbox?conversation=<id>&message=<id>) and the open conversation (?c=<id>)
+  const deepLinkDone = useRef(false);
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const convId = params.get('conversation');
-    if (!convId || !token) return;
+    const convId = params.get('conversation') || params.get('c');
+    if (!convId || !token) { deepLinkDone.current = true; return; }
     const messageId = params.get('message');
     fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
@@ -117,12 +128,13 @@ export const Inbox: React.FC = () => {
         const state: StateFilter = isSnoozed(conv) ? 'snoozed'
           : (['waiting', 'resolved', 'closed', 'archived'].includes(conv.status) ? conv.status : 'open') as StateFilter;
         setStateFilter(state);
-        setActiveTab('all');
+        const tab = tabFromPath(window.location.pathname);
+        if (!(isInboxView(tab) && matchesView(conv, tab, useStore.getState().agent?.id))) setActiveTab('all');
         setActiveConversationId(conv.id);
         if (messageId) setFocusMessageId(messageId);
       })
       .catch(e => console.error(e))
-      .finally(() => window.history.replaceState(null, '', window.location.pathname));
+      .finally(() => { deepLinkDone.current = true; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const setInboxNavOpen = useStore((state) => state.setInboxNavOpen);
@@ -172,9 +184,22 @@ export const Inbox: React.FC = () => {
   // The rail's moon/sun button flips to the opposite of what's showing
   const toggleDarkMode = () => setThemePref(darkMode ? 'light' : 'dark');
 
+  // The open conversation is part of the address (?c=<id>), so a refresh reopens it
+  useEffect(() => {
+    if (!deepLinkDone.current) return;
+    const inInbox = isInboxView(activeTab);
+    const want = inInbox && activeConversationId ? `?c=${encodeURIComponent(activeConversationId)}` : '';
+    if (window.location.search !== want) routeTo(`${window.location.pathname}${want}`, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId, activeTab]);
+
   // Other screens can open Settings (e.g. Ask AI's "Set up in Settings")
   useEffect(() => {
-    const open = () => setActiveTab('settings');
+    const open = () => {
+      const section = sessionStorage.getItem('settings_open_section') || undefined;
+      sessionStorage.removeItem('settings_open_section');
+      routeTo(settingsPath(section));
+    };
     window.addEventListener('open-settings', open);
     return () => window.removeEventListener('open-settings', open);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -391,7 +416,7 @@ export const Inbox: React.FC = () => {
                 anchor={profileButtonRef.current}
                 themePref={themePref}
                 onThemeChange={setThemePref}
-                onOpenSettings={(section) => { sessionStorage.setItem('settings_open_section', section); setActiveTab('settings'); }}
+                onOpenSettings={(section) => routeTo(settingsPath(section))}
                 onLogout={handleLogout}
                 onClose={() => setProfileMenuOpen(false)}
               />

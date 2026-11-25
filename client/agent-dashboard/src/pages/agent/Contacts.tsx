@@ -5,6 +5,8 @@ import {
   MessageSquare, Phone, Plus, Search, Ticket, Trash2, Users, Wrench, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { subOf } from '../../lib/agentRoutes';
 import { Company, Customer } from '../../../../../shared/src/types';
 import CustomerOrgFields from '../../components/agent/CustomerOrgFields';
 import { StatusPill } from '../../components/agent/mergeUi';
@@ -50,7 +52,11 @@ function useApi() {
 }
 
 export const Contacts: React.FC<{ onOpenConversation: (id: string) => void }> = ({ onOpenConversation }) => {
-  const [openId, setOpenId] = useState<string | null>(null);
+  // One contact's page has its own address: /agent/contacts/<id>
+  const location = useLocation();
+  const routeTo = useNavigate();
+  const openId = subOf(location.pathname) || null;
+  const setOpenId = (id: string | null) => routeTo(id ? `/agent/contacts/${encodeURIComponent(id)}` : '/agent/contacts');
   const [reloadKey, setReloadKey] = useState(0);
   return openId ? (
     <ContactDetail

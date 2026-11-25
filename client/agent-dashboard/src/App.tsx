@@ -37,10 +37,13 @@ export const App: React.FC = () => {
 
           {/* Admin / Agent Dashboard Routing */}
           <Route path="/agent/login" element={!token ? <Login /> : <Navigate to="/agent/inbox" />} />
-          <Route path="/agent/inbox" element={token ? <Inbox /> : <Navigate to="/agent/login" />} />
-          
+          {/* Every dashboard screen has its own address (lib/agentRoutes): /agent/inbox/…, /agent/contacts/…, /agent/settings/… */}
+          {['inbox', 'contacts', 'analytics', 'settings', 'testing'].map(area => (
+            <Route key={area} path={`/agent/${area}/*`} element={token ? <Inbox /> : <Navigate to="/agent/login" />} />
+          ))}
+
           {/* General Catch all redirects */}
-          <Route path="/agent" element={<Navigate to={token ? '/agent/inbox' : '/agent/login'} />} />
+          <Route path="/agent/*" element={<Navigate to={token ? '/agent/inbox' : '/agent/login'} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </BrowserRouter>
