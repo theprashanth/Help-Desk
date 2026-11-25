@@ -6,9 +6,10 @@ import { mentionedConversationIds } from '../lib/inboxViews';
 import { Message, Conversation } from '../../../../shared/src/types';
 import { loadTeams } from '../lib/teams';
 import { refreshAttributeDefs } from '../components/agent/CustomerOrgFields';
+import { API_URL } from '../lib/config';
 
 const SocketContext = createContext<Socket | null>(null);
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Alerts only make sense on the agent dashboard (not on the customer demo page). */
 const onAgentPage = () => window.location.pathname.startsWith('/agent');

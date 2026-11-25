@@ -3,11 +3,12 @@ import MessengerWidget from '../../components/customer/MessengerWidget';
 import { Globe, ArrowRight, ShieldCheck, Zap, Heart, Sparkles } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useStore } from '../../store/useStore';
+import { API_URL } from '../../lib/config';
 
 export const DemoLandingPage: React.FC = () => {
   // Browser tab shows the organisation's customer-facing name (Settings > General)
   useEffect(() => {
-    fetch('http://localhost:3000/api/workspace/public')
+    fetch(`${API_URL}/api/workspace/public`)
       .then(r => (r.ok ? r.json() : null))
       .then(ws => { if (ws?.name) useStore.getState().setWorkspaceName(ws.name); })
       .catch(() => {});

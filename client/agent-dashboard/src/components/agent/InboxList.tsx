@@ -18,6 +18,7 @@ import { STATE_FILTERS, StateFilter, statusesFor, viewParams, matchesState } fro
 import { PRIORITY_OPTIONS, PriorityIcon, priorityLabel } from '../../lib/priority';
 import { Agent } from '../../../../../shared/src/types';
 import SlaChip, { slaState } from '../ui/SlaChip';
+import { API_URL } from '../../lib/config';
 
 type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until' | 'sla_due' | 'reports';
 
@@ -32,7 +33,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] =
 
 const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 interface InboxListProps {
   currentQueue: string; // inbox view id: yours | created | all | unassigned | agent:<id> | kind:<kind>

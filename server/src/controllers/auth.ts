@@ -27,7 +27,10 @@ export async function login(req: AuthenticatedRequest, res: Response) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Ensure settings exist for the agent
+    // Ensure settings exist for the agent, in their own workspace (nobody is signed in yet, so there's no
+    // workspace on this request: the person's record says which one)
+    const { tenantStorage } = await import('../context/tenant.context');
+    await tenantStorage.run(result.agent.workspaceId || 'default_workspace', async () => {
     const settingsRepo = RepositoryFactory.getSettingsRepository();
     const existingSettings = await settingsRepo.findByAgentId(result.agent.id);
     if (!existingSettings) {
@@ -42,6 +45,7 @@ export async function login(req: AuthenticatedRequest, res: Response) {
       };
       await settingsRepo.save(defaultSettings);
     }
+    });
 
     return res.json({
       agent: result.agent,
@@ -174,8 +178,9 @@ export async function createAgent(req: AuthenticatedRequest, res: Response) {
   try {
     const userRepo = RepositoryFactory.getUserRepository();
     const normalizedEmail = email.trim().toLowerCase();
-    if (await userRepo.findByEmail(normalizedEmail)) {
-      return res.status(409).json({ error: 'A teammate with this email already exists' });
+    // Emails are unique across workspaces: signing in finds the person (and their workspace) by email
+    if (await userRepo.emailInUse(normalizedEmail)) {
+      return res.status(409).json({ error: 'Someone with this email already has an account' });
     }
     const passwordPlain = hasPassword ? (password as string) : generatePassword();
     const created = await userRepo.create({
@@ -451,4 +456,54 @@ export async function markMentionsSeen(req: AuthenticatedRequest, res: Response)
   if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
   const updated = await RepositoryFactory.getUserRepository().update(req.user.id, { mentionsSeenAt: new Date().toISOString() });
   return updated ? res.json({ mentionsSeenAt: updated.mentionsSeenAt }) : res.status(404).json({ error: 'Teammate not found' });
+}
+
+// ── Create a workspace (sign-up) ────────────────────────────────────────────
+
+const signupsByIp = new Map<string, number[]>();
+
+/**
+ * POST /api/auth/signup { companyName, name, email, password } — public. Creates a new, empty workspace
+ * (its own App ID for the Messenger) with the person as its admin, and signs them in. Turn it off with
+ * ALLOW_SIGNUP=false (e.g. a single-company install). At most 5 sign-ups per IP address per hour.
+ */
+export async function signup(req: AuthenticatedRequest, res: Response) {
+  if (process.env.ALLOW_SIGNUP === 'false') return res.status(403).json({ error: 'New workspaces can’t be created on this server' });
+  const { companyName, name, email, password } = req.body || {};
+  const company = typeof companyName === 'string' ? companyName.trim() : '';
+  const person = typeof name === 'string' ? name.trim() : '';
+  const mail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!company || company.length > 80) return res.status(400).json({ error: 'Enter your company name (up to 80 characters)' });
+  if (!person || person.length > 80) return res.status(400).json({ error: 'Enter your name' });
+  if (!EMAIL_RE.test(mail)) return res.status(400).json({ error: 'Enter a valid email address' });
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (password.length > 128) return res.status(400).json({ error: 'Password is too long' });
+
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const now = Date.now();
+  const recent = (signupsByIp.get(ip) || []).filter(t => now - t < 3600_000);
+  if (recent.length >= 5) return res.status(429).json({ error: 'Too many sign-ups from this network. Try again in an hour.' });
+
+  try {
+    const userRepo = RepositoryFactory.getUserRepository();
+    if (await userRepo.emailInUse(mail)) return res.status(409).json({ error: 'This email already has an account. Sign in instead.' });
+
+    const ws = await RepositoryFactory.getWorkspaceRepository().create({
+      name: company,
+      apiKey: `key_${crypto.randomBytes(18).toString('hex')}`,
+      customerFacingName: company,
+    } as any);
+    const { tenantStorage } = await import('../context/tenant.context');
+    await tenantStorage.run(ws.id, async () => {
+      await userRepo.create({ email: mail, name: person, role: 'admin', status: 'offline', passwordPlain: password });
+    });
+    recent.push(now); signupsByIp.set(ip, recent);
+    const result = await userRepo.verifyPassword(mail, password);
+    if (!result) return res.status(500).json({ error: 'The workspace was created but signing in failed. Try signing in.' });
+    await tenantStorage.run(ws.id, () => logAudit({ ...req, user: { id: result.agent.id, role: 'admin', workspaceId: ws.id } } as any,
+      'workspace.created', `Created the workspace ${company}`));
+    return res.status(201).json({ ...result, workspace: { id: ws.id, name: ws.name, appId: ws.appId } });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 }

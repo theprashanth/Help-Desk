@@ -203,8 +203,14 @@ export class MongooseUserRepository implements IUserRepository {
     return doc ? mapAgent(doc) : null;
   }
 
+  async emailInUse(email: string): Promise<boolean> {
+    // workspaceId: { $exists } = every workspace (otherwise the tenant plugin limits it to the active one)
+    return !!(await UserModel.exists({ email: email.toLowerCase(), workspaceId: { $exists: true } }));
+  }
+
   async verifyPassword(email: string, passwordPlain: string): Promise<{ agent: Agent; token: string } | null> {
-    const userDoc = await UserModel.findOne({ email });
+    // Sign-in looks across every workspace: the email says which one the person belongs to
+    const userDoc = await UserModel.findOne({ email: email.toLowerCase(), workspaceId: { $exists: true } });
     if (!userDoc) return null;
     const isMatch = await bcrypt.compare(passwordPlain, userDoc.passwordHash);
     if (!isMatch) return null;

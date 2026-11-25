@@ -12,8 +12,9 @@ import CustomerOrgFields from '../../components/agent/CustomerOrgFields';
 import { StatusPill } from '../../components/agent/mergeUi';
 import TimeHover from '../../components/ui/TimeHover';
 import { shortAgo } from '../../lib/timeAgo';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /**
  * Contacts: everyone who has written in. Search, filter by tag / company / status, sort by any column,

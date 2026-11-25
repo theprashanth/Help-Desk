@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { AiFeatures } from '../../../../shared/src/types';
+import { API_URL } from './config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 export type AiStatus = { configured: boolean; features: AiFeatures };
 const OFF: AiStatus = { configured: false, features: { handoffSummary: false, suggestedReplies: false, autoTriage: false, translation: false, teamLanguage: 'English' } };

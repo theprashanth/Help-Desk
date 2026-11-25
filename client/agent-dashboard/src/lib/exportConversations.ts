@@ -1,6 +1,7 @@
 import { Conversation, Message } from '../../../../shared/src/types';
+import { API_URL } from './config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 const fetchMessages = async (convId: string, token: string): Promise<Message[]> => {
   const res = await fetch(`${BACKEND_URL}/api/messages/${convId}?limit=100000`, { headers: { 'Authorization': `Bearer ${token}` } });

@@ -1,0 +1,14 @@
+# Netlify hosts the dashboard and the Messenger (static files). The server runs elsewhere (see DEPLOY.md).
+[build]
+  base = "client/agent-dashboard"
+  command = "npm run build"
+  publish = "dist"
+
+# Set this in Netlify › Site configuration › Environment variables (not here):
+#   VITE_API_URL = https://your-server.onrender.com
+
+# Every address (/agent/inbox, /agent/settings/ai-agent, /messenger/<appId>) is served by the app itself
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

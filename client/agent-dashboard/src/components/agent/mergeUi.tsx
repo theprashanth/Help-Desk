@@ -4,8 +4,9 @@ import { Conversation, Message } from '../../../../../shared/src/types';
 import { RichText } from '../../lib/richText';
 import { shortAgo } from '../../lib/timeAgo';
 import TimeHover from '../ui/TimeHover';
+import { API_URL } from '../../lib/config';
 
-export const BACKEND_URL = 'http://localhost:3000';
+export const BACKEND_URL = API_URL;
 
 const STATUS_STYLES: Record<string, string> = {
   open: 'bg-blue-100 text-blue-800 dark:bg-blue-500/20 dark:text-blue-200',

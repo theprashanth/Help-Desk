@@ -5,8 +5,9 @@ import {
   Terminal, Sparkles, MessageSquareCode
 } from 'lucide-react';
 import Button from '../ui/Button';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 export const TestingPanel: React.FC = () => {
   const token = useStore((state) => state.token);

@@ -9,8 +9,9 @@ import {
   UserCheck, RefreshCw, BarChart2, Smile
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 // Chart presentation constants (Intercom-style neutral chrome)
 const CHART_GRID = '#e9e8e5';

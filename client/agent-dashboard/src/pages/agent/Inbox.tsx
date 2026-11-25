@@ -24,8 +24,9 @@ import {
   BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, BellOff, Pin, PinOff, Users, BookOpen
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Profile photo, or initials when there isn't one (never a stock photo). */
 const AgentAvatar: React.FC<{ agent: { name: string; avatar?: string }; className?: string }> = ({ agent, className = '' }) =>
@@ -122,7 +123,7 @@ export const Inbox: React.FC = () => {
     const convId = params.get('conversation') || params.get('c');
     if (!convId || !token) { deepLinkDone.current = true; return; }
     const messageId = params.get('message');
-    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
       .then(conv => {
         if (!conv) return;
@@ -214,7 +215,7 @@ export const Inbox: React.FC = () => {
   // Open any conversation in the inbox (from Contacts): the All view, in the state it's in
   const openConversation = (convId: string) => {
     if (!token) return;
-    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API_URL}/api/tickets/${encodeURIComponent(convId)}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
       .then(conv => {
         if (!conv) return;

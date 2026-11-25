@@ -1,15 +1,18 @@
 import React, { useState } from 'react';
 import { useStore } from '../../store/useStore';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import { Globe, Lock, Mail } from 'lucide-react';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 export const Login: React.FC = () => {
-  const [email, setEmail] = useState('admin@localhost');
-  const [password, setPassword] = useState('admin123');
+  // The local test account is filled in only while developing, never on a deployed site
+  const isDev = !!(import.meta as any).env?.DEV;
+  const [email, setEmail] = useState(isDev ? 'admin@localhost' : '');
+  const [password, setPassword] = useState(isDev ? 'admin123' : '');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
@@ -95,8 +98,9 @@ export const Login: React.FC = () => {
           </div>
         </form>
 
-        <div className="mt-6 border-t border-line pt-5 text-center text-[13px] text-muted">
-          <span className="font-medium text-ink">Testing preset:</span> admin@localhost / admin123
+        <div className="mt-6 border-t border-line pt-5 text-center text-[13px] text-muted flex flex-col gap-2">
+          <span>New here? <Link to="/agent/signup" className="font-medium text-ink hover:underline">Create a workspace</Link></span>
+          {isDev && <span><span className="font-medium text-ink">Testing preset:</span> admin@localhost / admin123</span>}
         </div>
       </div>
     </div>

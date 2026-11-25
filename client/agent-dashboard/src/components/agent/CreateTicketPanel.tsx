@@ -6,8 +6,9 @@ import {
 import { useStore } from '../../store/useStore';
 import { Agent, Conversation } from '../../../../../shared/src/types';
 import { useTeams } from '../../lib/teams';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 const PLATFORM_OPTIONS = ['Web', 'iOS', 'Android'];
 
 type CustomerPick =

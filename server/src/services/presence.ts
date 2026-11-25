@@ -1,4 +1,4 @@
-import { SocketService, AGENTS_ROOM } from './socket';
+import { SocketService, agentsRoom } from './socket';
 
 /**
  * Collision detection: which teammates have each conversation open, and who is typing a reply.
@@ -9,8 +9,9 @@ import { SocketService, AGENTS_ROOM } from './socket';
 type Viewer = { agentId: string; name: string; typingUntil?: number };
 
 const TYPING_TTL_MS = 6000;
-const agentsBySocket = new Map<string, { agentId: string; name: string }>();
+const agentsBySocket = new Map<string, { agentId: string; name: string; workspaceId: string }>();
 const byConversation = new Map<string, Map<string, Viewer>>(); // conversationId -> socketId -> viewer
+const workspaceOf = new Map<string, string>();                   // conversationId -> the viewers' workspace
 
 function snapshot(conversationId: string) {
   const now = Date.now();
@@ -25,15 +26,18 @@ function snapshot(conversationId: string) {
 }
 
 function publish(conversationId: string) {
+  const ws = workspaceOf.get(conversationId);
+  if (!ws) return;
   try {
-    SocketService.emitToRoom(AGENTS_ROOM, 'presence:update', { conversationId, viewers: snapshot(conversationId) });
+    SocketService.emitToRoom(agentsRoom(ws), 'presence:update', { conversationId, viewers: snapshot(conversationId) });
   } catch { /* sockets not ready */ }
+  if (!byConversation.has(conversationId)) workspaceOf.delete(conversationId);
 }
 
 export const Presence = {
   /** A verified agent socket (from agent:login). */
-  registerAgent(socketId: string, agentId: string, name: string) {
-    agentsBySocket.set(socketId, { agentId, name });
+  registerAgent(socketId: string, agentId: string, name: string, workspaceId: string) {
+    agentsBySocket.set(socketId, { agentId, name, workspaceId });
   },
 
   isAgent(socketId: string) {
@@ -51,6 +55,7 @@ export const Presence = {
       }
     }
     if (!byConversation.has(conversationId)) byConversation.set(conversationId, new Map());
+    workspaceOf.set(conversationId, agent.workspaceId);
     byConversation.get(conversationId)!.set(socketId, { agentId: agent.agentId, name: agent.name });
     publish(conversationId);
   },
@@ -82,8 +87,10 @@ export const Presence = {
   },
 
   /** Everything at once, for a dashboard that just connected. */
-  all() {
-    return Array.from(byConversation.keys()).map(conversationId => ({ conversationId, viewers: snapshot(conversationId) }));
+  all(workspaceId: string) {
+    return Array.from(byConversation.keys())
+      .filter(conversationId => workspaceOf.get(conversationId) === workspaceId)
+      .map(conversationId => ({ conversationId, viewers: snapshot(conversationId) }));
   },
 
   /** Typing expires on its own if the "stopped typing" event never arrives. */

@@ -30,6 +30,7 @@ import { MergedBanner } from './mergeUi';
 import SlaChip from '../ui/SlaChip';
 import { useAiStatus } from '../../lib/aiFeatures';
 import { applyMacroActions, describeMacroActions, hasMacroActions } from '../../lib/macros';
+import { API_URL } from '../../lib/config';
 
 // Ticket states offered by the "Update ticket state" palette (values are the existing statuses)
 const TICKET_STATES: {
@@ -60,7 +61,7 @@ const STATE_LABELS: Record<string, string> = {
   closed: 'Closed', archived: 'Archived', merged: 'Merged'
 };
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 const getInitials = (name?: string, id?: string) => {
   if (name && name.trim()) {

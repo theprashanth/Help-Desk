@@ -9,6 +9,7 @@ import CsatCard from './CsatCard';
 import { createPortal } from 'react-dom';
 import { HelpCenter, HelpHomeCard, ArticleSuggestions, HelpView } from './HelpCenter';
 import { shortAgo } from '../../lib/timeAgo';
+import { API_URL } from '../../lib/config';
 
 /** What the customer sees: no internal notes or team events, but customer-facing state lines ("Ticket resolved"). */
 const CUSTOMER_SYSTEM_TYPES = ['customer_event', 'csat_request'];
@@ -17,7 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
 import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Where the Messenger runs: the demo page in this app, inside the iframe on a customer's site, or a mobile WebView. */
 export type MessengerMode = 'demo' | 'embedded' | 'fullscreen';
@@ -589,7 +590,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   // Private real-time channel for this visitor (their messages, typing, read receipts)
   useEffect(() => {
     if (!socket || !guestId) return;
-    const join = () => socket.emit('messenger:join', { customerId: guestId });
+    const join = () => socket.emit('messenger:join', { customerId: guestId, appId });
     join();
     socket.on('connect', join);
     return () => { socket.off('connect', join); };
