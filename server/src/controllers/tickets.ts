@@ -55,6 +55,9 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
     if (req.query.ai === 'all') list = list.filter(c => !!c.aiAgent);
     else if (req.query.ai === 'active') list = list.filter(c => c.aiAgent?.state === 'active');
     else list = list.filter(c => c.aiAgent?.state !== 'active');
+    // Who sent each conversation's latest public message (the list shows ↩ when it was the team)
+    const lastFrom = await lastPublicSenders(new Set(list.map(c => c.id)));
+    list = list.map(c => (lastFrom[c.id] ? { ...c, lastMessageFrom: lastFrom[c.id] } : c));
     // Issues: how many conversations are linked to each
     if (list.some(c => c.kind === 'issue')) {
       const counts = await reportCounts();
@@ -1051,4 +1054,19 @@ export async function broadcastIssueUpdate(req: AuthenticatedRequest, res: Respo
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+}
+
+/** Messages that aren't someone talking: state lines, events, automatic notices, rating requests. */
+const NOT_SPOKEN = new Set(['event', 'customer_event', 'csat_request', 'auto_reply', 'merged_indicator']);
+
+/** For each conversation, whether its latest public message came from the customer or the team. */
+async function lastPublicSenders(ids: Set<string>): Promise<Record<string, 'customer' | 'team'>> {
+  const out: Record<string, { at: string; from: 'customer' | 'team' }> = {};
+  for (const m of await RepositoryFactory.getMessageRepository().findAll()) {
+    if (!ids.has(m.conversationId) || m.isInternalNote || NOT_SPOKEN.has(m.metadata?.type)) continue;
+    if (m.sender.type !== 'customer' && m.sender.type !== 'agent') continue;
+    const cur = out[m.conversationId];
+    if (!cur || m.createdAt >= cur.at) out[m.conversationId] = { at: m.createdAt, from: m.sender.type === 'customer' ? 'customer' : 'team' };
+  }
+  return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.from]));
 }

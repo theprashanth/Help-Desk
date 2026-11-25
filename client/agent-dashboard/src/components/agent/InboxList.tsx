@@ -5,7 +5,7 @@ import {
   AlarmClock, Timer, Mail, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
   ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User,
   Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
-  Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft
+  Layers, FileText, FileDown, Trash2, CheckSquare, ArrowLeft, Reply
 } from 'lucide-react';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
 import CloseDialog from './CloseDialog';
@@ -342,16 +342,6 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
     }
   };
 
-  // Quiet category badges: neutral by default, faint tint only where it carries meaning
-  const getCategoryBadgeStyles = (category: string) => {
-    switch (category) {
-      case 'bug':
-        return 'bg-red-50 text-red-700 dark:bg-red-500/15 dark:text-red-300';
-      default:
-        return '';
-    }
-  };
-
   const formatTime = (isoString: string) => {
     if (!isoString) return '';
     const d = new Date(isoString);
@@ -516,7 +506,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       )}
 
       {/* Header */}
-      <div className="ic-panel-header px-4">
+      <div className="ic-panel-header px-4 border-dashed">
         <button
           onClick={() => setInboxNavOpen(!inboxNavOpen)}
           className="ic-icon-btn-ghost -ml-1"
@@ -779,7 +769,6 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
             const isSelected = selectedIds.has(c.id);
             const snoozed = isSnoozed(c, now);
             const hasUnread = c.unreadCountAgent > 0;
-            const categoryBadge = getCategoryBadgeStyles(c.category);
 
             return (
               <div key={c.id} className="relative group/card">
@@ -797,21 +786,26 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       setActiveConversationId(c.id);
                     }
                   }}
-                  className={`w-full px-3 py-2 rounded-xl text-left flex items-start gap-3 relative cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-link/40 ${
+                  className={`w-full px-3 py-2.5 rounded-xl text-left flex items-start gap-3 relative cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-link/40 ${
                     isActive 
                       ? 'bg-surface shadow-card' 
                       : isSelected ? 'bg-link/[0.06]' : 'hover:bg-ink/[0.03]'
                   }`}
                 >
-                  {/* Avatar, swapped for a checkbox on hover or while selecting */}
-                  <div className="relative w-8 h-8 shrink-0">
+                  {/* Avatar: ticket / issue icon, ↩ when the team sent the last message, otherwise the customer's initial.
+                      Swapped for a checkbox on hover or while selecting. */}
+                  <div className="relative w-6 h-6 shrink-0 mt-px">
                   <div className={selectionMode || isSelected ? 'invisible' : 'group-hover/card:invisible'}>
                   {c.kind === 'ticket' || c.kind === 'issue' ? (
-                    <div className="ic-avatar w-8 h-8 bg-subtle text-ink/80" title={c.kind === 'issue' ? 'Tracker issue' : 'Customer ticket'}>
-                      {c.kind === 'issue' ? <Wrench className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
+                    <div className="ic-avatar w-6 h-6 bg-ink/[0.08] text-ink" title={c.kind === 'issue' ? 'Tracker issue' : 'Customer ticket'}>
+                      {c.kind === 'issue' ? <Wrench className="w-3.5 h-3.5" strokeWidth={2.4} /> : <Ticket className="w-3.5 h-3.5" strokeWidth={2.4} />}
+                    </div>
+                  ) : c.lastMessageFrom === 'team' ? (
+                    <div className="ic-avatar w-6 h-6 bg-ink/[0.06] text-ink" title="Your team sent the last message">
+                      <Reply className="w-3.5 h-3.5" strokeWidth={2.4} />
                     </div>
                   ) : (
-                    <div className={`ic-avatar w-8 h-8 text-[13px] uppercase ${getAvatarColors(c.category)}`}>
+                    <div className={`ic-avatar w-6 h-6 text-[12px] font-semibold uppercase ${getAvatarColors(c.category)}`}>
                       {c.customer.name.charAt(0) || 'G'}
                     </div>
                   )}
@@ -828,9 +822,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                   </button>
                   </div>
 
-                  {/* Body info */}
-                  <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-                    <div className="flex justify-between items-center gap-2 min-w-0 h-5">
+                  {/* Body: name line, then (tickets/issues) "#number • title", then the latest message */}
+                  <div className="flex-1 min-w-0 flex flex-col">
+                    <div className="flex justify-between items-center gap-2 min-w-0 h-6">
                       <span className={`text-[15px] truncate ${
                         hasUnread ? 'font-semibold text-ink' : 'font-normal text-ink/70'
                       }`}>
@@ -839,52 +833,59 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       </span>
                       {/* Teammates who have it open right now */}
                       <PresenceDots viewers={othersIn(presence[c.id], agent?.id)} />
-                      {/* Icons Action container */}
-                      <div className="flex items-center gap-1 shrink-0 z-30">
+                      {/* Right side, Intercom-style:
+                          normal: priority · time — hovered: close · ⋯ · time — open conversation: close · ⋯ · priority · time.
+                          Every icon sits in the same 22px slot, so the gaps are even. */}
+                      <div className="flex items-center shrink-0 z-30 -mr-1">
                         {c.status !== 'closed' && !isLight && (
                           <button
                             onClick={(e) => { e.stopPropagation(); setClosingConv({ id: c.id, status: c.status, ticketNumber: c.ticketNumber }); }}
                             title="Close conversation"
-                            className="w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 opacity-0 group-hover/card:opacity-100 focus:opacity-100"
+                            className={`${isActive || openMenuConvId === c.id ? 'inline-flex' : 'hidden group-hover/card:inline-flex'} w-[22px] h-[22px] items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0`}
                           >
-                            <CloseConversationIcon className="w-[17px] h-[17px]" />
+                            <CloseConversationIcon className="w-4 h-4" />
                           </button>
                         )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openRowMenu(c.id, e.currentTarget);
-                          }}
-                          title="More actions"
-                          className={`${isLight ? 'hidden' : ''} w-7 h-7 inline-flex items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 focus:opacity-100 ${
-                            openMenuConvId === c.id ? 'opacity-100 bg-ink/[0.08]' : 'opacity-0 group-hover/card:opacity-100'
-                          }`}
-                        >
-                          <MoreHorizontal className="w-[18px] h-[18px]" strokeWidth={3} />
-                        </button>
-                        {/* Status icons sit next to the time, to the right of the hover actions */}
-                        {c.starred && (
-                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400 shrink-0" aria-label="Starred" />
+                        {!isLight && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openRowMenu(c.id, e.currentTarget); }}
+                            title="More actions"
+                            className={`${isActive || openMenuConvId === c.id ? 'inline-flex' : 'hidden group-hover/card:inline-flex'} w-[22px] h-[22px] items-center justify-center rounded-full text-ink hover:bg-ink/[0.08] transition-colors shrink-0 ${openMenuConvId === c.id ? 'bg-ink/[0.08]' : ''}`}
+                          >
+                            <MoreHorizontal className="w-4 h-4" strokeWidth={3} />
+                          </button>
                         )}
-                        <span title={priorityLabel(c.priority)} className="inline-flex"><PriorityIcon priority={c.priority} className="w-3.5 h-3.5" /></span>
-                        <span className="text-[13px] text-faint tabular-nums">
+                        {/* Status icons: hidden while hovering a row that isn't open (the actions take their place) */}
+                        {c.starred && (
+                          <span className={`w-[22px] h-[22px] items-center justify-center shrink-0 ${isActive || openMenuConvId === c.id ? 'inline-flex' : 'inline-flex group-hover/card:hidden'}`}>
+                            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" aria-label="Starred" />
+                          </span>
+                        )}
+                        {c.priority && c.priority !== 'none' && (
+                          <span title={priorityLabel(c.priority)} className={`w-[22px] h-[22px] items-center justify-center shrink-0 ${isActive || openMenuConvId === c.id ? 'inline-flex' : 'inline-flex group-hover/card:hidden'}`}>
+                            <PriorityIcon priority={c.priority} className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                        <span className="text-[13px] text-faint tabular-nums pl-1 pr-1">
                           {formatTime(c.updatedAt || c.createdAt)}
                         </span>
                       </div>
                     </div>
 
-                    {/* Bottom Row: Snippet & Unread */}
-                    <div className="flex justify-between items-center gap-2.5">
-                      <p className={`text-[14px] truncate flex-1 leading-snug ${
-                        hasUnread 
-                          ? 'text-ink font-medium' 
-                          : 'text-muted'
-                      }`}>
-                        {c.kind === 'ticket' && c.title
-                          ? <><span className="text-faint">{c.ticketNumber} · </span>{c.title}</>
-                          : c.kind === 'issue'
-                            ? <><span className="text-faint">{c.ticketNumber} · </span>{c.description || 'Tracker issue'}</>
-                            : (c.lastMessageSnippet || 'No messages in conversation')}
+                    {(c.kind === 'ticket' || c.kind === 'issue') && (
+                      <p className="text-[14px] leading-5 truncate text-muted">
+                        {c.ticketNumber} • {c.kind === 'issue'
+                          ? `${c.reportCount ?? 0} report${c.reportCount === 1 ? '' : 's'}`
+                          : (c.title || 'Ticket')}
+                      </p>
+                    )}
+
+                    {/* Latest message, with SLA and unread count */}
+                    <div className="flex justify-between items-center gap-2.5 min-w-0">
+                      <p className={`text-[14px] leading-5 truncate flex-1 ${hasUnread ? 'text-ink font-medium' : 'text-muted'}`}>
+                        {c.kind === 'issue'
+                          ? (c.description || c.lastMessageSnippet || 'Tracker issue')
+                          : (c.lastMessageSnippet || (c.kind === 'ticket' ? c.description : '') || 'No messages in conversation')}
                       </p>
                       <SlaChip conv={c} />
                       {hasUnread && (
@@ -894,23 +895,12 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       )}
                     </div>
 
-                    {/* Category badge */}
-                    <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-                      <span className={`ic-badge capitalize shrink-0 ${categoryBadge}`}>
-                        {c.category.replace('_', ' ')}
+                    {snoozed && c.snoozedUntil && (
+                      <span className="mt-1 self-start inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 min-w-0 max-w-full">
+                        <AlarmClock className="w-3 h-3 shrink-0" />
+                        <span className="truncate">{formatSnoozeUntil(c.snoozedUntil)}</span>
                       </span>
-                      {c.kind === 'issue' && (
-                        <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12px] font-medium bg-subtle text-muted shrink-0" title="Conversations linked to this issue">
-                          <Wrench className="w-3 h-3" /> {c.reportCount ?? 0} report{c.reportCount === 1 ? '' : 's'}
-                        </span>
-                      )}
-                      {snoozed && c.snoozedUntil && (
-                        <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 min-w-0">
-                          <AlarmClock className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{formatSnoozeUntil(c.snoozedUntil)}</span>
-                        </span>
-                      )}
-                    </div>
+                    )}
                   </div>
                 </div>
 

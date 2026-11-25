@@ -98,6 +98,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     newSocket.on('message:new', (msg: Message) => {
       console.log('[Socket] New message received:', msg);
       addMessage(msg);
+      // The list's avatar shows ↩ while the team sent the latest public message
+      const spoken = !msg.isInternalNote && (msg.sender.type === 'customer' || msg.sender.type === 'agent')
+        && !['event', 'customer_event', 'csat_request', 'auto_reply', 'merged_indicator'].includes(msg.metadata?.type);
+      if (spoken) {
+        const from = msg.sender.type === 'customer' ? 'customer' : 'team';
+        useStore.setState(st => ({ conversations: st.conversations.map(c => (c.id === msg.conversationId && c.lastMessageFrom !== from ? { ...c, lastMessageFrom: from } : c)) }));
+      }
 
       // Loud alert for every incoming customer message while you're on the agent dashboard.
       // (Earlier this was skipped when the sender matched a guest id stored in this browser,
