@@ -108,11 +108,15 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
     const convRepo = RepositoryFactory.getConversationRepository();
     const msgRepo = RepositoryFactory.getMessageRepository();
 
+    let identityCheck: import('../services/customerIdentity').IdentityCheck = 'none';
+    let identityWs: import('../../../shared/src/types').Workspace | null = null;
     // Identity verification: a logged-in user's id must be signed by your server (user_hash) when enforced
     if (typeof externalUserId === 'string' && externalUserId.trim()) {
       const ws = await RepositoryFactory.getWorkspaceRepository().findById(req.workspaceId || 'default_workspace');
       const { checkIdentity } = await import('../services/customerIdentity');
-      if (checkIdentity(ws, externalUserId, userHash) === 'rejected') {
+      identityCheck = checkIdentity(ws, externalUserId, userHash);
+      identityWs = ws;
+      if (identityCheck === 'rejected') {
         return res.status(401).json({ error: 'Identity verification failed: user_hash is missing or wrong', code: 'identity_verification_failed' });
       }
     }
@@ -133,7 +137,10 @@ export async function createTicket(req: AuthenticatedRequest, res: Response) {
       notes: []
     });
     // A signed-in user: your app's name, email and phone win over what we stored before
-    if (externalId) await (await import('../services/customerIdentity')).syncProfile(customer, { name, email, phone });
+    if (externalId) {
+      const ident = await import('../services/customerIdentity');
+      await ident.syncProfile(customer, await ident.trustedProfile(identityWs, externalUserId, identityCheck, { name, email, phone }));
+    }
 
     // Update customer session total conversations count
     const totalConvs = (customer.session.totalConversations || 0) + 1;

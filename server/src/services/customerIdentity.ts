@@ -103,3 +103,16 @@ export async function adoptGuest(guestId: unknown, into: Customer): Promise<numb
   await custRepo.delete(guest.id);
   return moved;
 }
+
+/**
+ * The details to store for a signed-in user: your user database's values (Settings › Security › User directory,
+ * verified users only) win over what the page sent.
+ */
+export async function trustedProfile(ws: Workspace | null | undefined, userId: unknown, check: IdentityCheck,
+  page: { name?: unknown; email?: unknown; phone?: unknown }): Promise<{ name?: unknown; email?: unknown; phone?: unknown; fromDirectory: boolean }> {
+  if (check !== 'verified' || typeof userId !== 'string') return { ...page, fromDirectory: false };
+  const { lookupUser } = await import('./userDirectory');
+  const found = await lookupUser(ws?.appId, userId.trim());
+  if (!found) return { ...page, fromDirectory: false };
+  return { name: found.name || page.name, email: found.email || page.email, phone: found.phone || page.phone, fromDirectory: true };
+}

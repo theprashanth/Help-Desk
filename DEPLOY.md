@@ -68,6 +68,32 @@ You get a new, empty workspace with its own **Messenger App ID**, and you're its
 Every company that signs up gets its own workspace; they never see each other's conversations, contacts or
 settings. To run it for one company only, set `ALLOW_SIGNUP=false` on the server after creating yours.
 
+## Your signed-in users (your own MongoDB)
+
+When someone signed in to your product opens the Messenger, your page passes their **user id** and a
+**user_hash** that proves it came from your server:
+
+```html
+<script>
+  window.ChaiSamosaSettings = { app_id: "YOUR_APP_ID", user_id: "<their id from your database>", user_hash: "<from your server>" };
+</script>
+```
+
+- `user_hash` = HMAC-SHA256 of the user id with the secret from **Settings › Security**, as 64 hex characters,
+  computed on your server (Node: `crypto.createHmac('sha256', SECRET).update(userId).digest('hex')`).
+  Never put the secret in the page. In production a user id without a valid hash is ignored (the visitor
+  is treated as a guest) unless an admin turns verification off.
+- **Phone, name and email from your database:** set the `USER_DIRECTORY_*` settings on the server (see
+  `server/.env.example`): a read-only connection string to your product database, the collection, and which
+  fields hold the id, phone, name and email. The help desk then looks each verified user up and keeps their
+  contact up to date, so your page doesn't need to pass the phone at all. Settings › Security shows whether
+  it's connected.
+- Without a user directory, pass `name`, `email` and `phone` in `ChaiSamosaSettings` too; they're copied onto
+  the contact whenever they change.
+- **Keep the help desk in its own database.** It has its own `users` collection (your support team), which
+  would clash with your product's. Use a different database name in `MONGODB_URI` (the same cluster is fine).
+- If someone chats as a guest and then signs in, their earlier chats move onto their account automatically.
+
 ## Moving existing conversations
 
 A new workspace starts empty. Your local test data (`server/.data/`) is **not** uploaded anywhere.

@@ -4,6 +4,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { MessengerAppearance, Workspace } from '../../../shared/src/types';
 import { identityRequired } from '../services/customerIdentity';
+import { directoryStatus } from '../services/userDirectory';
 import {
   appearanceOf, ensureIdentitySecret, newIdentitySecret, verifyUserHash, normaliseDomain, hostAllowed, recordInstallation, dashboardHost,
 } from '../services/messenger';
@@ -21,6 +22,7 @@ function settingsResponse(ws: Workspace) {
     appId: appIdOf(ws),
     appearance: appearanceOf(ws),
     identityVerification: { enforced: identityRequired(ws), secretConfigured: !!ws.identitySecret },
+    userDirectory: directoryStatus(appIdOf(ws)),
     allowedDomains: ws.allowedDomains || [],
     installations: ws.installations || [],
   };
@@ -145,6 +147,7 @@ export async function messengerPing(req: AuthenticatedRequest, res: Response) {
   // A signed-in user: find their contact, bring their details up to date, and move this browser's guest
   // chats onto it. The Messenger then uses that contact's id (same history on every device).
   let canonicalId: string | undefined;
+  let known: string[] | undefined;
   if (identity === 'verified' || identity === 'unverified') {
     const custRepo = RepositoryFactory.getCustomerRepository();
     const external = String(userId).trim().slice(0, 200);
@@ -154,11 +157,14 @@ export async function messengerPing(req: AuthenticatedRequest, res: Response) {
       const guest = await custRepo.findById(customerId);
       if (guest && !guest.externalId) linked = await custRepo.update(guest.id, { externalId: external });
     }
+    const profile = await ident.trustedProfile(ws, userId, identity, { name, email, phone });
     if (linked) {
-      linked = await ident.syncProfile(linked, { name, email, phone });
+      linked = await ident.syncProfile(linked, profile);
       await ident.adoptGuest(customerId, linked);
       canonicalId = linked.id;
     }
+    // Verified users whose details came from your database: the Messenger doesn't ask for them again
+    if (profile.fromDirectory) known = (['name', 'email', 'phone'] as const).filter(k => !!profile[k]);
   }
   // The dashboard's own preview/demo isn't a customer installation
   if (h !== dashboardHost()) await recordInstallation(ws.id, {
@@ -169,7 +175,7 @@ export async function messengerPing(req: AuthenticatedRequest, res: Response) {
     identified: identity === 'verified' || identity === 'unverified',
     verified: identity === 'verified',
   });
-  return res.json({ allowed: true, identity, enforced: ident.identityRequired(ws), ...(canonicalId ? { customerId: canonicalId } : {}) });
+  return res.json({ allowed: true, identity, enforced: ident.identityRequired(ws), ...(canonicalId ? { customerId: canonicalId } : {}), ...(known ? { known } : {}) });
 }
 
 // ── Messenger (public): this visitor's conversations, known issues, translated text ──

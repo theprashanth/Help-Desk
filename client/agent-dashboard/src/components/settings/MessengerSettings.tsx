@@ -22,6 +22,7 @@ type MessengerSettingsData = {
   appId: string;
   appearance: MessengerAppearance;
   identityVerification: { enforced: boolean; secretConfigured: boolean };
+  userDirectory?: { enabled: boolean; collection?: string; idField?: string; phoneField?: string; nameField?: string; emailField?: string };
   allowedDomains: string[];
   installations: MessengerInstallation[];
 };
@@ -1146,6 +1147,22 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
             <p className="ic-help">Logged-in users without a valid user_hash can't start conversations. Anonymous visitors are not affected.</p>
           </div>
         </div>
+      </SettingsFormSection>
+
+      <SettingsFormSection
+        title="Your user database"
+        description="For signed-in users, take the phone number, name and email from your own MongoDB, looked up by their user id. Only users verified with user_hash are looked up. Set up on the server (USER_DIRECTORY_* settings, see DEPLOY.md)."
+      >
+        {data.userDirectory?.enabled ? (
+          <div className="flex flex-col gap-1.5 text-[14px]">
+            <span className="inline-flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-medium"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Connected</span>
+            <span className="text-muted">Collection <code className="font-mono text-[13px] text-ink">{data.userDirectory.collection}</code>, matched on <code className="font-mono text-[13px] text-ink">{data.userDirectory.idField}</code></span>
+            <span className="text-muted">Phone <code className="font-mono text-[13px] text-ink">{data.userDirectory.phoneField}</code> · Name <code className="font-mono text-[13px] text-ink">{data.userDirectory.nameField}</code> · Email <code className="font-mono text-[13px] text-ink">{data.userDirectory.emailField}</code></span>
+            {!data.identityVerification.enforced && <span className="text-amber-700 dark:text-amber-300">Identity verification is off, so nothing is looked up yet. Turn it on above.</span>}
+          </div>
+        ) : (
+          <p className="text-[14px] text-muted">Not connected. Signed-in users’ details come from what your page passes to the Messenger.</p>
+        )}
       </SettingsFormSection>
 
       <SettingsFormSection

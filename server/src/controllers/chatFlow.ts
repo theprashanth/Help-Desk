@@ -112,7 +112,8 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     const { customerId: requestedId, externalUserId, userHash, session } = req.body || {};
     const answers = (req.body?.answers && typeof req.body.answers === 'object') ? req.body.answers : {};
 
-    if ((await import('../services/customerIdentity')).checkIdentity(ws, externalUserId, userHash) === 'rejected') {
+    const identityCheck = (await import('../services/customerIdentity')).checkIdentity(ws, externalUserId, userHash);
+    if (identityCheck === 'rejected') {
       return res.status(401).json({ error: 'Identity verification failed', code: 'identity_verification_failed' });
     }
 
@@ -148,12 +149,17 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
       session: session || { firstSeen: now, lastSeen: now, totalConversations: 0 },
       tags: [], notes: [],
     });
-    const customer = await custRepo.update(customerId, {
+    let customer = await custRepo.update(customerId, {
       ...(profile.name ? { name: profile.name } : {}),
       ...(profile.email ? { email: profile.email } : {}),
       ...(profile.phone ? { phone: profile.phone } : {}),
       session: { ...existing.session, ...(session || {}), totalConversations: (existing.session?.totalConversations || 0) + 1, lastSeen: now },
     }) || existing;
+    // A verified signed-in user: details from your user database (Settings › Security) win
+    if (externalId) {
+      const ident = await import('../services/customerIdentity');
+      customer = await ident.syncProfile(customer, await ident.trustedProfile(ws, externalUserId, identityCheck, profile));
+    }
 
     const bot: ConversationBotState = { state: 'menu', node: null, path: [], version };
     const convRepo = RepositoryFactory.getConversationRepository();
