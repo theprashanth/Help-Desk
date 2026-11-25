@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, Trash2, AlertCircle, Check, BookOpen, Eye, ThumbsUp, ThumbsDown, Search, FolderPlus, Pencil } from 'lucide-react';
+import { Plus, Trash2, AlertCircle, Check, BookOpen, Eye, ThumbsUp, ThumbsDown, Search, FolderPlus, Pencil, Upload } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { HelpArticle, HelpCollection } from '../../../../../shared/src/types';
 import { RichText } from '../../lib/richText';
 import { BACKEND_URL, SettingsPageHeader } from './shared';
+import ImportDialog from './ImportDialog';
 
 type Draft = { title: string; body: string; collectionId: string; state: 'draft' | 'published' };
 const empty: Draft = { title: '', body: '', collectionId: '', state: 'draft' };
@@ -27,6 +28,7 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const call = async (method: string, path: string, body?: unknown) => {
     const r = await fetch(`${BACKEND_URL}/api${path}`, { method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: body ? JSON.stringify(body) : undefined });
@@ -88,8 +90,10 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
     <>
       <SettingsPageHeader title="Knowledge base" onBack={onBack}>
         {flash && <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-emerald-700 dark:text-emerald-300"><Check className="w-4 h-4" /> {flash}</span>}
+        {canEdit && <button type="button" onClick={() => setImporting(true)} className="ic-btn-secondary"><Upload className="w-4 h-4" /> Import</button>}
         {canEdit && <button type="button" onClick={() => setSelected('new')} className="ic-btn-primary"><Plus className="w-4 h-4" /> New article</button>}
       </SettingsPageHeader>
+      {importing && <ImportDialog kind="articles" onClose={() => setImporting(false)} onImported={load} />}
       <div className="flex-1 min-h-0 flex">
         {/* Collections */}
         <div className="w-56 shrink-0 border-r border-line p-3 flex flex-col gap-0.5 overflow-y-auto">

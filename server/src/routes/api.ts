@@ -2,14 +2,13 @@ import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, 
 import { Router, text as textBody } from 'express';
 import { authenticateJWT, optionalJWT, requireFullSeat, requireAdmin } from '../middleware/auth';
 import { getEmailSettings, saveEmailSettings, sendTestEmail, pollNow, inboundWebhook } from '../controllers/emailChannel';
-import { listHelpAdmin, searchHelpAdmin, createCollection, updateCollection, deleteCollection, createArticle, updateArticle, deleteArticle, helpHome, helpSearch, helpCollection, helpArticle, helpFeedback } from '../controllers/help';
+import { listHelpAdmin, searchHelpAdmin, createCollection, updateCollection, deleteCollection, createArticle, updateArticle, deleteArticle, helpHome, helpSearch, helpCollection, helpArticle, helpFeedback, importArticles } from '../controllers/help';
 import { listOutbound, createOutbound, updateOutbound, deleteOutbound, matchOutbound, outboundEvent } from '../controllers/outbound';
 import { listTeams, createTeam, updateTeam, deleteTeam, setDefaultTeam, getAttributeDefs, saveAttributeDefs, listCompanies, getCompany, createCompany, updateCompany, deleteCompany, getAuditLog } from '../controllers/org';
 import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
-  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen
-} from '../controllers/auth';
+  createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen, signup } from '../controllers/auth';
 import { getAiSettings, saveAiSettings, testAiSettings, askAi, suggestRepliesHandler, summarizeHandler, translateHandler } from '../controllers/ai';
 import { previewImport, runDataImport, listImports, downloadExport } from '../controllers/data';
 import { 
@@ -17,7 +16,7 @@ import {
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
   deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets,
   createManualTicket, getInboxCounts, searchCustomers,
-  convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
+  importSavedReplies, convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
 import { setParticipants, getSideConversations, createSideConversation, replySide } from '../controllers/participants';
 import { getAiAgentSettings, saveAiAgentSettings, testAiAgent, aiAgentStats, takeOverFromAi, aiFeedback } from '../controllers/aiAgent';
@@ -52,6 +51,7 @@ router.get('/', (req, res) => {
 
 // --- Auth Routes ---
 router.post('/auth/login', login);
+router.post('/auth/signup', signup); // public: create a new workspace and its first admin
 router.get('/auth/profile', authenticateJWT, getProfile);
 router.put('/auth/profile', authenticateJWT, updateProfile);
 router.put('/auth/profile/status', authenticateJWT, updateStatus);   // { away }
@@ -178,6 +178,7 @@ router.post('/help/collections', authenticateJWT, requireFullSeat, createCollect
 router.put('/help/collections/:id', authenticateJWT, requireFullSeat, updateCollection);
 router.delete('/help/collections/:id', authenticateJWT, requireAdmin, deleteCollection);
 router.post('/help/articles', authenticateJWT, requireFullSeat, createArticle);
+router.post('/help/import', authenticateJWT, requireFullSeat, importArticles); // CSV / Markdown files
 router.put('/help/articles/:id', authenticateJWT, requireFullSeat, updateArticle);
 router.delete('/help/articles/:id', authenticateJWT, requireFullSeat, deleteArticle);
 // Public (Messenger): published articles only
@@ -197,6 +198,7 @@ router.post('/messenger/outbound/:id/event', requireKnownWorkspace, outboundEven
 // --- Saved Replies Routes ---
 router.get('/saved-replies', authenticateJWT, getSavedReplies);
 router.post('/saved-replies', authenticateJWT, requireFullSeat, createSavedReply);
+router.post('/saved-replies/import', authenticateJWT, requireFullSeat, importSavedReplies); // CSV of macros
 router.put('/saved-replies/:id', authenticateJWT, requireFullSeat, updateSavedReply);
 router.delete('/saved-replies/:id', authenticateJWT, requireFullSeat, deleteSavedReply);
 

@@ -1070,3 +1070,42 @@ async function lastPublicSenders(ids: Set<string>): Promise<Record<string, 'cust
   }
   return Object.fromEntries(Object.entries(out).map(([k, v]) => [k, v.from]));
 }
+
+/**
+ * POST /api/saved-replies/import { name, content } — a CSV of macros (shortcut, title, message).
+ * A macro with the same shortcut is updated; others are created for everyone.
+ */
+export async function importSavedReplies(req: AuthenticatedRequest, res: Response) {
+  const content = typeof req.body?.content === 'string' ? req.body.content : '';
+  if (!content.trim()) return res.status(400).json({ error: 'Choose a .csv file' });
+  try {
+    const { readMacroCsv } = await import('../services/contentImport');
+    const rows = readMacroCsv(String(req.body?.name || 'macros.csv'), content).slice(0, 1000);
+    const repo = RepositoryFactory.getSavedReplyRepository();
+    const me = req.user ? await RepositoryFactory.getUserRepository().findById(req.user.id) : null;
+    const byTrigger = new Map((await repo.findAll()).map(r => [r.trigger.toLowerCase(), r]));
+    let created = 0, updated = 0;
+    const skipped: { source: string; reason: string }[] = [];
+    for (const r of rows) {
+      if (r.trigger.length < 2) { skipped.push({ source: r.source, reason: 'No shortcut or title' }); continue; }
+      if (!r.content.trim()) { skipped.push({ source: r.source, reason: 'No message' }); continue; }
+      const existing = byTrigger.get(r.trigger);
+      if (existing) {
+        await repo.update(existing.id, { title: r.title, content: r.content });
+        updated++;
+      } else {
+        const made = await repo.create({
+          trigger: r.trigger, title: r.title, content: r.content, availableFor: 'everyone',
+          availableWhen: ['starting_conversations', 'replying', 'adding_notes'],
+          creator: me ? { id: me.id, name: me.name, avatar: me.avatar } : undefined,
+        });
+        byTrigger.set(made.trigger.toLowerCase(), made);
+        created++;
+      }
+    }
+    await logAudit(req, 'macro.imported', `Imported ${created + updated} macro${created + updated === 1 ? '' : 's'} (${created} new, ${updated} updated)`);
+    return res.json({ created, updated, skipped: skipped.slice(0, 50), skippedCount: skipped.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
