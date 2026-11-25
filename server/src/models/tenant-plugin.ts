@@ -2,6 +2,7 @@ import { Schema } from 'mongoose';
 import { getActiveWorkspaceId } from '../context/tenant.context';
 
 export function tenantPlugin(schema: Schema) {
+  if ((schema as any).__noTenant) return; // e.g. workspaces themselves
   // Ensure workspaceId path is present
   if (!schema.path('workspaceId')) {
     schema.add({
@@ -9,8 +10,9 @@ export function tenantPlugin(schema: Schema) {
     });
   }
 
-  // Hook pre-save: set workspaceId on new documents
-  schema.pre('save', function (next) {
+  // Set workspaceId on new documents before validation (validation runs before 'save' hooks,
+  // so stamping it in 'save' failed with "workspaceId is required")
+  schema.pre('validate', function (next) {
     if (!this.workspaceId) {
       this.workspaceId = getActiveWorkspaceId();
     }
