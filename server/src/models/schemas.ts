@@ -4,7 +4,7 @@ import { tenantPlugin } from './tenant-plugin';
 mongoose.plugin(tenantPlugin);
 
 // Workspace Schema (Tenants)
-export interface IWorkspaceDoc extends Document {
+export interface IWorkspaceDoc extends Document<string> {
   name: string;
   subdomain?: string;
   apiKey: string;
@@ -36,6 +36,8 @@ export interface IWorkspaceDoc extends Document {
 }
 
 export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
+  // The app's own ids ("default_workspace", "work_…"), not ObjectIds
+  _id: { type: String },
   name: { type: String, required: true },
   subdomain: { type: String, unique: true, sparse: true },
   apiKey: { type: String, required: true, unique: true, index: true },
@@ -66,6 +68,7 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   aiAgent: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
+(WorkspaceSchema as any).__noTenant = true; // workspaces aren't inside a workspace
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);
 
 // User Schema (Agents & Admins)
@@ -171,7 +174,7 @@ export const CustomerSchema = new Schema<ICustomerDoc>({
 export const CustomerModel = mongoose.model<ICustomerDoc>('Customer', CustomerSchema);
 
 // Conversation (Ticket) Schema
-export interface IConversationDoc extends Document {
+export interface IConversationDoc extends Document<string> {
   workspaceId: string;
   ticketNumber: string; // TICKET-1001
   customerId: string; // references Customer id
@@ -210,8 +213,10 @@ export interface IConversationDoc extends Document {
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
+  // 15-digit numeric ids (e.g. 215476903761458), like the local storage
+  _id: { type: String, default: () => String(100_000_000_000_000 + Math.floor(Math.random() * 900_000_000_000_000)) },
   workspaceId: { type: String, required: true, index: true },
-  ticketNumber: { type: String, required: true, unique: true, index: true },
+  ticketNumber: { type: String, required: true, index: true }, // unique per workspace (index below)
   customerId: { type: String, required: true, index: true },
   assignedAgentId: { type: String, index: true },
   status: { type: String, required: true, enum: ['open', 'waiting', 'resolved', 'closed', 'archived'], default: 'open' },
@@ -247,6 +252,7 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   aiAgent: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
+ConversationSchema.index({ workspaceId: 1, ticketNumber: 1 }, { unique: true });
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);
 
 // Message Schema (incorporates internal notes and reactions)
@@ -328,7 +334,7 @@ export interface ISavedReplyDoc extends Document {
 
 export const SavedReplySchema = new Schema<ISavedReplyDoc>({
   workspaceId: { type: String, required: true, index: true },
-  trigger: { type: String, required: true, unique: true, index: true },
+  trigger: { type: String, required: true, index: true }, // unique per workspace (index below)
   title: { type: String, required: true },
   content: { type: String, default: '' },
   actions: { type: Schema.Types.Mixed },
@@ -341,6 +347,7 @@ export const SavedReplySchema = new Schema<ISavedReplyDoc>({
   }
 }, { timestamps: true });
 
+SavedReplySchema.index({ workspaceId: 1, trigger: 1 }, { unique: true });
 export const SavedReplyModel = mongoose.model<ISavedReplyDoc>('SavedReply', SavedReplySchema);
 
 // Tag Schema
@@ -352,10 +359,11 @@ export interface ITagDoc extends Document {
 
 export const TagSchema = new Schema<ITagDoc>({
   workspaceId: { type: String, required: true, index: true },
-  name: { type: String, required: true, unique: true, index: true },
+  name: { type: String, required: true, index: true }, // unique per workspace (index below)
   color: { type: String, required: true }
 }, { timestamps: true });
 
+TagSchema.index({ workspaceId: 1, name: 1 }, { unique: true });
 export const TagModel = mongoose.model<ITagDoc>('Tag', TagSchema);
 
 // Agent Settings Schema

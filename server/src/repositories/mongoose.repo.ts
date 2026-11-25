@@ -98,6 +98,7 @@ export class MongooseWorkspaceRepository implements IWorkspaceRepository {
 
   async create(workspace: Omit<Workspace, 'id' | 'createdAt'>): Promise<Workspace> {
     const doc = new WorkspaceModel({
+      _id: (workspace as any).id || `work_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       name: workspace.name,
       subdomain: workspace.subdomain,
       apiKey: workspace.apiKey,

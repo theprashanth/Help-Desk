@@ -77,7 +77,8 @@ async function startServer() {
     RepositoryFactory.setUseMongoose(false);
   } else {
     try {
-      console.log(`[Database] Attempting connection to MongoDB at: ${MONGODB_URI}`);
+      // Never log the password: show only the host and database
+      console.log(`[Database] Attempting connection to MongoDB at: ${MONGODB_URI.replace(/\/\/[^@/]*@/, '//***:***@')}`);
       // Set short timeout (3 seconds) to prevent server boot hang on connect failure
       await mongoose.connect(MONGODB_URI, {
         serverSelectionTimeoutMS: IS_PROD ? 15000 : 3000,
@@ -94,6 +95,20 @@ async function startServer() {
       }
       console.warn('[Database Fallback] Falling back to local JSON file storage inside \'.data/\' folder.');
       RepositoryFactory.setUseMongoose(false);
+    }
+  }
+
+  // MongoDB: make the database's indexes match the models (e.g. ticket numbers, macro shortcuts and tag
+  // names are unique per workspace, not across the whole database). Drops indexes the models no longer have.
+  if (isMongoConnected) {
+    try {
+      const { ConversationModel, SavedReplyModel, TagModel } = await import('./models/schemas');
+      for (const m of [ConversationModel, SavedReplyModel, TagModel] as any[]) {
+        const dropped = await m.syncIndexes();
+        if (dropped?.length) console.log(`[Database] ${m.modelName}: removed old indexes ${dropped.join(', ')}`);
+      }
+    } catch (err: any) {
+      console.warn(`[Database] Index sync skipped: ${err.message}`);
     }
   }
 
@@ -200,7 +215,6 @@ async function startServer() {
         email: 'admin@localhost',
         passwordPlain: 'admin123',
         name: 'Admin Manager',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop',
         role: 'admin',
         status: 'online',
         lastSeen: new Date().toISOString()
