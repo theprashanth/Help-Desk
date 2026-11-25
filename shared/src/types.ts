@@ -55,6 +55,7 @@ export interface Workspace {
   installations?: MessengerInstallation[];
   chatFlow?: ChatFlowSettings;
   ai?: AiSettings;                 // Settings › AI assistant (the API key never leaves the server)
+  aiAgent?: Partial<AiAgentSettings>; // Settings › AI Agent (off by default)
   dataImports?: DataImportRecord[]; // Settings › Data › Imports & exports (newest first, last 50)
 }
 
@@ -103,6 +104,7 @@ export interface MessengerAppearance {
   welcome: string;       // home screen message
   launcherPosition: 'right' | 'left';
   showLauncher: boolean; // false = open it from your own button via ChaiSamosa('show')
+  autoLanguage?: boolean; // Settings › Multilingual: show the Messenger in each visitor's browser language
 }
 
 /** A website or app where the Messenger has loaded (detected automatically). */
@@ -310,6 +312,11 @@ export interface Conversation {
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   linkedIssueId?: string;          // conversations/tickets: the tracker issue this report belongs to
+  reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
+  participants?: string[];         // extra people (email addresses) who get every teammate reply by email
+  participantThreadIds?: string[]; // Messenger conversations: Message-IDs of the participants' email thread
+  aiAgent?: ConversationAiAgent;   // set while/after the AI Agent answered this conversation
+  publicNotice?: string;           // issues: shown on the Messenger home while the issue is open ("We're aware of…")
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
@@ -371,6 +378,7 @@ export interface EmailSettings {
   missedReplyAlerts?: boolean;       // email customers replies they haven't seen (default true)
   missedReplyDelayMinutes?: number;  // wait this long first (default 5)
   transcripts?: boolean;             // email the transcript when a conversation is closed (default true)
+  ticketUpdates?: boolean;           // email customers about their tickets: opened, waiting on you, resolved (default true)
   lastSentAt?: string;
   lastError?: string | null;
   enabledAt?: string;
@@ -576,4 +584,49 @@ export interface ClientToServerEvents {
   'leave': (room: string) => void;
   'typing': (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => void;
   'seen': (payload: { conversationId: string; role: 'customer' | 'agent' }) => void;
+}
+
+/**
+ * A side conversation: an email thread with someone outside the team (a supplier, another department)
+ * started from a conversation. Its messages are internal notes in that conversation (metadata.side),
+ * so the customer never sees them.
+ */
+export interface SideConversation {
+  id: string;
+  workspaceId?: string;
+  conversationId: string;
+  number: number;              // 1, 2, … within the conversation (subject tag "[#41153/2]")
+  to: string;                  // their email address
+  subject: string;
+  threadIds: string[];         // Message-IDs, newest last
+  createdBy?: { id: string; name: string };
+  lastMessageAt?: string;
+  messageCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Settings › AI Agent: an AI teammate that answers customers itself (from the knowledge base) and hands
+ * the conversation to a person when it can't help. Off by default.
+ */
+export interface AiAgentSettings {
+  enabled: boolean;
+  name: string;                       // shown to customers, e.g. "AI Agent"
+  answerFrom: 'knowledge' | 'general'; // only from help articles, or general knowledge too
+  minConfidence: number;              // 0–1: below this, hand over instead of answering
+  maxReplies: number;                 // per conversation, then hand over
+  handoffTopics: string[];            // words/topics that always go to a person (refund, legal…)
+  handoffMessage: string;             // what the customer sees when it hands over
+  channels: { messenger: boolean; email: boolean };
+  afterChatFlow: boolean;             // also answer chats the chat-flow bot hands to the team
+  askFeedback: boolean;               // "Did that answer your question?" under each answer
+}
+
+export interface ConversationAiAgent {
+  state: 'active' | 'resolved' | 'handoff';
+  replies: number;
+  startedAt: string;
+  endedAt?: string;
+  reason?: string;                    // why it handed over
 }

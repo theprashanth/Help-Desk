@@ -3,13 +3,13 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { CUSTOMER_SYSTEM_TYPES, AGENTS_ROOM } from '../services/socket';
-import { Message, Attachment } from '../../../shared/src/types';
+import { Message, Attachment, Conversation } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
 import { refreshSla } from '../services/sla';
 import { refreshConversationSnippets, plainText, toCustomerView } from '../services/conversationView';
 import { notifyIntegrations } from '../services/notifications';
-import { deliverAgentReply } from '../services/email';
+import { deliverAgentReply, repliesByEmail } from '../services/email';
 import { inBackground, translateCustomerMessage, onCustomerTyped } from '../services/aiAssist';
 
 /** Customers may only touch their own conversation: the Messenger sends its User id (an unguessable UUID). */
@@ -178,8 +178,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     if (updatedConv) {
       SocketService.broadcastConversationUpdate(updatedConv);
     }
-    // Email conversations: the teammate's reply goes out by email (threaded); failures become an event
-    if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && (updatedConv || conv).channel === 'email') {
+    // Email conversations (and participants on CC): the teammate's reply goes out by email (threaded); failures become an event
+    if (sender.type === 'agent' && !isInternalNote && sender.id !== 'bot' && repliesByEmail(updatedConv || conv)) {
       deliverAgentReply(updatedConv || conv, createdMsg).catch(() => {});
     }
     // AI translation of the customer's message for the team (Settings › AI assistant)
@@ -188,6 +188,16 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       // Bot chats: the customer's first typed message is when the hand-off summary and triage can say something useful
       if (conv.bot) inBackground('hand-off', () => onCustomerTyped(conversationId, createdMsg.id));
     }
+    // Settings › AI Agent: it answers the customer while it has the conversation; a teammate's reply takes over
+    if (conv.aiAgent && conv.aiAgent.state !== 'handoff' && !isInternalNote) {
+      const ai = await import('../services/aiAgent');
+      if (sender.type === 'customer' && content) {
+        const msgId = createdMsg.id;
+        inBackground('ai agent', () => ai.respond(conversationId, msgId));
+      } else if (sender.type === 'agent' && sender.id !== ai.AI_AGENT_ID && conv.aiAgent.state === 'active') {
+        await ai.takeOver(updatedConv || conv, sender.name);
+      }
+    }
     // Customer wrote → their clock may start; a teammate replied → it stops
     if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);
 
@@ -195,6 +205,41 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+}
+
+/**
+ * A teammate's public reply created by the server (for example an issue update sent to every linked
+ * conversation): the same effects as a reply typed in the composer — previews, the customer's unread
+ * count, live updates, email delivery for email conversations, and the SLA clock.
+ */
+export async function sendAgentReply(
+  conv: Conversation,
+  sender: { id: string; name: string; avatar?: string },
+  content: string,
+  metadata?: Record<string, any>,
+): Promise<Message> {
+  const msgRepo = RepositoryFactory.getMessageRepository();
+  const convRepo = RepositoryFactory.getConversationRepository();
+  const msg = await msgRepo.create({
+    conversationId: conv.id,
+    sender: { type: 'agent', ...sender },
+    content,
+    attachments: [],
+    isInternalNote: false,
+    seen: false,
+    delivered: true,
+    reactions: [],
+    ...(metadata ? { metadata } : {}),
+  });
+  const snippet = plainText(content);
+  const update: any = { unreadCountCustomer: (conv.unreadCountCustomer || 0) + 1, lastMessageSnippet: snippet, customerSnippet: snippet };
+  if (conv.bot && conv.bot.state !== 'handoff') update.bot = { ...conv.bot, state: 'handoff' };
+  const updated = await convRepo.update(conv.id, update);
+  SocketService.broadcastMessageNew(msg);
+  if (updated) SocketService.broadcastConversationUpdate(updated);
+  if (repliesByEmail(updated || conv)) deliverAgentReply(updated || conv, msg).catch(() => {});
+  await refreshSla(conv.id);
+  return msg;
 }
 
 export async function addReaction(req: AuthenticatedRequest, res: Response) {

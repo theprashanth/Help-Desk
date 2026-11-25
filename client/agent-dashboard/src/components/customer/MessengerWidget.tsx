@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
-import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight } from 'lucide-react';
+import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight, Ticket, AlertTriangle } from 'lucide-react';
+import { MessengerTextProvider, useMessengerStrings } from './messengerText';
+import { MESSENGER_STRINGS, MessengerStringKey, fillString } from '../../../../../shared/src/messengerStrings';
 import TimeHover from '../ui/TimeHover';
 import CsatCard from './CsatCard';
 import { createPortal } from 'react-dom';
@@ -67,11 +69,14 @@ function getStoredSettings() {
   };
 }
 
-const REPLY_TIME_TEXT: Record<string, string> = {
-  asap: "We'll reply as soon as we can",
-  minutes: 'We usually reply in a few minutes',
-  hours: 'We usually reply in a few hours',
-  day: 'We usually reply in a day',
+const REPLY_TIME_KEY: Record<string, MessengerStringKey> = { asap: 'replyAsap', minutes: 'replyMinutes', hours: 'replyHours', day: 'replyDay' };
+
+/** What the customer sees for a ticket's state. */
+const TICKET_STATE: Record<string, { key: MessengerStringKey; cls: string }> = {
+  open: { key: 'stateInProgress', cls: 'bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300' },
+  waiting: { key: 'stateWaiting', cls: 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300' },
+  resolved: { key: 'stateResolved', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' },
+  closed: { key: 'stateResolved', cls: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300' },
 };
 
 type Availability = {
@@ -123,7 +128,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [resetNonce, setResetNonce] = useState(0);           // bumps on shutdown (logout)
   const parentOriginRef = useRef<string | null>(null);
   const [isOpen, setIsOpen] = useState(fullscreen);
-  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'all' | 'help'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'chat' | 'all' | 'help' | 'tickets'>('home');
   const [helpView, setHelpView] = useState<HelpView>({ kind: 'home' });
   const openHelp = (v: HelpView) => { setHelpView(v); setActiveTab('help'); };
   // Proactive messages (Settings › Proactive messages): a chat message popping up from the launcher, or a page banner
@@ -370,7 +375,53 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     showLauncher: fullscreen ? false : availability?.messenger?.showLauncher !== false,
   };
   const themeColor = look.themeColor;
-  const renderConvRow = (c: Conversation) => (
+  // Settings › Multilingual: the Messenger's text in the visitor's language (English until it loads)
+  const strings = useMessengerStrings(api, !!availability?.messenger?.autoLanguage);
+  const t = (key: MessengerStringKey, vars?: Record<string, string | number>) => fillString(strings?.[key] || MESSENGER_STRINGS[key], vars);
+  const welcomeText = strings?.welcome || look.welcome;
+  const greetingText = strings?.greeting || look.greeting;
+  // Open tracker issues with a public notice ("We're aware of…"), shown on the home screen
+  const [knownIssues, setKnownIssues] = useState<{ id: string; notice: string; updatedAt: string }[]>([]);
+  useEffect(() => {
+    if (!isOpen) return;
+    api('/api/messenger/known-issues').then(r => (r.ok ? r.json() : [])).then(l => setKnownIssues(Array.isArray(l) ? l : [])).catch(() => {});
+  }, [isOpen, api]);
+  // AI Agent buttons: it helped (resolve) / it didn't / talk to a person (both hand over to the team)
+  const [aiBusy, setAiBusy] = useState(false);
+  const sendAiFeedback = async (action: 'helpful' | 'not_helpful' | 'human') => {
+    if (!activeConv) return;
+    setAiBusy(true);
+    try {
+      const res = await api('/api/messenger/ai-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: activeConv.id, action }) });
+      if (res.ok) { const c = await res.json(); setActiveConv(c); setLocalConversations(prev => prev.map(x => (x.id === c.id ? c : x))); }
+    } catch { /* offline: the buttons stay */ }
+    setAiBusy(false);
+  };
+  // "Updated 5m" — or "Just now" for anything this minute
+  const updatedText = (iso?: string) => (shortAgo(iso) === 'Now' ? t('justNow') : t('updated', { time: shortAgo(iso) }));
+  const ticketPill = (c: Conversation) => {
+    const st = TICKET_STATE[c.status] || TICKET_STATE.open;
+    return <span className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${st.cls}`}>{t(st.key)}</span>;
+  };
+  const renderTicketRow = (c: Conversation) => (
+    <button
+      key={c.id}
+      onClick={() => { setActiveConv(c); setActiveTab('chat'); }}
+      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+    >
+      <span className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: `${themeColor}18`, color: themeColor }}>
+        <Ticket className="w-4 h-4" />
+      </span>
+      <span className="flex-1 min-w-0">
+        <span className={`block text-sm truncate ${c.unreadCountCustomer > 0 ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'}`}>
+          {c.title || customerPreview(c) || t('ticket')}
+        </span>
+        <span className="block text-xs text-slate-400 truncate">{c.ticketNumber} · {updatedText(c.updatedAt || c.createdAt)}</span>
+      </span>
+      {ticketPill(c)}
+    </button>
+  );
+  const renderConvRow = (c: Conversation) => c.kind === 'ticket' ? renderTicketRow(c) : (
     <button
       key={c.id}
       onClick={() => { setActiveConv(c); setActiveTab('chat'); }}
@@ -381,10 +432,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       </span>
       <span className="flex-1 min-w-0">
         <span className={`block text-sm truncate ${c.unreadCountCustomer > 0 ? 'font-semibold text-slate-900 dark:text-white' : 'text-slate-800 dark:text-slate-200'}`}>
-          {customerPreview(c) || 'Open ticket'}
+          {customerPreview(c) || t('openConversation')}
         </span>
         <span className="block text-xs text-slate-400 truncate">
-          {c.ticketNumber} · {shortAgo(c.updatedAt || c.createdAt)}{c.status === 'resolved' || c.status === 'closed' ? ' · Resolved' : ''}
+          {c.ticketNumber} · {shortAgo(c.updatedAt || c.createdAt)}{c.status === 'resolved' || c.status === 'closed' ? ` · ${t('stateResolved')}` : ''}
         </span>
       </span>
       {c.unreadCountCustomer > 0 ? (
@@ -554,8 +605,12 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const inFlowChat = activeTab === 'chat' && (!!flowIntake || (!!activeConv?.bot && activeConv.bot.state !== 'handoff'));
   const flowLocked = !!availability?.chatFlow && inFlowChat;
   const headerSubtitle = isAway
-    ? `We're away right now — back ${describeBack(availability?.nextOpenAt)}`
-    : (availability?.replyTime && REPLY_TIME_TEXT[availability.replyTime]) || look.greeting;
+    ? t('awayBack', { when: describeBack(availability?.nextOpenAt) })
+    : (availability?.replyTime && REPLY_TIME_KEY[availability.replyTime] ? t(REPLY_TIME_KEY[availability.replyTime]) : greetingText);
+  const chats = useMemo(() => sortedConversations.filter(c => c.kind !== 'ticket'), [sortedConversations]);
+  // Customer tickets (open ones first), for the home screen and the Tickets screen
+  const tickets = useMemo(() => sortedConversations.filter(c => c.kind === 'ticket')
+    .sort((a, b) => Number(a.status === 'resolved' || a.status === 'closed') - Number(b.status === 'resolved' || b.status === 'closed')), [sortedConversations]);
 
   // Read receipts: when the customer is looking at a conversation, mark the team's replies as seen
   // (the agent dashboard then shows "Seen" instead of "Not seen")
@@ -591,7 +646,6 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         // IDs are stored in localStorage when tickets are created (guest has no auth token)
         const raw = store.get(`guest_conv_ids_${guestId}`);
         const ids: string[] = raw ? JSON.parse(raw) : [];
-        if (ids.length === 0) return;
 
         // Fetch each ticket individually via the open endpoint
         const results = await Promise.all(
@@ -604,6 +658,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         const convs: Conversation[] = results
           .filter(Boolean)
           .filter((c: Conversation) => c.customer.id === guestId);
+        // Plus everything the server knows for this visitor (e.g. tickets a teammate opened for them)
+        const mine: Conversation[] = await api('/api/messenger/conversations').then(r => (r.ok ? r.json() : [])).catch(() => []);
+        for (const c of Array.isArray(mine) ? mine : []) if (!convs.some(x => x.id === c.id)) convs.push(c);
         setLocalConversations(convs.sort(
           (a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime()
         ));
@@ -904,7 +961,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
           }
         } else {
           const body = await res.json().catch(() => ({}));
-          setSendError(body.error || 'Your message couldn’t be sent. Please try again.');
+          setSendError(body.error || t('sendFailed'));
           if (text === undefined) setInputText(content);
         }
         return;
@@ -933,12 +990,12 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         });
       } else {
         const body = await res.json().catch(() => ({}));
-        setSendError(body.error || 'Your message couldn’t be sent. Please try again.');
+        setSendError(body.error || t('sendFailed'));
         if (text === undefined) setInputText(content);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
-      setSendError('Your message couldn’t be sent. Check your connection and try again.');
+      setSendError(t('sendOffline'));
     }
   };
 
@@ -1017,6 +1074,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       : 'w-96 h-[550px] rounded-3xl shadow-2xl border mb-4';
 
   return (
+    <MessengerTextProvider strings={strings}>
     <div className={rootClass}>
       {/* Messenger Screen Container */}
       <AnimatePresence>
@@ -1081,9 +1139,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                   <span className="text-xs text-white/80 font-medium truncate">
                     {(() => {
                       const names = availability.onlineAgents!.map(a => a.name.split(/\s+/)[0]);
-                      if (names.length === 1) return `${names[0]} is online`;
-                      if (names.length === 2) return `${names[0]} & ${names[1]} are online`;
-                      return `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]} are online`;
+                      if (names.length === 1) return t('oneOnline', { name: names[0] });
+                      if (names.length === 2) return t('twoOnline', { a: names[0], b: names[1] });
+                      return t('manyOnline', { names: names.slice(0, -1).join(', '), last: names[names.length - 1] });
                     })()}
                   </span>
                 </div>
@@ -1103,36 +1161,65 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                     >
                       <MessageSquare className="w-10 h-10" />
                     </div>
-                    <h4 className="font-bold text-slate-800 dark:text-slate-100 text-lg">Hello there!</h4>
+                    <h4 className="font-bold text-slate-800 dark:text-slate-100 text-lg">{t('hello')}</h4>
                     <p className="text-sm text-slate-500 dark:text-slate-400 max-w-[280px]">
-                      {look.welcome}
+                      {welcomeText}
                     </p>
                   </div>
+
+                  {/* Known issues the team has posted ("We're aware of…") */}
+                  {knownIssues.map(k => (
+                    <div key={k.id} className="text-left rounded-2xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 flex gap-3">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-300 shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">{t('knownIssue')}</p>
+                        <p className="text-sm text-slate-700 dark:text-slate-200 mt-0.5 whitespace-pre-wrap">{k.notice}</p>
+                        <p className="text-[11px] text-slate-400 mt-1">{updatedText(k.updatedAt)}</p>
+                      </div>
+                    </div>
+                  ))}
 
                   <button
                     onClick={startNewConversation}
                     className="w-full text-white font-semibold py-3 px-4 rounded-xl shadow-lg active:scale-[0.98] transition-all"
                     style={{ background: themeColor }}
                   >
-                    Start a New Chat
+                    {t('startChat')}
                   </button>
+
+                  {/* Their tickets: open ones first */}
+                  {tickets.length > 0 && (
+                    <div className="flex flex-col gap-2.5 text-left">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('yourTickets')}</span>
+                        {tickets.length > 2 && (
+                          <button onClick={() => setActiveTab('tickets')} className="text-xs font-semibold hover:underline" style={{ color: themeColor }}>
+                            {t('seeAll', { count: tickets.length })}
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+                        {tickets.slice(0, 2).map(c => renderTicketRow(c))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Knowledge base: search + popular articles */}
                   <HelpHomeCard api={api} themeColor={themeColor} onOpen={openHelp} />
 
                   {/* Recent conversations: the latest two; the rest under "See all" */}
-                  {sortedConversations.length > 0 && (
+                  {chats.length > 0 && (
                     <div className="flex flex-col gap-2.5 text-left mt-2 border-t border-slate-100 dark:border-slate-800/80 pt-5">
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Recent conversations</span>
-                        {sortedConversations.length > 2 && (
+                        <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">{t('recentConversations')}</span>
+                        {chats.length > 2 && (
                           <button onClick={() => setActiveTab('all')} className="text-xs font-semibold hover:underline" style={{ color: themeColor }}>
-                            See all ({sortedConversations.length})
+                            {t('seeAll', { count: chats.length })}
                           </button>
                         )}
                       </div>
                       <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-                        {sortedConversations.slice(0, 2).map(c => renderConvRow(c))}
+                        {chats.slice(0, 2).map(c => renderConvRow(c))}
                       </div>
                     </div>
                   )}
@@ -1140,28 +1227,49 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                 </div>
               ) : activeTab === 'help' ? (
                 <HelpCenter api={api} themeColor={themeColor} view={helpView} onNavigate={setHelpView} onAskTeam={startNewConversation} />
+              ) : activeTab === 'tickets' ? (
+                /* All tickets */
+                <div className="p-4 flex flex-col gap-3">
+                  <h4 className="px-1 text-sm font-bold text-slate-700 dark:text-slate-200">{t('allTickets')}</h4>
+                  <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
+                    {tickets.map(c => renderTicketRow(c))}
+                  </div>
+                </div>
               ) : activeTab === 'all' ? (
                 /* All conversations */
                 <div className="p-4 flex flex-col gap-3">
-                  <h4 className="px-1 text-sm font-bold text-slate-700 dark:text-slate-200">All conversations</h4>
+                  <h4 className="px-1 text-sm font-bold text-slate-700 dark:text-slate-200">{t('allConversations')}</h4>
                   <div className="flex flex-col rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800">
-                    {sortedConversations.map(c => renderConvRow(c))}
+                    {chats.map(c => renderConvRow(c))}
                   </div>
                   <button
                     onClick={startNewConversation}
                     className="mt-1 w-full text-white font-semibold py-2.5 px-4 rounded-xl active:scale-[0.98] transition-all text-sm"
                     style={{ background: themeColor }}
                   >
-                    Start a New Chat
+                    {t('startChat')}
                   </button>
                 </div>
               ) : (
                 /* Chat view */
                 <div className="flex flex-col flex-1 h-full overflow-hidden">
                   {/* Message feed */}
+                  {/* A ticket: its title and state stay visible above the messages */}
+                  {activeConv?.kind === 'ticket' && (
+                    <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-3 shrink-0">
+                      <span className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ background: `${themeColor}18`, color: themeColor }}>
+                        <Ticket className="w-4 h-4" />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{activeConv.title || t('ticket')}</span>
+                        <span className="block text-xs text-slate-400">{t('ticket')} {activeConv.ticketNumber}</span>
+                      </span>
+                      {ticketPill(activeConv)}
+                    </div>
+                  )}
                   <div ref={messagesScrollRef} className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
                     {chatMessages.length === 0 && !flowIntake && (
-                      <p className="text-xs text-slate-400 text-center my-6">Beginning of secure chat session.</p>
+                      <p className="text-xs text-slate-400 text-center my-6">{t('beginning')}</p>
                     )}
 
                     {/* Chat flow details form (local until complete) */}
@@ -1303,15 +1411,44 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             )}
                           </div>
 
+                          {/* AI Agent: the help articles it answered from */}
+                          {m.metadata?.type === 'ai_agent' && Array.isArray(m.metadata.sources) && m.metadata.sources.length > 0 && (
+                            <div className="mt-1.5 flex flex-col gap-1 items-start">
+                              <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{t('aiSources')}</span>
+                              {m.metadata.sources.map((src: { id: string; title: string }) => (
+                                <button key={src.id} onClick={() => openHelp({ kind: 'article', id: src.id })}
+                                  className="text-left text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:underline flex items-center gap-1.5 max-w-full"
+                                  style={{ color: themeColor }}>
+                                  <span className="truncate">{src.title}</span><ChevronRight className="w-3 h-3 shrink-0" />
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           {lastInGroup && (
                             <span className="mt-1 px-1 text-[11px] text-slate-400 dark:text-slate-500">
+                              {!isMe && m.metadata?.type === 'ai_agent' && <span className="mr-1 px-1 py-px rounded bg-slate-200/70 dark:bg-slate-800 text-[9px] font-bold text-slate-500">{t('aiLabel')}</span>}
                               {!isMe && <>{m.sender.name} · </>}
-                              <TimeHover iso={m.createdAt}>{shortAgo(m.createdAt) === 'Now' ? 'Just now' : shortAgo(m.createdAt)}</TimeHover>
+                              <TimeHover iso={m.createdAt}>{shortAgo(m.createdAt) === 'Now' ? t('justNow') : shortAgo(m.createdAt)}</TimeHover>
                             </span>
                           )}
                         </div>
                       );
                     })}
+
+                    {/* AI Agent: "Did that answer your question?" under its latest answer */}
+                    {activeConv?.aiAgent?.state === 'active' && (() => {
+                      const last = [...chatMessages].reverse().find(x => x.sender.type !== 'system');
+                      if (!last || last.metadata?.type !== 'ai_agent' || !last.metadata?.askFeedback || last.metadata?.handoff) return null;
+                      return (
+                        <div className="self-start flex flex-col gap-2 max-w-[85%]">
+                          <span className="px-1 text-xs text-slate-500 dark:text-slate-400">{t('aiHelpful')}</span>
+                          <div className="flex gap-2">
+                            <button disabled={aiBusy} onClick={() => sendAiFeedback('helpful')} className="text-xs font-semibold px-3 py-1.5 rounded-full text-white disabled:opacity-60" style={{ background: themeColor }}>{t('aiYes')}</button>
+                            <button disabled={aiBusy} onClick={() => sendAiFeedback('not_helpful')} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-60">{t('aiNo')}</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Chat flow buttons under the bot's latest message */}
                     {liveFlow && activeConv?.bot && activeConv.bot.state !== 'handoff' && (
@@ -1340,7 +1477,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                   {flowLocked ? (
                     <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
                       <div className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm px-3 py-2.5 text-slate-400 select-none" aria-disabled="true">
-                        {(flowIntake ? liveFlow?.detailsPlaceholder : liveFlow?.menuPlaceholder) || 'Choose an option above'}
+                        {(flowIntake ? liveFlow?.detailsPlaceholder : liveFlow?.menuPlaceholder) || t('chooseOption')}
                       </div>
                     </div>
                   ) : (
@@ -1362,6 +1499,15 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
                     {isPendingNewConv && !pendingOutbound && !flowIntake && (
                       <ArticleSuggestions api={api} text={inputText} onOpen={id => openHelp({ kind: 'article', id })} />
+                    )}
+
+                    {/* While the AI Agent is answering, a person is always one tap away */}
+                    {activeConv?.aiAgent?.state === 'active' && (
+                      <div className="mb-2 flex justify-end">
+                        <button disabled={aiBusy} onClick={() => sendAiFeedback('human')} className="text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: themeColor }}>
+                          {t('talkToPerson')}
+                        </button>
+                      </div>
                     )}
 
                     {sendError && (
@@ -1392,7 +1538,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             </button>
                           </div>
                         ))}
-                        {uploading && <div className="w-14 h-14 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">Uploading…</div>}
+                        {uploading && <div className="w-14 h-14 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-[10px] text-slate-400">{t('uploading')}</div>}
                       </div>
                     )}
 
@@ -1421,7 +1567,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             handleSendMessage();
                           }
                         }}
-                        placeholder={isPendingNewConv ? 'Type your first message to start the chat…' : 'Message…'}
+                        placeholder={isPendingNewConv ? t('firstMessage') : t('message')}
                         aria-label="Message"
                         className="block w-full resize-none bg-transparent px-4 pt-3 pb-1 text-sm leading-relaxed text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none max-h-[140px] overflow-y-auto"
                       />
@@ -1518,6 +1664,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       </motion.button>
       )}
     </div>
+    </MessengerTextProvider>
   );
 };
 

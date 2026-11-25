@@ -1,14 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Copy } from 'lucide-react';
 
+/**
+ * Times inside this provider are shown in another timezone (the chat's "Show timestamp in customer
+ * timezone"), e.g. "November 23, 2026 at 6:39:52 PM (customer's time, Asia/Kolkata)".
+ */
+export const TimeZoneContext = createContext<string | undefined>(undefined);
+
 /** "November 23, 2026 at 1:09:52 PM" */
-export function longTimestamp(iso: string): string {
+export function longTimestamp(iso: string, timeZone?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const date = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
-  return `${date} at ${time}`;
+  const tz = timeZone ? { timeZone } : {};
+  try {
+    const date = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', ...tz });
+    const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true, ...tz });
+    return `${date} at ${time}${timeZone ? ` (customer's time, ${timeZone.replace(/_/g, ' ')})` : ''}`;
+  } catch {
+    return longTimestamp(iso); // unknown zone name
+  }
 }
 
 /**
@@ -21,7 +32,8 @@ export const TimeHover: React.FC<{ iso: string; children: React.ReactNode; class
   const [copied, setCopied] = useState(false);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const text = longTimestamp(iso);
+  const zone = useContext(TimeZoneContext);
+  const text = longTimestamp(iso, zone);
 
   const clear = () => {
     if (openTimer.current) clearTimeout(openTimer.current);

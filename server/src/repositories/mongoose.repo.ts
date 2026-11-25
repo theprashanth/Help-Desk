@@ -322,6 +322,11 @@ export class MongooseCustomerRepository implements ICustomerRepository {
     const docs = await CustomerModel.find();
     return docs.map(mapCustomer);
   }
+
+  async delete(id: string): Promise<boolean> {
+    const r = await CustomerModel.deleteOne({ id });
+    return r.deletedCount > 0;
+  }
 }
 
 // Mongoose Conversation Repository
@@ -364,6 +369,10 @@ export class MongooseConversationRepository implements IConversationRepository {
       email: doc.email || undefined,
       language: doc.language || undefined,
       linkedIssueId: doc.linkedIssueId || undefined,
+      participants: doc.participants?.length ? doc.participants : undefined,
+      participantThreadIds: doc.participantThreadIds?.length ? doc.participantThreadIds : undefined,
+      publicNotice: doc.publicNotice || undefined,
+      aiAgent: doc.aiAgent || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -408,6 +417,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       teamId: conv.teamId,
       channel: conv.channel,
       email: conv.email,
+      aiAgent: conv.aiAgent,
     });
     await doc.save();
     return this.buildConversationObject(doc);

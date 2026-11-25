@@ -128,6 +128,11 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
       { field: 'status', from: before.status, to: after.status });
     await postCustomerStateLine(after, before.status, after.status);
     if (after.status === 'resolved') await requestRating(after);
+    // Settings › Email: customer tickets email their owner when they need a reply or are resolved
+    if (after.status === 'waiting' || after.status === 'resolved') {
+      const { sendTicketUpdate } = await import('./email');
+      sendTicketUpdate(after, after.status).catch(() => {});
+    }
     // Settings › Email: closing a Messenger conversation emails the customer its transcript
     if (after.status === 'closed' && before.status !== 'closed') {
       const { sendTranscript } = await import('./email');
@@ -153,6 +158,11 @@ export async function recordUpdateEvents(before: Conversation, after: Conversati
   if (before.category !== after.category) {
     await recordEvent(id, 'attributes', `${who} set Category to ${cap(after.category)}`, actor,
       { field: 'category', from: before.category, to: after.category });
+  }
+  if ((before.publicNotice || '') !== (after.publicNotice || '')) {
+    await recordEvent(id, 'attributes', after.publicNotice
+      ? `${who} ${before.publicNotice ? 'updated' : 'posted'} a public notice on the Messenger: "${after.publicNotice}"`
+      : `${who} removed the public notice from the Messenger`, actor, { field: 'publicNotice' });
   }
   if ((before.title || '') !== (after.title || '') && after.title) {
     await recordEvent(id, 'attributes', `${who} changed the title to "${after.title}"`, actor, { field: 'title', to: after.title });

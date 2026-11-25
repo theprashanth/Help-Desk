@@ -17,8 +17,11 @@ import {
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
   deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets,
   createManualTicket, getInboxCounts, searchCustomers,
-  convertToTicket, linkIssue, getLinkedConversations
+  convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
+import { setParticipants, getSideConversations, createSideConversation, replySide } from '../controllers/participants';
+import { getAiAgentSettings, saveAiAgentSettings, testAiAgent, aiAgentStats, takeOverFromAi, aiFeedback } from '../controllers/aiAgent';
+import { listContacts, exportContacts, getContact, deleteContact, mergeContacts } from '../controllers/contacts';
 import { 
   getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
 } from '../controllers/messages';
@@ -34,7 +37,7 @@ import { getStateCounts, bulkUpdate } from '../controllers/bulk';
 import { searchConversations } from '../controllers/search';
 import {
   requireKnownWorkspace, getMessengerSettings, updateMessengerSettings, getIdentitySecret,
-  rotateIdentitySecret, removeInstallation, messengerPing
+  rotateIdentitySecret, removeInstallation, messengerPing, myConversations, knownIssues, messengerI18n
 } from '../controllers/messenger';
 
 const router = Router();
@@ -61,6 +64,12 @@ router.post('/ai/ask', authenticateJWT, askAi);
 router.post('/ai/suggest', authenticateJWT, requireFullSeat, suggestRepliesHandler);
 router.post('/ai/summarize', authenticateJWT, summarizeHandler);
 router.post('/ai/translate', authenticateJWT, requireFullSeat, translateHandler);
+router.get('/ai-agent/settings', authenticateJWT, getAiAgentSettings); // Settings › AI Agent
+router.put('/ai-agent/settings', authenticateJWT, requireAdmin, saveAiAgentSettings);
+router.post('/ai-agent/test', authenticateJWT, requireFullSeat, testAiAgent); // what it would answer
+router.get('/ai-agent/stats', authenticateJWT, aiAgentStats);
+router.post('/tickets/:id/ai-takeover', authenticateJWT, requireFullSeat, takeOverFromAi); // a teammate takes over
+router.post('/messenger/ai-feedback', requireKnownWorkspace, aiFeedback); // public: Yes / No / Talk to a person
 // Settings › Data › Imports & exports (CSV uploads are sent as text/csv)
 const csvUpload = textBody({ type: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], limit: '25mb' });
 router.post('/data/imports/preview', authenticateJWT, csvUpload, previewImport);
@@ -100,6 +109,9 @@ router.get('/messenger/identity-secret', authenticateJWT, getIdentitySecret);
 router.post('/messenger/identity-secret/rotate', authenticateJWT, rotateIdentitySecret);
 router.delete('/messenger/installations/:id', authenticateJWT, removeInstallation);
 router.post('/messenger/ping', requireKnownWorkspace, messengerPing);
+router.get('/messenger/conversations', requireKnownWorkspace, myConversations); // public: the visitor's own (X-Customer-Id)
+router.get('/messenger/known-issues', requireKnownWorkspace, knownIssues);      // public: open issues' notices
+router.get('/messenger/i18n', requireKnownWorkspace, messengerI18n);            // public: Messenger text in a language
 
 // Chat flow (Settings › Channels › Chat flow) + the Messenger running it
 router.get('/chat-flow', authenticateJWT, getChatFlow);
@@ -117,11 +129,22 @@ router.post('/tickets', requireKnownWorkspace, createTicket); // Guest can creat
 router.post('/tickets/manual', authenticateJWT, requireFullSeat, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);
 router.get('/customers', authenticateJWT, searchCustomers);
+router.get('/contacts', authenticateJWT, listContacts); // Contacts page: search, filter, sort, page
+router.get('/contacts/export.csv', authenticateJWT, requireFullSeat, exportContacts);
+router.get('/contacts/:id', authenticateJWT, getContact); // one person: profile, conversations, pages
+router.delete('/contacts/:id', authenticateJWT, requireAdmin, deleteContact); // the person and all their conversations
+router.post('/contacts/merge', authenticateJWT, requireFullSeat, mergeContacts); // same person known twice
 router.put('/tickets/:id', authenticateJWT, requireFullSeat, updateTicket);
 router.put('/tickets/:id/assign', authenticateJWT, requireFullSeat, assignTicket);
 router.post('/tickets/:id/convert', authenticateJWT, requireFullSeat, convertToTicket); // conversation → customer ticket
 router.put('/tickets/:id/issue', authenticateJWT, requireFullSeat, linkIssue); // link to / unlink from a tracker issue
 router.get('/tickets/:id/linked', authenticateJWT, getLinkedConversations); // an issue's linked conversations
+router.post('/tickets/:id/broadcast', authenticateJWT, requireFullSeat, broadcastIssueUpdate); // message every linked conversation
+router.post('/tickets/:id/broadcast/draft', authenticateJWT, requireFullSeat, draftIssueBroadcast); // AI draft of that message
+router.put('/tickets/:id/participants', authenticateJWT, requireFullSeat, setParticipants); // CC'd on every reply
+router.get('/tickets/:id/side-conversations', authenticateJWT, getSideConversations);
+router.post('/tickets/:id/side-conversations', authenticateJWT, requireFullSeat, createSideConversation); // email someone outside the team
+router.post('/side-conversations/:sid/reply', authenticateJWT, requireFullSeat, replySide);
 router.put('/customers/:customerId', authenticateJWT, requireFullSeat, updateCustomerProfile);
 router.get('/customers/:customerId/tickets', authenticateJWT, getCustomerTickets);
 router.post('/tickets/:id/merge', authenticateJWT, requireFullSeat, mergeTickets);

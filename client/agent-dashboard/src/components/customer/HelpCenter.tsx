@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useMessengerText } from './messengerText';
 import { Search, ChevronRight, ThumbsUp, ThumbsDown, BookOpen, X } from 'lucide-react';
 import { RichText } from '../../lib/richText';
 
@@ -25,13 +26,14 @@ function useHelpHome(api: Api) {
 /** Search box + a few popular articles, for the Messenger home screen (hidden when there are no articles). */
 export const HelpHomeCard: React.FC<{ api: Api; themeColor: string; onOpen: (v: HelpView) => void }> = ({ api, themeColor, onOpen }) => {
   const home = useHelpHome(api);
+  const { t } = useMessengerText();
   const [q, setQ] = useState('');
   if (!home || !home.total) return null;
   return (
     <div className="flex flex-col gap-2.5 text-left rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
       <form onSubmit={e => { e.preventDefault(); onOpen({ kind: 'home', query: q }); }}
         className="flex items-center gap-2 rounded-xl bg-slate-100 dark:bg-slate-800 px-3 h-10">
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search for help" aria-label="Search for help"
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder={t('searchHelp')} aria-label={t('searchHelp')}
           className="flex-1 min-w-0 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none" />
         <button type="submit" aria-label="Search" style={{ color: themeColor }}><Search className="w-4 h-4" /></button>
       </form>
@@ -49,6 +51,7 @@ export const HelpCenter: React.FC<{
   api: Api; themeColor: string; view: HelpView; onNavigate: (v: HelpView) => void; onAskTeam: () => void;
 }> = ({ api, themeColor, view, onNavigate, onAskTeam }) => {
   const home = useHelpHome(api);
+  const { t } = useMessengerText();
   const [q, setQ] = useState(view.kind === 'home' ? view.query || '' : '');
   const [results, setResults] = useState<ArticleSummary[] | null>(null);
   const [collection, setCollection] = useState<{ name: string; description?: string; articles: ArticleSummary[] } | null>(null);
@@ -95,14 +98,14 @@ export const HelpCenter: React.FC<{
   const card = 'rounded-2xl border border-slate-200/70 dark:border-slate-800 bg-white dark:bg-slate-900 overflow-hidden divide-y divide-slate-100 dark:divide-slate-800';
   const askTeam = (
     <button onClick={onAskTeam} className="w-full text-white font-semibold py-2.5 px-4 rounded-xl text-sm active:scale-[0.98] transition-all" style={{ background: themeColor }}>
-      Still need help? Message us
+      {t('stillNeedHelp')}
     </button>
   );
 
   if (missing) return <div className="p-6 text-center text-sm text-slate-500">This article isn’t available any more.<div className="mt-4">{askTeam}</div></div>;
 
   if (view.kind === 'article') {
-    if (!article) return <p className="p-6 text-sm text-slate-400">Loading…</p>;
+    if (!article) return <p className="p-6 text-sm text-slate-400">{t('loading')}</p>;
     return (
       <div className="p-5 flex flex-col gap-4">
         {article.collection && (
@@ -116,16 +119,16 @@ export const HelpCenter: React.FC<{
         <div className="mt-2 rounded-2xl bg-slate-100 dark:bg-slate-800 p-4 text-center">
           {voted === null ? (
             <>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">Did this answer your question?</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200 mb-2">{t('articleHelpful')}</p>
               <div className="flex justify-center gap-2">
-                <button onClick={() => vote(true)} className="h-9 px-4 rounded-full bg-white dark:bg-slate-900 text-sm flex items-center gap-1.5 border border-slate-200 dark:border-slate-700"><ThumbsUp className="w-4 h-4" /> Yes</button>
-                <button onClick={() => vote(false)} className="h-9 px-4 rounded-full bg-white dark:bg-slate-900 text-sm flex items-center gap-1.5 border border-slate-200 dark:border-slate-700"><ThumbsDown className="w-4 h-4" /> No</button>
+                <button onClick={() => vote(true)} className="h-9 px-4 rounded-full bg-white dark:bg-slate-900 text-sm flex items-center gap-1.5 border border-slate-200 dark:border-slate-700"><ThumbsUp className="w-4 h-4" /> {t('yes')}</button>
+                <button onClick={() => vote(false)} className="h-9 px-4 rounded-full bg-white dark:bg-slate-900 text-sm flex items-center gap-1.5 border border-slate-200 dark:border-slate-700"><ThumbsDown className="w-4 h-4" /> {t('no')}</button>
               </div>
             </>
           ) : voted ? (
-            <p className="text-sm text-slate-600 dark:text-slate-300">Thanks! Glad it helped.</p>
+            <p className="text-sm text-slate-600 dark:text-slate-300">{t('thanksHelped')}</p>
           ) : (
-            <div className="flex flex-col gap-3"><p className="text-sm text-slate-600 dark:text-slate-300">Sorry about that. Our team can help.</p>{askTeam}</div>
+            <div className="flex flex-col gap-3"><p className="text-sm text-slate-600 dark:text-slate-300">{t('sorryHelp')}</p>{askTeam}</div>
           )}
         </div>
       </div>
@@ -133,7 +136,7 @@ export const HelpCenter: React.FC<{
   }
 
   if (view.kind === 'collection') {
-    if (!collection) return <p className="p-6 text-sm text-slate-400">Loading…</p>;
+    if (!collection) return <p className="p-6 text-sm text-slate-400">{t('loading')}</p>;
     return (
       <div className="p-4 flex flex-col gap-3">
         <div className="px-1">
@@ -150,7 +153,7 @@ export const HelpCenter: React.FC<{
     <div className="p-4 flex flex-col gap-4">
       <label className="flex items-center gap-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 px-3 h-11">
         <Search className="w-4 h-4 text-slate-400" />
-        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search for help" aria-label="Search for help"
+        <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder={t('searchHelp')} aria-label={t('searchHelp')}
           className="flex-1 min-w-0 bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none" />
         {q && <button onClick={() => setQ('')} aria-label="Clear"><X className="w-4 h-4 text-slate-400" /></button>}
       </label>
@@ -160,7 +163,7 @@ export const HelpCenter: React.FC<{
             <p className="text-sm text-slate-500">No articles match “{q}”.</p>{askTeam}
           </div>
         )
-      ) : !home ? <p className="text-sm text-slate-400 px-1">Loading…</p> : (
+      ) : !home ? <p className="text-sm text-slate-400 px-1">{t('loading')}</p> : (
         <>
           {home.collections.length > 0 && (
             <div className={card}>
@@ -178,7 +181,7 @@ export const HelpCenter: React.FC<{
           )}
           {home.popular.length > 0 && (
             <div className="flex flex-col gap-2">
-              <span className="px-1 text-xs font-bold text-slate-400 uppercase tracking-wider">Popular articles</span>
+              <span className="px-1 text-xs font-bold text-slate-400 uppercase tracking-wider">{t('popularArticles')}</span>
               <div className={card}>{home.popular.map(row)}</div>
             </div>
           )}

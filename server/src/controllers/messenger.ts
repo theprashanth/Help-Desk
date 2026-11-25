@@ -68,6 +68,10 @@ export async function updateMessengerSettings(req: AuthenticatedRequest, res: Re
       if (!['left', 'right'].includes(appearance.launcherPosition)) return res.status(400).json({ error: 'launcherPosition must be left or right' });
       next.launcherPosition = appearance.launcherPosition;
     }
+    if (appearance.autoLanguage !== undefined) {
+      if (typeof appearance.autoLanguage !== 'boolean') return res.status(400).json({ error: 'autoLanguage must be true or false' });
+      next.autoLanguage = appearance.autoLanguage;
+    }
     if (appearance.showLauncher !== undefined) {
       if (typeof appearance.showLauncher !== 'boolean') return res.status(400).json({ error: 'showLauncher must be true or false' });
       next.showLauncher = appearance.showLauncher;
@@ -150,4 +154,50 @@ export async function messengerPing(req: AuthenticatedRequest, res: Response) {
     verified: identity === 'verified',
   });
   return res.json({ allowed: true, identity, enforced: !!ws.identityEnforced });
+}
+
+// ── Messenger (public): this visitor's conversations, known issues, translated text ──
+
+/** GET /api/messenger/conversations — every conversation and ticket of the visitor named by X-Customer-Id. */
+export async function myConversations(req: AuthenticatedRequest, res: Response) {
+  const customerId = req.headers['x-customer-id'];
+  if (typeof customerId !== 'string' || !customerId) return res.json([]);
+  try {
+    const { isCustomerVisible, toCustomerView } = await import('../services/conversationView');
+    const list = (await RepositoryFactory.getConversationRepository().findAll())
+      .filter(c => c.customer.id === customerId && isCustomerVisible(c) && !c.mergedInto && c.status !== 'archived')
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 100)
+      .map(toCustomerView);
+    return res.json(list);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** GET /api/messenger/known-issues — public notices of open tracker issues ("We're aware of…"). */
+export async function knownIssues(_req: AuthenticatedRequest, res: Response) {
+  try {
+    const list = (await RepositoryFactory.getConversationRepository().findAll())
+      .filter(c => c.kind === 'issue' && c.publicNotice?.trim() && (c.status === 'open' || c.status === 'waiting') && !c.mergedInto)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 3)
+      .map(c => ({ id: c.id, notice: c.publicNotice!.trim(), updatedAt: c.updatedAt }));
+    return res.json(list);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** GET /api/messenger/i18n?lang=hi — the Messenger's text in that language (null: show English). */
+export async function messengerI18n(req: AuthenticatedRequest, res: Response) {
+  const { normaliseLang, messengerStringsFor } = await import('../services/messengerI18n');
+  const lang = normaliseLang(req.query.lang);
+  if (!lang) return res.json({ lang: 'en', strings: null });
+  try {
+    return res.json({ lang, strings: await messengerStringsFor(lang) });
+  } catch (err: any) {
+    console.warn(`[i18n] ${lang}: ${err.message}`);
+    return res.json({ lang, strings: null }); // English rather than a broken Messenger
+  }
 }

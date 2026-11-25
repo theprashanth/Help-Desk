@@ -31,6 +31,7 @@ export interface IWorkspaceDoc extends Document {
   email?: any;
   sla?: any;
   ai?: any;
+  aiAgent?: any;
   dataImports?: any[];
 }
 
@@ -61,7 +62,8 @@ export const WorkspaceSchema = new Schema<IWorkspaceDoc>({
   email: { type: Schema.Types.Mixed },
   customerAttributes: { type: Schema.Types.Mixed },
   sla: { type: Schema.Types.Mixed },
-  ai: { type: Schema.Types.Mixed }
+  ai: { type: Schema.Types.Mixed },
+  aiAgent: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const WorkspaceModel = mongoose.model<IWorkspaceDoc>('Workspace', WorkspaceSchema);
@@ -201,6 +203,10 @@ export interface IConversationDoc extends Document {
   email?: any;
   language?: string;
   linkedIssueId?: string;
+  participants?: string[];
+  participantThreadIds?: string[];
+  publicNotice?: string;
+  aiAgent?: any;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -234,7 +240,11 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   channel: { type: String },
   email: { type: Schema.Types.Mixed },
   language: { type: String },
-  linkedIssueId: { type: String, index: true }
+  linkedIssueId: { type: String, index: true },
+  participants: { type: [String], default: undefined },
+  participantThreadIds: { type: [String], default: undefined },
+  publicNotice: { type: String },
+  aiAgent: { type: Schema.Types.Mixed }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

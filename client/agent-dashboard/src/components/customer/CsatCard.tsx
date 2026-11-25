@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { ConversationRating } from '../../../../../shared/src/types';
+import { MessengerStringKey } from '../../../../../shared/src/messengerStrings';
+import { useMessengerText } from './messengerText';
 
-const FACES: { score: 1 | 2 | 3 | 4 | 5; emoji: string; label: string }[] = [
-  { score: 1, emoji: '😞', label: 'Terrible' },
-  { score: 2, emoji: '🙁', label: 'Bad' },
-  { score: 3, emoji: '😐', label: 'OK' },
-  { score: 4, emoji: '🙂', label: 'Great' },
-  { score: 5, emoji: '🤩', label: 'Amazing' },
+const FACES: { score: 1 | 2 | 3 | 4 | 5; emoji: string; label: MessengerStringKey }[] = [
+  { score: 1, emoji: '😞', label: 'rateTerrible' },
+  { score: 2, emoji: '🙁', label: 'rateBad' },
+  { score: 3, emoji: '😐', label: 'rateOk' },
+  { score: 4, emoji: '🙂', label: 'rateGreat' },
+  { score: 5, emoji: '🤩', label: 'rateAmazing' },
 ];
 
 /**
@@ -20,6 +22,7 @@ export const CsatCard: React.FC<{
   themeColor: string;
   onSubmit: (score: number, comment: string) => Promise<string | null>; // returns an error message, or null
 }> = ({ question, rating, active, themeColor, onSubmit }) => {
+  const { t } = useMessengerText();
   const [score, setScore] = useState<number | null>(null);
   const [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false);
@@ -30,8 +33,8 @@ export const CsatCard: React.FC<{
     return (
       <div className="self-center w-full max-w-[300px] rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3 text-center">
         <p className="text-2xl">{face?.emoji}</p>
-        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 mt-1">Thanks for your feedback!</p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">You rated this conversation “{face?.label}”.</p>
+        <p className="text-sm font-medium text-slate-800 dark:text-slate-100 mt-1">{t('rateThanks')}</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">You rated this conversation “{face ? t(face.label) : ''}”.</p>
       </div>
     );
   }
@@ -54,8 +57,8 @@ export const CsatCard: React.FC<{
             key={f.score}
             role="radio"
             aria-checked={score === f.score}
-            aria-label={f.label}
-            title={f.label}
+            aria-label={t(f.label)}
+            title={t(f.label)}
             onClick={() => setScore(f.score)}
             disabled={busy}
             className={`w-11 h-11 rounded-full text-2xl flex items-center justify-center transition-all ${score === f.score ? 'scale-110 ring-2' : score ? 'opacity-40 hover:opacity-80' : 'hover:scale-110'}`}
@@ -72,12 +75,12 @@ export const CsatCard: React.FC<{
             onChange={e => setComment(e.target.value)}
             maxLength={1000}
             rows={2}
-            placeholder="Tell us more (optional)"
+            placeholder={t('rateMore')}
             className="w-full resize-none rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none"
           />
           {error && <p className="text-xs text-red-600">{error}</p>}
           <button onClick={send} disabled={busy} className="h-9 rounded-xl text-sm font-semibold text-white disabled:opacity-60" style={{ background: themeColor }}>
-            {busy ? 'Sending…' : 'Send feedback'}
+            {busy ? t('sending') : t('sendFeedback')}
           </button>
         </>
       )}

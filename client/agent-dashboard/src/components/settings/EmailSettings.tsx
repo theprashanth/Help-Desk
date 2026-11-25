@@ -11,7 +11,7 @@ type Settings = {
     imap: { host: string; port: number; secure: boolean; user: string; mailbox: string; hasPassword: boolean } | null;
     webhookToken: string | null; lastPolledAt: string | null; lastError: string | null;
   };
-  missedReplyAlerts: boolean; missedReplyDelayMinutes: number; transcripts: boolean;
+  missedReplyAlerts: boolean; missedReplyDelayMinutes: number; transcripts: boolean; ticketUpdates: boolean;
   lastSentAt: string | null; lastError: string | null; ready: boolean;
 };
 
@@ -20,7 +20,7 @@ type Draft = {
   smtpHost: string; smtpPort: string; smtpSecure: boolean; smtpUser: string; smtpPassword: string;
   mode: 'none' | 'imap' | 'webhook';
   imapHost: string; imapPort: string; imapSecure: boolean; imapUser: string; imapPassword: string; imapMailbox: string;
-  missedReplyAlerts: boolean; missedReplyDelayMinutes: string; transcripts: boolean;
+  missedReplyAlerts: boolean; missedReplyDelayMinutes: string; transcripts: boolean; ticketUpdates: boolean;
 };
 
 const toDraft = (s: Settings): Draft => ({
@@ -29,7 +29,7 @@ const toDraft = (s: Settings): Draft => ({
   mode: s.inbound.mode,
   imapHost: s.inbound.imap?.host || '', imapPort: String(s.inbound.imap?.port || 993), imapSecure: s.inbound.imap?.secure ?? true,
   imapUser: s.inbound.imap?.user || '', imapPassword: '', imapMailbox: s.inbound.imap?.mailbox || 'INBOX',
-  missedReplyAlerts: s.missedReplyAlerts, missedReplyDelayMinutes: String(s.missedReplyDelayMinutes), transcripts: s.transcripts,
+  missedReplyAlerts: s.missedReplyAlerts, missedReplyDelayMinutes: String(s.missedReplyDelayMinutes), transcripts: s.transcripts, ticketUpdates: s.ticketUpdates !== false,
 });
 
 function Toggle({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
@@ -87,7 +87,7 @@ export default function EmailSettings({ onBack }: { onBack: () => void }) {
     try {
       const body: any = {
         enabled: d.enabled, fromName: d.fromName, fromAddress: d.fromAddress,
-        missedReplyAlerts: d.missedReplyAlerts, missedReplyDelayMinutes: Number(d.missedReplyDelayMinutes), transcripts: d.transcripts,
+        missedReplyAlerts: d.missedReplyAlerts, missedReplyDelayMinutes: Number(d.missedReplyDelayMinutes), transcripts: d.transcripts, ticketUpdates: d.ticketUpdates,
         inbound: { mode: d.mode, ...(d.mode === 'imap' ? { imap: { host: d.imapHost, port: Number(d.imapPort), secure: d.imapSecure, user: d.imapUser, password: d.imapPassword, mailbox: d.imapMailbox } } : {}) },
       };
       if (d.smtpHost.trim()) body.smtp = { host: d.smtpHost, port: Number(d.smtpPort), secure: d.smtpSecure, user: d.smtpUser, password: d.smtpPassword };
@@ -214,6 +214,7 @@ export default function EmailSettings({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
                 <Toggle checked={d.transcripts} disabled={ro} onChange={v => set('transcripts', v)} label="Email the transcript when a conversation is closed" />
+                <Toggle checked={d.ticketUpdates} disabled={ro} onChange={v => set('ticketUpdates', v)} label="Email customers about their tickets: opened, waiting on them, resolved" />
                 <p className="ic-help flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Needs outgoing mail (SMTP) to be set up.</p>
               </SettingsFormSection>
             </>

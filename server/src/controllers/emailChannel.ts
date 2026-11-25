@@ -85,6 +85,7 @@ export async function saveEmailSettings(req: AuthenticatedRequest, res: Response
     next.missedReplyDelayMinutes = m;
   }
   if (b.transcripts !== undefined) next.transcripts = !!b.transcripts;
+  if (b.ticketUpdates !== undefined) next.ticketUpdates = !!b.ticketUpdates;
   if (b.rotateWebhookToken) next.inbound = { ...(next.inbound || { mode: 'webhook' }), webhookToken: newWebhookToken() };
 
   const updated = await repo.update(ws.id, { email: next });
@@ -92,7 +93,7 @@ export async function saveEmailSettings(req: AuthenticatedRequest, res: Response
     b.enabled !== undefined && b.enabled !== cur.enabled ? (b.enabled ? 'turned email on' : 'turned email off') : '',
     b.smtp !== undefined ? 'SMTP' : '', b.inbound !== undefined ? 'incoming mail' : '',
     b.rotateWebhookToken ? 'rotated the forwarding address' : '',
-    b.missedReplyAlerts !== undefined || b.transcripts !== undefined || b.missedReplyDelayMinutes !== undefined ? 'customer emails' : '',
+    b.missedReplyAlerts !== undefined || b.transcripts !== undefined || b.ticketUpdates !== undefined || b.missedReplyDelayMinutes !== undefined ? 'customer emails' : '',
   ].filter(Boolean);
   if (what.length) await logAudit(req, 'settings.email', `Changed email settings: ${what.join(', ')}`);
   return res.json(publicEmailSettings(updated || ws, true));

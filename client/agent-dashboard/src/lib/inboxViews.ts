@@ -20,7 +20,7 @@ export const STATE_FILTERS: { key: StateFilter; label: string }[] = [
 ];
 
 export const isInboxView = (id: string) =>
-  ['yours', 'created', 'all', 'unassigned', 'mentions', 'bot', 'bot:active', 'bot:resolved'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:') || id.startsWith('team:');
+  ['yours', 'created', 'all', 'unassigned', 'mentions', 'bot', 'bot:active', 'bot:resolved', 'ai'].includes(id) || id.startsWith('agent:') || id.startsWith('kind:') || id.startsWith('team:');
 
 export const isBotView = (id: string) => id === 'bot' || id.startsWith('bot:');
 
@@ -52,11 +52,15 @@ export function viewParams(view: string, myId?: string): string {
   if (view === 'bot') return 'bot=handled';
   if (view === 'bot:active') return 'bot=active';
   if (view === 'bot:resolved') return 'bot=resolved';
+  if (view === 'ai') return 'ai=all';
   return '';
 }
 
 /** Does a conversation belong in this view (ignoring state)? */
 export function matchesView(c: Conversation, view: string, myId?: string): boolean {
+  // The AI Agent's view: every chat it answered. Chats it's answering right now aren't the team's yet.
+  if (view === 'ai') return !!c.aiAgent;
+  if (c.aiAgent?.state === 'active') return false;
   if (view === 'yours') return !!myId && c.assignedAgentId === myId;
   if (view === 'created') return !!myId && c.createdByAgentId === myId;
   if (view === 'unassigned') return !c.assignedAgentId;

@@ -289,6 +289,14 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
     if (updated) {
       SocketService.broadcastConversationUpdate(updated);
       if (handedOff) {
+        // Settings › AI Agent: it answers the customer's next message before a teammate does
+        const aiState = await (await import('../services/aiAgent')).takesNew('chatflow');
+        if (aiState) {
+          const taken = await convRepo.update(updated.id, { aiAgent: aiState });
+          if (taken) SocketService.broadcastConversationUpdate(taken);
+          await recordEvent(updated.id, 'other', 'The AI Agent is answering this conversation', undefined, { field: 'aiAgent', to: 'active' });
+          return res.json(toCustomerView(taken || updated));
+        }
         notifyIntegrations(wsId, 'conversation.created', { conversation: updated });
         await sendReplyTimeNotice(updated, wsId);
         await refreshSla(updated.id); // the customer now waits for a person

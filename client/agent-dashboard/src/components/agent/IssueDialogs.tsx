@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Search, Ticket, Unlink, Wrench, X } from 'lucide-react';
+import { Megaphone, Plus, Search, Sparkles, Ticket, Unlink, Wrench, X } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
 import { BACKEND_URL, StatusPill, statusOf, aboutText } from './mergeUi';
 import { shortAgo } from '../../lib/timeAgo';
@@ -233,6 +233,95 @@ export const LinkIssueDialog: React.FC<{
         {error && <p className="px-5 py-2 text-[13px] text-red-600 border-t border-line">{error}</p>}
         <div className="px-5 h-10 border-t border-line flex items-center text-[12.5px] text-muted shrink-0">
           ↑↓ navigate · ↵ link · esc close
+        </div>
+      </div>
+    </Overlay>
+  );
+};
+
+/**
+ * "Message linked customers": one update sent to every conversation and ticket linked to an issue, each in
+ * its own thread, optionally resolving them. Opened from the issue's sidebar, and offered when an issue
+ * with open reports is resolved.
+ */
+export const IssueBroadcastDialog: React.FC<{
+  issue: Conversation;
+  token: string;
+  openReports: number;          // linked conversations that aren't resolved or closed yet
+  totalReports: number;
+  resolveByDefault?: boolean;
+  aiReady?: boolean;
+  onClose: () => void;
+  onDone: (result: { sent: number; resolved: number; failed: { id: string; error: string }[] }) => void;
+}> = ({ issue, token, openReports, totalReports, resolveByDefault, aiReady, onClose, onDone }) => {
+  const [text, setText] = useState('');
+  const [resolve, setResolve] = useState(!!resolveByDefault);
+  const [busy, setBusy] = useState<'send' | 'draft' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { boxRef.current?.focus(); }, []);
+
+  const draft = async () => {
+    setBusy('draft'); setError(null);
+    try {
+      const r = await call(`/api/tickets/${issue.id}/broadcast/draft`, token, 'POST', {});
+      setText(r.text || '');
+      boxRef.current?.focus();
+    } catch (e: any) { setError(e.message); }
+    setBusy(null);
+  };
+  const send = async () => {
+    if (!text.trim() || busy) return;
+    setBusy('send'); setError(null);
+    try {
+      onDone(await call(`/api/tickets/${issue.id}/broadcast`, token, 'POST', { content: text.trim(), resolve }));
+    } catch (e: any) { setError(e.message); setBusy(null); }
+  };
+  const n = (k: number) => `${k} conversation${k === 1 ? '' : 's'}`;
+
+  return (
+    <Overlay onClose={onClose} busy={!!busy}>
+      <div className="w-[560px] max-w-full bg-surface rounded-2xl shadow-pop border border-line overflow-hidden">
+        <div className="flex items-center gap-3 px-5 h-14 border-b border-line">
+          <Megaphone className="w-[18px] h-[18px] text-muted" />
+          <h3 className="flex-1 text-[16px] font-semibold text-ink">Message linked customers</h3>
+          <button onClick={onClose} className="ic-icon-btn-ghost" title="Close"><X className="w-[18px] h-[18px]" /></button>
+        </div>
+        <div className="px-5 py-4 flex flex-col gap-3">
+          <p className="text-[13.5px] text-muted leading-relaxed">
+            Sends one message to the {n(totalReports)} linked to <span className="text-ink">{issue.title || 'this issue'}</span>.
+            Each customer gets it in their own conversation{aiReady ? ', translated if they write in another language' : ''}.
+          </p>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-medium text-ink">Message</span>
+              {aiReady && (
+                <button onClick={draft} disabled={!!busy} className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink disabled:opacity-50">
+                  <Sparkles className="w-3.5 h-3.5" /> {busy === 'draft' ? 'Writing…' : text ? 'Rewrite with AI' : 'Write with AI'}
+                </button>
+              )}
+            </div>
+            <textarea
+              ref={boxRef}
+              value={text}
+              onChange={e => setText(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); } }}
+              rows={5}
+              className="ic-textarea"
+              placeholder="e.g. Thanks for reporting this. The payment problem on iOS is fixed — please try again, and reply here if anything still looks wrong."
+            />
+          </div>
+          <label className={`flex items-center gap-2 text-[13.5px] ${openReports ? 'text-ink cursor-pointer' : 'text-faint'}`}>
+            <input type="checkbox" checked={resolve && openReports > 0} disabled={!openReports} onChange={e => setResolve(e.target.checked)} className="w-4 h-4 accent-current" />
+            {openReports ? `Also resolve the ${n(openReports)} still open` : 'All linked conversations are already resolved'}
+          </label>
+          {error && <p className="text-[13px] text-red-600">{error}</p>}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-line">
+          <button onClick={onClose} className="ic-btn-secondary" disabled={!!busy}>{resolveByDefault ? 'Not now' : 'Cancel'}</button>
+          <button onClick={send} className="ic-btn-primary" disabled={!text.trim() || !!busy} title="⌘ Enter">
+            {busy === 'send' ? 'Sending…' : `Send to ${n(totalReports)}`}
+          </button>
         </div>
       </div>
     </Overlay>

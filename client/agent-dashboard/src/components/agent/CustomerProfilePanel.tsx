@@ -15,6 +15,7 @@ import AskAiPanel from './AskAiPanel';
 import CustomerOrgFields from './CustomerOrgFields';
 import { useTeams } from '../../lib/teams';
 import { TrackerLinks } from './IssueLinks';
+import { SideConversationsLinks } from './EmailThreads';
 
 const BACKEND_URL = 'http://localhost:3000';
 
@@ -575,18 +576,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
               {linksOpen && (
                 <div className="mt-2 flex flex-col">
                   {token && <TrackerLinks conv={conv} token={token} readOnly={isLight} onUpdated={updateConversation} />}
-                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
-                    <span>Back-office tickets</span>
-                    <button className="ic-icon-btn w-8 h-8">
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="flex justify-between items-center min-h-[40px] text-[14px] text-muted">
-                    <span>Side conversations</span>
-                    <button className="ic-icon-btn w-8 h-8">
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </div>
+                  {token && conv.kind !== 'issue' && <SideConversationsLinks conv={conv} token={token} readOnly={isLight} />}
                 </div>
               )}
             </div>
@@ -621,6 +611,12 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     <span className="ic-detail-label">Ticket number</span>
                     <span className="ic-detail-value">{conv.ticketNumber}</span>
                   </div>
+                  {!!conv.participants?.length && (
+                    <div className="ic-detail-row">
+                      <span className="ic-detail-label">Participants</span>
+                      <span className="ic-detail-value" title={conv.participants.join(', ')}>{conv.participants.join(', ')}</span>
+                    </div>
+                  )}
                   {(conv.rating || conv.csatRequestedAt) && (
                     <div className="ic-detail-row">
                       <span className="ic-detail-label">CX rating</span>

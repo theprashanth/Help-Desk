@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import {
   Plus, Search, PenLine, Users, UserX, BarChart3, ChevronDown, ChevronRight,
   MessageSquare, Ticket, Wrench, Bot, CheckCircle2, MessagesSquare, AtSign, UsersRound
-} from 'lucide-react';
+, Sparkles } from 'lucide-react';
 import { useTeams } from '../../lib/teams';
 import { Agent } from '../../../../../shared/src/types';
 
@@ -16,6 +16,7 @@ export interface InboxCounts {
   byKind: Record<string, number>;
   byTeam?: Record<string, number>;
   bot?: { active: number; resolved: number };
+  ai?: { active: number; resolved: number; handoff: number };
   mentions?: { unread: number; conversationIds: string[] };
 }
 
@@ -214,6 +215,8 @@ export const InboxNavPanel: React.FC<Props> = ({
         </button>
         {botOpen && (
           <>
+            {/* Settings › AI Agent: every chat it answered (the ones it's answering now aren't in the team's views) */}
+            {item('ai', 'AI Agent', <Sparkles className="w-[16px] h-[16px]" />, counts?.ai?.active)}
             {item('bot:resolved', 'Resolved by bot', <CheckCircle2 className="w-[16px] h-[16px]" />, counts?.bot?.resolved)}
             {item('bot:active', 'In progress', <MessagesSquare className="w-[16px] h-[16px]" />, counts?.bot?.active)}
             {item('bot', 'All bot chats', <Bot className="w-[16px] h-[16px]" />, counts?.bot ? counts.bot.active + counts.bot.resolved : undefined)}

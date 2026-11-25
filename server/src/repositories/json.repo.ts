@@ -295,6 +295,17 @@ export class JsonCustomerRepository implements ICustomerRepository {
     const workspaceId = getActiveWorkspaceId();
     return customers.filter(c => c.workspaceId === workspaceId);
   }
+
+  async delete(id: string): Promise<boolean> {
+    return transaction(async () => {
+      const customers = await readJson<Customer[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const rest = customers.filter(c => !(c.id === id && c.workspaceId === workspaceId));
+      if (rest.length === customers.length) return false;
+      await writeJson(this.file, rest);
+      return true;
+    });
+  }
 }
 
 // JSON Conversation Repository
@@ -315,7 +326,10 @@ export class JsonConversationRepository implements IConversationRepository {
     return transaction(async () => {
       const rawConversations = await readJson<any[]>(this.file, []);
       const ticketNumber = nextTicketNumber(rawConversations.map(c => c.ticketNumber));
-      const id = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      // Conversation IDs are 15-digit numbers (e.g. 215476903761458), unique across every workspace
+      const taken = new Set(rawConversations.map(c => c.id));
+      let id = '';
+      do { id = String(100_000_000_000_000 + Math.floor(Math.random() * 900_000_000_000_000)); } while (taken.has(id));
       const now = new Date().toISOString();
       const workspaceId = getActiveWorkspaceId();
     
@@ -345,6 +359,7 @@ export class JsonConversationRepository implements IConversationRepository {
         teamId: conv.teamId,
         channel: conv.channel,
         email: conv.email,
+        aiAgent: conv.aiAgent,
         createdAt: now,
         updatedAt: now
       };
@@ -437,6 +452,10 @@ export class JsonConversationRepository implements IConversationRepository {
         email: raw.email || undefined,
         language: raw.language || undefined,
         linkedIssueId: raw.linkedIssueId || undefined,
+        participants: raw.participants?.length ? raw.participants : undefined,
+        participantThreadIds: raw.participantThreadIds?.length ? raw.participantThreadIds : undefined,
+        publicNotice: raw.publicNotice || undefined,
+        aiAgent: raw.aiAgent || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });
