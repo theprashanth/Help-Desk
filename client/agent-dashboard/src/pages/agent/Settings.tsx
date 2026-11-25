@@ -10,11 +10,12 @@ import {
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
   Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer, UsersRound, ScrollText, Contact, BookOpen, Megaphone
-, Bot } from 'lucide-react';
+, Bot, Upload } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
 import { describeMacroActions } from '../../lib/macros';
 import ProfileSettings from '../../components/settings/ProfileSettings';
+import ImportDialog from '../../components/settings/ImportDialog';
 import AiAgentSettings from '../../components/settings/AiAgentSettings';
 import MultilingualSettings from '../../components/settings/MultilingualSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
@@ -32,8 +33,9 @@ import ChatFlowSettings from '../../components/settings/ChatFlowSettings';
 import AiSettings from '../../components/settings/AiSettings';
 import DataSettings from '../../components/settings/DataSettings';
 import { RichText, handleFormattedPaste } from '../../lib/richText';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 type Section = 'home' | 'multilingual' | 'aiAgent' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
 
@@ -145,6 +147,7 @@ export const Settings: React.FC = () => {
   const section: Section = fromUrl in SECTION_TITLES ? fromUrl : 'home';
   const setSection = (next: Section) => { const path = settingsPath(next); if (path !== window.location.pathname) routeTo(path); };
   const [messengerTab, setMessengerTab] = useState<MessengerTab>('overview');
+  const [importingMacros, setImportingMacros] = useState(false);
   const [agentSettings, setAgentSettings] = useState<AgentSettings | null>(null);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -528,13 +531,19 @@ export const Settings: React.FC = () => {
         {/* Toolbar */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <p className="text-[14px] text-muted">Type <kbd className="ic-kbd font-mono px-1.5">/trigger</kbd> in the chat to insert a macro instantly.</p>
-          <button
-            onClick={startCreate}
-            className="ic-btn-primary"
-          >
-            <Plus className="w-4 h-4" /> New macro
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportingMacros(true)} className="ic-btn-secondary">
+              <Upload className="w-4 h-4" /> Import
+            </button>
+            <button
+              onClick={startCreate}
+              className="ic-btn-primary"
+            >
+              <Plus className="w-4 h-4" /> New macro
+            </button>
+          </div>
         </div>
+        {importingMacros && <ImportDialog kind="macros" onClose={() => setImportingMacros(false)} onImported={fetchMacros} />}
 
         <div className="flex gap-5 flex-1 min-h-0">
           {/* Left: Macro list */}

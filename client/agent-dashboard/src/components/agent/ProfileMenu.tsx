@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { Building2, Check, ChevronLeft, ChevronRight, HelpCircle, Contrast, ExternalLink, Languages, LogOut, Monitor, Moon, Sun } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { Agent } from '../../../../../shared/src/types';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 export type ThemePref = 'system' | 'light' | 'dark';
 
 const THEMES: { id: ThemePref; label: string; icon: React.ElementType }[] = [

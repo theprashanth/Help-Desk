@@ -6,9 +6,10 @@ import { mentionedConversationIds } from '../lib/inboxViews';
 import { Message, Conversation } from '../../../../shared/src/types';
 import { loadTeams } from '../lib/teams';
 import { refreshAttributeDefs } from '../components/agent/CustomerOrgFields';
+import { API_URL } from '../lib/config';
 
 const SocketContext = createContext<Socket | null>(null);
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Alerts only make sense on the agent dashboard (not on the customer demo page). */
 const onAgentPage = () => window.location.pathname.startsWith('/agent');
@@ -98,6 +99,13 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     newSocket.on('message:new', (msg: Message) => {
       console.log('[Socket] New message received:', msg);
       addMessage(msg);
+      // The list's avatar shows ↩ while the team sent the latest public message
+      const spoken = !msg.isInternalNote && (msg.sender.type === 'customer' || msg.sender.type === 'agent')
+        && !['event', 'customer_event', 'csat_request', 'auto_reply', 'merged_indicator'].includes(msg.metadata?.type);
+      if (spoken) {
+        const from = msg.sender.type === 'customer' ? 'customer' : 'team';
+        useStore.setState(st => ({ conversations: st.conversations.map(c => (c.id === msg.conversationId && c.lastMessageFrom !== from ? { ...c, lastMessageFrom: from } : c)) }));
+      }
 
       // Loud alert for every incoming customer message while you're on the agent dashboard.
       // (Earlier this was skipped when the sender matched a guest id stored in this browser,

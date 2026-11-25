@@ -1,6 +1,7 @@
 import { Conversation, MacroActions, SavedReply } from '../../../../shared/src/types';
+import { API_URL } from './config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 const STATE_LABELS: Record<string, string> = { open: 'Open', waiting: 'Waiting on customer', resolved: 'Resolved', closed: 'Closed' };
 const PRIORITY_LABELS: Record<string, string> = { none: 'No priority', low: 'Low', medium: 'Medium', high: 'High', critical: 'Urgent' };

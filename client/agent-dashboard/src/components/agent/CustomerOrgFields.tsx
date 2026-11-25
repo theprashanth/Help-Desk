@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { Building2, Plus, Search, X, ExternalLink } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { Company, CustomAttributeDef, Customer } from '../../../../../shared/src/types';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 type CompanyRow = Company & { people?: number };
 type CompanyDetail = Company & {
   people: { id: string; name: string; email?: string }[];

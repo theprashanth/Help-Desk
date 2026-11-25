@@ -9,6 +9,7 @@ import CsatCard from './CsatCard';
 import { createPortal } from 'react-dom';
 import { HelpCenter, HelpHomeCard, ArticleSuggestions, HelpView } from './HelpCenter';
 import { shortAgo } from '../../lib/timeAgo';
+import { API_URL } from '../../lib/config';
 
 /** What the customer sees: no internal notes or team events, but customer-facing state lines ("Ticket resolved"). */
 const CUSTOMER_SYSTEM_TYPES = ['customer_event', 'csat_request'];
@@ -17,7 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RichText } from '../../lib/richText';
 import { LiveChatFlow, FlowQuestionCard, FlowChips, flowButtons, FlowAction } from './chatFlowUi';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Where the Messenger runs: the demo page in this app, inside the iframe on a customer's site, or a mobile WebView. */
 export type MessengerMode = 'demo' | 'embedded' | 'fullscreen';
@@ -123,6 +124,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const fullscreen = mode === 'fullscreen';
   const store = useMemo(() => makeStore(mode === 'demo' ? '' : `cs_${appId}_`), [mode, appId]);
   const [identity, setIdentity] = useState<Identity>(() => initialIdentity(mode));
+  const [serverKnown, setServerKnown] = useState<string[]>([]); // e.g. ['phone'] when your user database had it
   const [booted, setBooted] = useState(mode !== 'embedded'); // embedded waits for the host page
   const [blocked, setBlocked] = useState(false);             // not allowed on this domain
   const [resetNonce, setResetNonce] = useState(0);           // bumps on shutdown (logout)
@@ -571,6 +573,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         platform: isMobile ? (params.get('platform') || 'mobile') : 'web',
         userId: identity.userId,
         userHash: identity.userHash,
+        // Signed-in users: the server updates their details and moves this browser's guest chats to them
+        customerId: guestIdRef.current || undefined,
+        name: identity.name, email: identity.email, phone: identity.phone,
       }),
     })
       .then(r => (r.ok ? r.json() : null))
@@ -580,16 +585,29 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         if (res.identity === 'rejected') {
           console.warn('[Chai Samosa] Identity verification failed (missing or wrong user_hash). Continuing as an anonymous visitor.');
           setIdentity({});
+          return;
+        }
+        // Details your user database already gave us (verified users): don't ask for them again
+        if (Array.isArray(res.known)) setServerKnown(res.known);
+        // The signed-in person's contact: use its id from now on (their history on every device)
+        if (typeof res.customerId === 'string' && res.customerId !== guestIdRef.current) {
+          const from = guestIdRef.current;
+          const previous: string[] = JSON.parse(store.get(`guest_conv_ids_${from}`) || '[]');
+          const merged: string[] = JSON.parse(store.get(`guest_conv_ids_${res.customerId}`) || '[]');
+          store.set(`guest_conv_ids_${res.customerId}`, JSON.stringify([...new Set([...merged, ...previous])]));
+          store.set('customer_guest_id', res.customerId);
+          guestIdRef.current = res.customerId;
+          setGuestId(res.customerId);
         }
       })
       .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booted, identity.userId, identity.userHash]);
+  }, [booted, identity.userId, identity.userHash, identity.name, identity.email, identity.phone]);
 
   // Private real-time channel for this visitor (their messages, typing, read receipts)
   useEffect(() => {
     if (!socket || !guestId) return;
-    const join = () => socket.emit('messenger:join', { customerId: guestId });
+    const join = () => socket.emit('messenger:join', { customerId: guestId, appId });
     join();
     socket.on('connect', join);
     return () => { socket.off('connect', join); };
@@ -796,7 +814,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
   /** Questions this visitor still has to answer (logged-in users skip what the site already told us). */
   const flowQuestions = (flow: LiveChatFlow) => (flow.askDetails ? flow.questions : []).filter(q =>
-    !(q.type === 'name' && identity.name) && !(q.type === 'email' && identity.email) && !(q.type === 'phone' && identity.phone));
+    !(q.type === 'name' && (identity.name || serverKnown.includes('name')))
+    && !(q.type === 'email' && (identity.email || serverKnown.includes('email')))
+    && !(q.type === 'phone' && (identity.phone || serverKnown.includes('phone'))));
 
   /** Details form complete: create the bot-handled conversation (the server writes the transcript). */
   const finishFlowIntake = async (answers: Record<string, string | null>) => {

@@ -11,8 +11,9 @@ import CloseConversationIcon from '../ui/CloseConversationIcon';
 import { applyMacroActions, describeMacroActions } from '../../lib/macros';
 import { useSnoozeOptions } from '../../lib/useSnoozeOptions';
 import { computeSnoozeUntil } from '../../lib/snooze';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 type Page = 'root' | 'assign' | 'priority' | 'snooze' | 'macro';
 type Item = {

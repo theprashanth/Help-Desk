@@ -13,6 +13,8 @@ export interface IUserRepository {
   findById(id: string): Promise<Agent | null>;
   findByEmail(email: string): Promise<Agent | null>;
   verifyPassword(email: string, passwordPlain: string): Promise<{ agent: Agent; token: string } | null>;
+  /** Is this email used by a teammate in any workspace? (Login finds people by email across workspaces.) */
+  emailInUse(email: string): Promise<boolean>;
   create(agentData: Omit<Agent, 'id'> & { passwordPlain: string }): Promise<Agent>;
   update(id: string, updateData: Partial<Agent>): Promise<Agent | null>;
   findAll(): Promise<Agent[]>;

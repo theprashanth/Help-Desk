@@ -50,7 +50,8 @@ export function authenticateJWT(req: AuthenticatedRequest, res: Response, next: 
     if (!role) return res.status(401).json({ error: 'Your account was removed from this workspace' });
     req.user = { id: payload.id, email: payload.email, role, workspaceId: payload.workspaceId };
     req.workspaceId = payload.workspaceId;
-    next();
+    // Everything after this runs in the teammate's own workspace (resolveTenant ran before the login was known)
+    tenantStorage.run(payload.workspaceId || 'default_workspace', () => next());
   });
 }
 
@@ -82,8 +83,10 @@ export function optionalJWT(req: AuthenticatedRequest, _res: Response, next: Nex
   const payload = verifyAgentToken(token);
   if (!payload) return next();
   currentRole(payload as any).then(role => {
-    if (role) req.user = { id: payload.id, email: payload.email, role, workspaceId: payload.workspaceId };
-    next();
+    if (!role) return next();
+    req.user = { id: payload.id, email: payload.email, role, workspaceId: payload.workspaceId };
+    req.workspaceId = payload.workspaceId;
+    tenantStorage.run(payload.workspaceId || 'default_workspace', () => next());
   });
 }
 

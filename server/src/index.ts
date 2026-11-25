@@ -12,7 +12,8 @@ import { ensureWorkspaceAppIds } from './services/appId';
 import { Presence } from './services/presence';
 import { startScheduler } from './services/scheduler';
 import { migrateMongoTicketNumbers } from './repositories/mongoose.repo';
-import { SocketService, AGENTS_ROOM, customerRoom } from './services/socket';
+import { SocketService, agentsRoom, isAgentsRoom, customerRoom } from './services/socket';
+import { tenantStorage } from './context/tenant.context';
 
 const customerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 import { verifyAgentToken } from './middleware/auth';
@@ -20,19 +21,44 @@ import { uploadDir } from './middleware/upload';
 
 dotenv.config();
 
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+/**
+ * Which websites may call the API from a browser: the dashboard (it also serves the Messenger iframe).
+ * CORS_ORIGINS=https://help.yourco.com,https://admin.yourco.com — in production it defaults to DASHBOARD_URL;
+ * locally anything is allowed. Server-to-server calls (API keys, webhooks) don't need CORS.
+ */
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || (IS_PROD ? process.env.DASHBOARD_URL || '' : ''))
+  .split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
+const corsOrigin: string[] | string = CORS_ORIGINS.length ? CORS_ORIGINS : '*';
+
+/** Production needs a real database and a real secret; refuse to start without them rather than run unsafely. */
+if (IS_PROD) {
+  const problems: string[] = [];
+  if (!process.env.MONGODB_URI) problems.push('MONGODB_URI is required (e.g. a MongoDB Atlas connection string). Local JSON files are wiped on most hosts.');
+  const secret = process.env.JWT_SECRET || '';
+  if (secret.length < 32 || secret === 'supersecretkey' || secret === 'your_jwt_secret_here') problems.push('JWT_SECRET must be a random string of 32+ characters (e.g. `openssl rand -hex 32`).');
+  if (!CORS_ORIGINS.length) problems.push('Set DASHBOARD_URL (or CORS_ORIGINS) to the address of your dashboard, e.g. https://help.yourco.com.');
+  if (problems.length) {
+    console.error('[Config] The server can’t start in production:\n  - ' + problems.join('\n  - '));
+    process.exit(1);
+  }
+}
+
 const app = express();
+app.set('trust proxy', 1); // behind Render/Railway/Fly: real client IPs for rate limits
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: '*', // Allow connections from frontend Vite
+    origin: corsOrigin,
     methods: ['GET', 'POST']
   }
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({ origin: corsOrigin }));
+app.use(express.json({ limit: '6mb' })); // imports send files as JSON
+app.use(express.urlencoded({ extended: true, limit: '6mb' }));
 
 // Serve uploaded files statically
 app.use('/uploads', express.static(uploadDir));
@@ -47,21 +73,25 @@ const PORT = process.env.PORT || 3000;
 async function startServer() {
   let isMongoConnected = false;
   
-  if (process.env.USE_LOCAL_STORAGE === 'true') {
+  if (process.env.USE_LOCAL_STORAGE === 'true' && !IS_PROD) {
     RepositoryFactory.setUseMongoose(false);
   } else {
     try {
       console.log(`[Database] Attempting connection to MongoDB at: ${MONGODB_URI}`);
       // Set short timeout (3 seconds) to prevent server boot hang on connect failure
       await mongoose.connect(MONGODB_URI, {
-        serverSelectionTimeoutMS: 3000,
-        connectTimeoutMS: 3000
+        serverSelectionTimeoutMS: IS_PROD ? 15000 : 3000,
+        connectTimeoutMS: IS_PROD ? 15000 : 3000
       });
       isMongoConnected = true;
       RepositoryFactory.setUseMongoose(true);
       console.log('[Database] MongoDB Connection Established Successfully!');
     } catch (err: any) {
       console.warn(`[Database Warning] MongoDB connection failed: ${err.message}`);
+      if (IS_PROD) {
+        console.error('[Database] Production needs MongoDB; not falling back to local files. Check MONGODB_URI and the database\'s network access list.');
+        process.exit(1);
+      }
       console.warn('[Database Fallback] Falling back to local JSON file storage inside \'.data/\' folder.');
       RepositoryFactory.setUseMongoose(false);
     }
@@ -163,7 +193,8 @@ async function startServer() {
   try {
     const userRepo = RepositoryFactory.getUserRepository();
     const agents = await userRepo.findAll();
-    if (agents.length === 0) {
+    // The local test admin (admin@localhost / admin123) is never created in production unless asked for
+    if (agents.length === 0 && (!IS_PROD || process.env.SEED_DEMO_ADMIN === 'true')) {
       console.log('[Seeder] No agents found. Seeding default Admin agent...');
       await userRepo.create({
         email: 'admin@localhost',
@@ -189,10 +220,16 @@ async function startServer() {
 
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] New connection: ${socket.id}`);
+    // The workspace this connection belongs to: a teammate's from their login token, a Messenger's from its App ID.
+    // Everything a handler reads or sends happens inside that workspace.
+    const inWs = <T>(fn: () => T): T | undefined => {
+      const ws = socket.data.workspaceId as string | undefined;
+      return ws ? tenantStorage.run(ws, fn) : undefined;
+    };
 
     // Join conversation room
     socket.on('join', (room: string) => {
-      if (typeof room !== 'string' || room === AGENTS_ROOM || room.startsWith('customer:')) return; // protected rooms
+      if (typeof room !== 'string' || isAgentsRoom(room) || room.startsWith('customer:')) return; // protected rooms
       socket.join(room);
       Presence.join(socket.id, room); // collision detection: "Sarah is viewing"
       console.log(`[Socket.IO] Socket ${socket.id} joined room ${room}`);
@@ -209,47 +246,53 @@ async function startServer() {
     socket.on('agent:login', (payload: { agentId: string; name: string; token?: string }) => {
       // Only sockets with a valid agent token may receive internal notes and events
       const verified = verifyAgentToken(payload.token);
-      if (verified && verified.id === payload.agentId) {
-        socket.join(AGENTS_ROOM);
-        Presence.registerAgent(socket.id, payload.agentId, payload.name);
-        // Conversations this socket opened before its login was verified
-        for (const r of socket.rooms) if (r !== socket.id && r !== AGENTS_ROOM && !r.startsWith('customer:')) Presence.join(socket.id, r);
-        socket.emit('presence:all', Presence.all()); // who is viewing what, right now
-      }
+      if (!verified || verified.id !== payload.agentId) return; // only signed-in teammates
+      const ws = verified.workspaceId || 'default_workspace';
+      socket.data.workspaceId = ws;
+      socket.join(agentsRoom(ws));
+      Presence.registerAgent(socket.id, payload.agentId, payload.name, ws);
+      // Conversations this socket opened before its login was verified
+      for (const r of socket.rooms) if (r !== socket.id && !isAgentsRoom(r) && !r.startsWith('customer:')) Presence.join(socket.id, r);
+      socket.emit('presence:all', Presence.all(ws)); // who is viewing what, right now
       SocketService.onlineAgents.set(payload.agentId, { socketId: socket.id, name: payload.name });
-      SocketService.broadcastAgentOnline(payload.agentId, payload.name);
+      inWs(() => SocketService.broadcastAgentOnline(payload.agentId, payload.name));
       console.log(`[Socket.IO] Agent ${payload.name} (${payload.agentId}) went online`);
     });
 
     // Handle Typing indicator
     // Messenger: a customer's widget joins its private room with its (unguessable) User id
-    socket.on('messenger:join', (payload: { customerId?: string }) => {
+    socket.on('messenger:join', async (payload: { customerId?: string; appId?: string }) => {
       const id = payload?.customerId;
       if (typeof id === 'string' && id.length > 0 && id.length <= 100) socket.join(customerRoom(id));
+      const ws = typeof payload?.appId === 'string' && payload.appId
+        ? await RepositoryFactory.getWorkspaceRepository().findByAppId(payload.appId).catch(() => null)
+        : null;
+      socket.data.workspaceId = ws?.id || 'default_workspace';
     });
 
     // Customer is typing (from the Messenger) -> agents; auto-clears after 4s of silence
     socket.on('customer:typing', async (payload: { conversationId?: string; guestName?: string }) => {
-      if (!payload?.conversationId) return;
-      const conv = await RepositoryFactory.getConversationRepository().findById(payload.conversationId).catch(() => null);
+      if (!payload?.conversationId || !socket.data.workspaceId) return;
+      const conv = await inWs(() => RepositoryFactory.getConversationRepository().findById(payload.conversationId!).catch(() => null));
       if (!conv || !socket.rooms.has(customerRoom(conv.customer.id))) return; // only the conversation's own customer
       const event = { conversationId: conv.id, senderType: 'customer', senderName: conv.customer.name, isTyping: true };
-      SocketService.emitToRoom(AGENTS_ROOM, 'message:typing', event);
+      const room = agentsRoom(socket.data.workspaceId);
+      SocketService.emitToRoom(room, 'message:typing', event);
       clearTimeout(customerTypingTimers.get(conv.id));
-      customerTypingTimers.set(conv.id, setTimeout(() => SocketService.emitToRoom(AGENTS_ROOM, 'message:typing', { ...event, isTyping: false }), 4000));
+      customerTypingTimers.set(conv.id, setTimeout(() => SocketService.emitToRoom(room, 'message:typing', { ...event, isTyping: false }), 4000));
     });
 
     socket.on('typing', (payload: { conversationId: string; senderType: 'customer' | 'agent'; senderName: string; isTyping: boolean }) => {
-      if (!socket.rooms.has(AGENTS_ROOM)) return; // only verified agents send this event
+      if (!socket.data.workspaceId || !socket.rooms.has(agentsRoom(socket.data.workspaceId))) return; // only verified agents send this event
       if (payload?.senderType === 'agent' && typeof payload.conversationId === 'string') {
         Presence.typing(socket.id, payload.conversationId, !!payload.isTyping); // "Sarah is replying…"
       }
       // Broadcast typing event to others in the same room
       socket.to(payload.conversationId).emit('message:typing', payload);
       // ...and tell the customer's Messenger ("Rishi is typing…")
-      SocketService.emitToConversationCustomer(payload.conversationId, 'agent:typing', {
+      inWs(() => SocketService.emitToConversationCustomer(payload.conversationId, 'agent:typing', {
         conversationId: payload.conversationId, agentName: payload.senderName, isTyping: payload.isTyping,
-      });
+      }));
       console.log(`[Socket.IO] Typing state in ${payload.conversationId}: ${payload.senderName} (${payload.senderType}) typing=${payload.isTyping}`);
     });
 
@@ -272,13 +315,13 @@ async function startServer() {
       for (const [agentId, value] of SocketService.onlineAgents.entries()) {
         if (value.socketId === socket.id) {
           SocketService.onlineAgents.delete(agentId);
-          SocketService.broadcastAgentOffline(agentId);
+          inWs(() => {
+            SocketService.broadcastAgentOffline(agentId);
+            // Update status in repo
+            RepositoryFactory.getUserRepository().update(agentId, { status: 'offline', lastSeen: new Date().toISOString() })
+              .catch(err => console.error(`Failed to update offline status for agent ${agentId}:`, err.message));
+          });
           console.log(`[Socket.IO] Agent ${value.name} went offline`);
-          
-          // Update status in repo
-          const userRepo = RepositoryFactory.getUserRepository();
-          userRepo.update(agentId, { status: 'offline', lastSeen: new Date().toISOString() })
-            .catch(err => console.error(`Failed to update offline status for agent ${agentId}:`, err.message));
           break;
         }
       }

@@ -203,3 +203,57 @@ export async function helpFeedback(req: AuthenticatedRequest, res: Response) {
   await articlesRepo.update(a.id, helpful ? { helpful: (a.helpful || 0) + 1 } : { notHelpful: (a.notHelpful || 0) + 1 });
   return res.json({ ok: true });
 }
+
+/**
+ * POST /api/help/import { files: [{ name, content }], publish? } — CSV or Markdown files (see services/contentImport).
+ * Missing collections are created by name; an article with the same title is updated instead of duplicated.
+ */
+export async function importArticles(req: AuthenticatedRequest, res: Response) {
+  const files = Array.isArray(req.body?.files) ? req.body.files.slice(0, 200) : [];
+  if (!files.length) return res.status(400).json({ error: 'Choose one or more .csv, .md or .txt files' });
+  const publishByDefault = req.body?.publish !== false;
+  try {
+    const { readArticleFiles } = await import('../services/contentImport');
+    const rows = readArticleFiles(files).slice(0, 1000);
+    const me = req.user ? await RepositoryFactory.getUserRepository().findById(req.user.id) : null;
+    const collections = await collectionsRepo.list();
+    const byName = new Map(collections.map(c => [c.name.toLowerCase(), c.id]));
+    const articles = await articlesRepo.list();
+    const byTitle = new Map(articles.map(a => [a.title.trim().toLowerCase(), a]));
+    let created = 0, updated = 0, collectionsCreated = 0;
+    const skipped: { source: string; reason: string }[] = [];
+    for (const r of rows) {
+      if (!r.title.trim()) { skipped.push({ source: r.source, reason: 'No title' }); continue; }
+      let collectionId: string | undefined;
+      if (r.collection?.trim()) {
+        const key = r.collection.trim().toLowerCase();
+        if (!byName.has(key)) {
+          const c = cleanCollection({ name: r.collection.trim() });
+          if (c.value) { const made = await collectionsRepo.create(c.value); byName.set(key, made.id); collectionsCreated++; }
+        }
+        collectionId = byName.get(key);
+      }
+      const state = r.state || (publishByDefault && r.body.trim() ? 'published' : 'draft');
+      const existing = byTitle.get(r.title.trim().toLowerCase());
+      const { value, error } = await cleanArticle({ title: r.title, body: r.body, collectionId: collectionId ?? existing?.collectionId, state }, existing);
+      if (error || !value) { skipped.push({ source: r.source, reason: error || 'Invalid' }); continue; }
+      if (existing) {
+        const publishing = value.state === 'published' && existing.state !== 'published';
+        const saved = await articlesRepo.update(existing.id, { ...value, ...(publishing ? { publishedAt: new Date().toISOString() } : {}) });
+        if (saved) byTitle.set(saved.title.trim().toLowerCase(), saved);
+        updated++;
+      } else {
+        const made = await articlesRepo.create({
+          ...value, authorId: req.user?.id, authorName: me?.name, views: 0, helpful: 0, notHelpful: 0,
+          ...(value.state === 'published' ? { publishedAt: new Date().toISOString() } : {}),
+        });
+        byTitle.set(made.title.trim().toLowerCase(), made);
+        created++;
+      }
+    }
+    await logAudit(req, 'help.imported', `Imported ${created + updated} article${created + updated === 1 ? '' : 's'} (${created} new, ${updated} updated)`);
+    return res.json({ created, updated, collectionsCreated, skipped: skipped.slice(0, 50), skippedCount: skipped.length });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}

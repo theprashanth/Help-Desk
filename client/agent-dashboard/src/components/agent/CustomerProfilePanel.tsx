@@ -16,8 +16,9 @@ import CustomerOrgFields from './CustomerOrgFields';
 import { useTeams } from '../../lib/teams';
 import { TrackerLinks } from './IssueLinks';
 import { SideConversationsLinks } from './EmailThreads';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /**
  * Hover tooltip with the full value. Drawn on top of everything (portal) and kept inside the window,

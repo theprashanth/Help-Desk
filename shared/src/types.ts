@@ -313,6 +313,7 @@ export interface Conversation {
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   linkedIssueId?: string;          // conversations/tickets: the tracker issue this report belongs to
   reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
+  lastMessageFrom?: 'customer' | 'team'; // computed for lists: who sent the latest public message (↩ avatar when it's the team)
   participants?: string[];         // extra people (email addresses) who get every teammate reply by email
   participantThreadIds?: string[]; // Messenger conversations: Message-IDs of the participants' email thread
   aiAgent?: ConversationAiAgent;   // set while/after the AI Agent answered this conversation

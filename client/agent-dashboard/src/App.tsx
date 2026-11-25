@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { SocketProvider } from './context/SocketContext';
 import DemoLandingPage from './pages/demo/DemoLandingPage';
 import Login from './pages/agent/Login';
+import Signup from './pages/agent/Signup';
 import Inbox from './pages/agent/Inbox';
 import MessengerWidget from './components/customer/MessengerWidget';
 import MessengerFrame from './pages/messenger/MessengerFrame';
@@ -37,8 +38,9 @@ export const App: React.FC = () => {
 
           {/* Admin / Agent Dashboard Routing */}
           <Route path="/agent/login" element={!token ? <Login /> : <Navigate to="/agent/inbox" />} />
+          <Route path="/agent/signup" element={!token ? <Signup /> : <Navigate to="/agent/inbox" />} />
           {/* Every dashboard screen has its own address (lib/agentRoutes): /agent/inbox/…, /agent/contacts/…, /agent/settings/… */}
-          {['inbox', 'contacts', 'analytics', 'settings', 'testing'].map(area => (
+          {['inbox', 'contacts', 'knowledge', 'analytics', 'settings', 'testing'].map(area => (
             <Route key={area} path={`/agent/${area}/*`} element={token ? <Inbox /> : <Navigate to="/agent/login" />} />
           ))}
 

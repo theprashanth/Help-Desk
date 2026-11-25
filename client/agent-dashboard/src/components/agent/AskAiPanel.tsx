@@ -2,8 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Copy, Check, CornerDownLeft, Loader2, RotateCcw, Settings2, Sparkles, BookOpen } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { RichText } from '../../lib/richText';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 type Turn = { id: number; role: 'user' | 'assistant'; content: string; draft?: boolean; error?: boolean; articles?: { id: string; title: string }[] };
 type Status = { enabled: boolean; configured: boolean; provider: string; model: string } | null;

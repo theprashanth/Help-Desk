@@ -125,6 +125,11 @@ export class JsonUserRepository implements IUserRepository {
     return rest as Agent;
   }
 
+  async emailInUse(email: string): Promise<boolean> {
+    const users = await readJson<any[]>(this.file, []);
+    return users.some(u => String(u.email).toLowerCase() === email.toLowerCase());
+  }
+
   async verifyPassword(email: string, passwordPlain: string): Promise<{ agent: Agent; token: string } | null> {
     const users = await readJson<any[]>(this.file, []);
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());

@@ -3,8 +3,9 @@ import { Plus, X } from 'lucide-react';
 import { MacroActions } from '../../../../../shared/src/types';
 import { useStore } from '../../store/useStore';
 import { formatSnooze } from '../../lib/macros';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 type ActionKey = keyof MacroActions;
 const ACTION_LABELS: Record<ActionKey, string> = {

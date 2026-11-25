@@ -1,10 +1,18 @@
+import { getActiveWorkspaceId } from '../context/tenant.context';
 import { Server } from 'socket.io';
 import { Conversation, Message } from '../../../shared/src/types';
 import { toCustomerView, isCustomerVisible } from './conversationView';
 import { RepositoryFactory } from '../repositories/factory';
 
 /** Room joined only by sockets that presented a valid agent token. */
+/**
+ * Teammates get live updates in their own workspace's room ("agents:<workspaceId>"). Code sends to
+ * AGENTS_ROOM; emitToRoom turns that into the active workspace's room, so one company never receives
+ * another's messages or conversations.
+ */
 export const AGENTS_ROOM = 'agents';
+export const agentsRoom = (workspaceId?: string) => `agents:${workspaceId || getActiveWorkspaceId()}`;
+export const isAgentsRoom = (room: string) => room === AGENTS_ROOM || room.startsWith('agents:');
 
 /** Private room for one customer's Messenger (joined with their unguessable UUID User id). */
 export const customerRoom = (customerId: string) => `customer:${customerId}`;
@@ -32,13 +40,14 @@ export class SocketService {
 
   static emitToRoom(room: string, event: string, data: any) {
     if (this.io) {
-      this.io.to(room).emit(event, data);
+      this.io.to(room === AGENTS_ROOM ? agentsRoom() : room).emit(event, data);
     }
   }
 
+  /** Every teammate of the active workspace (not every connected socket). */
   static emitGlobal(event: string, data: any) {
     if (this.io) {
-      this.io.emit(event, data);
+      this.io.to(agentsRoom()).emit(event, data);
     }
   }
 
@@ -75,7 +84,7 @@ export class SocketService {
    */
   private static broadcastConversation(event: string, conv: Conversation) {
     if (!this.io) return;
-    this.io.to(AGENTS_ROOM).emit(event, conv);
+    this.io.to(agentsRoom(conv.workspaceId)).emit(event, conv);
     if (isCustomerVisible(conv)) {
       this.io.to(customerRoom(conv.customer.id)).emit(event, toCustomerView(conv));
     }

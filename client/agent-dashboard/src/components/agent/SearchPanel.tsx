@@ -9,8 +9,9 @@ import { PRIORITY_OPTIONS, PriorityIcon } from '../../lib/priority';
 import ChatWindow from './ChatWindow';
 import CustomerProfilePanel from './CustomerProfilePanel';
 import { MergedConversationPanel } from './MergedConversationPanel';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 type Match = { field: string; label: string; snippet: string; messageId?: string; at?: string };
 type Result = { conversation: Conversation; matches: Match[]; score: number };

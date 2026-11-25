@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { Team } from '../../../../shared/src/types';
+import { API_URL } from './config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 let inflight: Promise<void> | null = null;
 /** Load the workspace's team inboxes into the store (shared by every component that needs them). */

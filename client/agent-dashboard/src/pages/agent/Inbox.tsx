@@ -8,6 +8,7 @@ import CustomerProfilePanel from '../../components/agent/CustomerProfilePanel';
 import { MergedConversationPanel } from '../../components/agent/MergedConversationPanel';
 import Analytics from './Analytics';
 import Contacts from './Contacts';
+import KnowledgeBaseSettings from '../../components/settings/KnowledgeBaseSettings';
 import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
@@ -20,11 +21,12 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff, Users
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, BellOff, Pin, PinOff, Users, BookOpen
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
+import { API_URL } from '../../lib/config';
 
-const BACKEND_URL = 'http://localhost:3000';
+const BACKEND_URL = API_URL;
 
 /** Profile photo, or initials when there isn't one (never a stock photo). */
 const AgentAvatar: React.FC<{ agent: { name: string; avatar?: string }; className?: string }> = ({ agent, className = '' }) =>
@@ -121,7 +123,7 @@ export const Inbox: React.FC = () => {
     const convId = params.get('conversation') || params.get('c');
     if (!convId || !token) { deepLinkDone.current = true; return; }
     const messageId = params.get('message');
-    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
+    fetch(`${API_URL}/api/tickets/${encodeURIComponent(convId)}`, { headers: { 'Authorization': `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
       .then(conv => {
         if (!conv) return;
@@ -213,7 +215,7 @@ export const Inbox: React.FC = () => {
   // Open any conversation in the inbox (from Contacts): the All view, in the state it's in
   const openConversation = (convId: string) => {
     if (!token) return;
-    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API_URL}/api/tickets/${encodeURIComponent(convId)}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => (res.ok ? res.json() : null))
       .then(conv => {
         if (!conv) return;
@@ -229,8 +231,9 @@ export const Inbox: React.FC = () => {
 
   const mainTabs = [
     { id: 'contacts', label: 'Contacts', icon: <Users className="w-[19px] h-[19px]" /> },
+    { id: 'knowledge', label: 'Knowledge base', icon: <BookOpen className="w-[19px] h-[19px]" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
-    { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
+    // The testing panel (seed data, simulations) is still at /agent/testing, just not in the menu
   ];
 
   const isChatTab = isInboxView(activeTab) || activeTab === 'search';
@@ -493,6 +496,10 @@ export const Inbox: React.FC = () => {
           </>
         ) : activeTab === 'contacts' ? (
           <Contacts onOpenConversation={openConversation} />
+        ) : activeTab === 'knowledge' ? (
+          <div className="ic-panel flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+            <KnowledgeBaseSettings onBack={() => setActiveTab(lastQueue)} />
+          </div>
         ) : activeTab === 'analytics' ? (
           <Analytics />
         ) : activeTab === 'settings' ? (

@@ -1,7 +1,8 @@
 import React from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { API_URL } from '../../lib/config';
 
-export const BACKEND_URL = 'http://localhost:3000';
+export const BACKEND_URL = API_URL;
 
 /** Header row for a settings page (back arrow + 22px title + right-side actions). */
 export function SettingsPageHeader({ title, onBack, children }: {
