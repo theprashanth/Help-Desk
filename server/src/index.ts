@@ -215,7 +215,6 @@ async function startServer() {
         email: 'admin@localhost',
         passwordPlain: 'admin123',
         name: 'Admin Manager',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop',
         role: 'admin',
         status: 'online',
         lastSeen: new Date().toISOString()

@@ -106,7 +106,6 @@ export async function resetDatabase(req: Request, res: Response) {
       email: 'admin@localhost',
       passwordPlain: 'admin123',
       name: 'Admin Manager',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop',
       role: 'admin',
       status: 'online',
       lastSeen: new Date().toISOString()
@@ -139,7 +138,6 @@ export async function seedData(req: Request, res: Response) {
         email: 'admin@localhost',
         passwordPlain: 'admin123',
         name: 'Admin Manager',
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop',
         role: 'admin',
         status: 'online',
         lastSeen: new Date().toISOString()
@@ -151,7 +149,6 @@ export async function seedData(req: Request, res: Response) {
         email: 'agent@localhost',
         passwordPlain: 'agent123',
         name: 'Sarah Support',
-        avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop',
         role: 'support_agent',
         status: 'online',
         lastSeen: new Date().toISOString()
