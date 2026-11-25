@@ -4,12 +4,13 @@
  *   /agent/inbox/<view>?c=<id>       another view (all, unassigned, kind:ticket, agent:<id>, ai…), a conversation open
  *   /agent/inbox/search              search
  *   /agent/contacts[/<id>]           Contacts, one contact
+ *   /agent/knowledge                 Knowledge base (help articles)
  *   /agent/analytics                 Reports
  *   /agent/settings[/<section>]      Settings home, one section (e.g. /agent/settings/ai-agent)
  *   /agent/testing                   Testing panel
  */
 
-export const AREAS = ['contacts', 'analytics', 'settings', 'testing'] as const;
+export const AREAS = ['contacts', 'knowledge', 'analytics', 'settings', 'testing'] as const;
 type Area = typeof AREAS[number];
 const isArea = (s: string | undefined): s is Area => !!s && (AREAS as readonly string[]).includes(s);
 

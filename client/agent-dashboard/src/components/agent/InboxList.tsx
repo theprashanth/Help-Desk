@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useStore } from '../../store/useStore';
 import {
-  Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check,
+  Search, SlidersHorizontal, AlertCircle, Star, MoreHorizontal, PanelLeft, X, Check, Plus,
   AlarmClock, Timer, Mail, Bell, CalendarDays, SignalHigh, ArrowDownWideNarrow, ArrowUpNarrowWide, Ticket, Wrench,
   ChevronRight, ChevronLeft, UserCheck, Inbox as InboxIcon, User,
   Minus, PenLine, CircleDot, Hourglass, CheckCircle2, Archive, Tag as TagIcon,
@@ -221,6 +221,9 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       if (!activeConversationId || !currentActiveExists) {
         setActiveConversationId(visibleConversations[0].id);
       }
+    } else if (activeConversationId) {
+      // Nothing in this view: don't keep showing a conversation from another view
+      setActiveConversationId(null);
     }
   }, [visibleConversations, activeConversationId, setActiveConversationId, loadedKey, listKey]);
 
@@ -755,13 +758,25 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
               ? <AlarmClock className="w-10 h-10 text-muted" strokeWidth={1.5} />
               : <AlertCircle className="w-10 h-10 text-muted" strokeWidth={1.5} />}
             <span className="text-[15px] font-semibold text-ink/80">
-              {stateView === 'snoozed' ? 'No snoozed conversations' : `No ${viewLabel.toLowerCase()} conversations`}
+              {stateView === 'snoozed' ? 'No snoozed conversations' : `No ${viewLabel.toLowerCase()} ${currentQueue === 'kind:issue' ? 'issues' : currentQueue === 'kind:ticket' ? 'tickets' : 'conversations'}`}
             </span>
             <span className="text-[13px]">
               {stateView === 'snoozed'
                 ? 'Snoozed conversations show up here until they wake up.'
-                : 'Try adjusting filters or seeding mock testing data.'}
+                : currentQueue === 'kind:issue'
+                  ? 'Issues track one problem many customers report. Link conversations to an issue from their ⋯ menu.'
+                  : currentQueue === 'kind:ticket'
+                    ? 'Customer tickets are requests your team follows up on. Convert a conversation from its ⋯ menu, or create one.'
+                    : 'Try adjusting filters or seeding mock testing data.'}
             </span>
+            {(currentQueue === 'kind:issue' || currentQueue === 'kind:ticket') && !isLight && (
+              <button
+                className="ic-btn-primary mt-3"
+                onClick={() => useStore.getState().setComposer({ kind: currentQueue === 'kind:issue' ? 'issue' : 'ticket' })}
+              >
+                <Plus className="w-4 h-4" /> {currentQueue === 'kind:issue' ? 'Create issue' : 'Create ticket'}
+              </button>
+            )}
           </div>
         ) : (
           visibleConversations.map((c, rowIndex) => {

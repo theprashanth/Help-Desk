@@ -8,6 +8,7 @@ import CustomerProfilePanel from '../../components/agent/CustomerProfilePanel';
 import { MergedConversationPanel } from '../../components/agent/MergedConversationPanel';
 import Analytics from './Analytics';
 import Contacts from './Contacts';
+import KnowledgeBaseSettings from '../../components/settings/KnowledgeBaseSettings';
 import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
@@ -20,7 +21,7 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff, Users
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, BellOff, Pin, PinOff, Users, BookOpen
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 
@@ -229,8 +230,9 @@ export const Inbox: React.FC = () => {
 
   const mainTabs = [
     { id: 'contacts', label: 'Contacts', icon: <Users className="w-[19px] h-[19px]" /> },
+    { id: 'knowledge', label: 'Knowledge base', icon: <BookOpen className="w-[19px] h-[19px]" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
-    { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
+    // The testing panel (seed data, simulations) is still at /agent/testing, just not in the menu
   ];
 
   const isChatTab = isInboxView(activeTab) || activeTab === 'search';
@@ -493,6 +495,10 @@ export const Inbox: React.FC = () => {
           </>
         ) : activeTab === 'contacts' ? (
           <Contacts onOpenConversation={openConversation} />
+        ) : activeTab === 'knowledge' ? (
+          <div className="ic-panel flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+            <KnowledgeBaseSettings onBack={() => setActiveTab(lastQueue)} />
+          </div>
         ) : activeTab === 'analytics' ? (
           <Analytics />
         ) : activeTab === 'settings' ? (

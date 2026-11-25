@@ -102,6 +102,17 @@ interface AppState {
   setChatColorTheme: (theme: 'sky-blue' | 'classic') => void;
 }
 
+/**
+ * A newer copy of a conversation replaces the old one completely, so cleared fields (an unlinked issue,
+ * a removed notice, an unassigned teammate) disappear right away. Only values the list works out itself
+ * (report counts, who sent the last message) carry over when the new copy doesn't include them.
+ */
+const fresh = (old: Conversation, next: Conversation): Conversation => ({
+  ...next,
+  reportCount: next.reportCount ?? old.reportCount,
+  lastMessageFrom: next.lastMessageFrom ?? old.lastMessageFrom,
+});
+
 export const useStore = create<AppState>((set) => ({
   // Auth
   token: localStorage.getItem('agent_token'),
@@ -168,7 +179,7 @@ export const useStore = create<AppState>((set) => ({
         const i = state.conversations.findIndex((c) => c.id === conversation.id);
         if (i === -1) return state;
         const next = [...state.conversations];
-        next[i] = { ...next[i], ...conversation };
+        next[i] = fresh(next[i], conversation);
         return { conversations: next };
       }
 
@@ -195,12 +206,12 @@ export const useStore = create<AppState>((set) => ({
       }
       if (!matchesQueue) {
         const kept = [...state.conversations];
-        kept[index] = { ...kept[index], ...conversation };
+        kept[index] = fresh(kept[index], conversation);
         return { conversations: kept };
       }
 
       const updated = [...state.conversations];
-      updated[index] = { ...updated[index], ...conversation };
+      updated[index] = fresh(updated[index], conversation);
       
       const sorted = updated.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       return { conversations: sorted };
