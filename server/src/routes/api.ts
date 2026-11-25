@@ -36,7 +36,7 @@ import { getStateCounts, bulkUpdate } from '../controllers/bulk';
 import { searchConversations } from '../controllers/search';
 import {
   requireKnownWorkspace, getMessengerSettings, updateMessengerSettings, getIdentitySecret,
-  rotateIdentitySecret, removeInstallation, messengerPing
+  rotateIdentitySecret, removeInstallation, messengerPing, myConversations, knownIssues, messengerI18n
 } from '../controllers/messenger';
 
 const router = Router();
@@ -102,6 +102,9 @@ router.get('/messenger/identity-secret', authenticateJWT, getIdentitySecret);
 router.post('/messenger/identity-secret/rotate', authenticateJWT, rotateIdentitySecret);
 router.delete('/messenger/installations/:id', authenticateJWT, removeInstallation);
 router.post('/messenger/ping', requireKnownWorkspace, messengerPing);
+router.get('/messenger/conversations', requireKnownWorkspace, myConversations); // public: the visitor's own (X-Customer-Id)
+router.get('/messenger/known-issues', requireKnownWorkspace, knownIssues);      // public: open issues' notices
+router.get('/messenger/i18n', requireKnownWorkspace, messengerI18n);            // public: Messenger text in a language
 
 // Chat flow (Settings › Channels › Chat flow) + the Messenger running it
 router.get('/chat-flow', authenticateJWT, getChatFlow);

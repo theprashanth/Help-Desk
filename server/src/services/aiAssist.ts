@@ -34,7 +34,7 @@ export async function aiFor(feature?: keyof Omit<AiFeatures, 'teamLanguage'>): P
 }
 
 /** Ask for JSON and parse it (models sometimes wrap it in a code fence or add a sentence). */
-async function askJson<T>(ai: AiSettings, system: string, user: string): Promise<T> {
+export async function askJson<T>(ai: AiSettings, system: string, user: string): Promise<T> {
   const text = await complete(ai, `${system}\n\nRespond with a single JSON object only. No code fences, no commentary.`, [{ role: 'user', content: user }]);
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');

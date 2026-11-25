@@ -76,6 +76,8 @@ export const TrackerLinks: React.FC<{ conv: Conversation; token: string; readOnl
   if (conv.kind === 'issue') {
     return (
       <div className="flex flex-col py-1">
+        <PublicNoticeEditor issue={conv} token={token} readOnly={readOnly} onUpdated={onUpdated} />
+        <div className="border-t border-line my-2" />
         <div className="flex items-center min-h-[30px] text-[13px] text-muted">
           Linked conversations{linked?.length ? <span className="ml-1.5 text-faint">{linked.length}</span> : null}
         </div>
@@ -206,5 +208,55 @@ export const KnownIssueBar: React.FC<{ issueId: string; token: string }> = ({ is
       {reports !== null && <span className="shrink-0 opacity-80">{reports} report{reports === 1 ? '' : 's'}</span>}
       <ChevronRight className="w-4 h-4 shrink-0 opacity-70" />
     </button>
+  );
+};
+
+/**
+ * Issues: a short public notice shown on the Messenger home while the issue is open ("We're aware of
+ * payment failures on iOS and are fixing it"), so customers know before they write in.
+ */
+export const PublicNoticeEditor: React.FC<{ issue: Conversation; token: string; readOnly?: boolean; onUpdated: (c: Conversation) => void }> = ({ issue, token, readOnly, onUpdated }) => {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(issue.publicNotice || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => { setText(issue.publicNotice || ''); setEditing(false); }, [issue.id, issue.publicNotice]);
+  const save = async (value: string | null) => {
+    setBusy(true); setError(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/tickets/${issue.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ publicNotice: value && value.trim() ? value.trim().slice(0, 300) : null }),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Could not save');
+      onUpdated(d); setEditing(false);
+    } catch (e: any) { setError(e.message); }
+    setBusy(false);
+  };
+  const live = !!issue.publicNotice && (issue.status === 'open' || issue.status === 'waiting');
+  return (
+    <div className="flex flex-col py-1 gap-1.5">
+      <div className="flex items-center justify-between min-h-[30px] text-[13px] text-muted">
+        <span>Public notice {issue.publicNotice && <span className={`ml-1 text-[12px] ${live ? 'text-emerald-600 dark:text-emerald-400' : 'text-faint'}`}>{live ? '· on the Messenger' : '· hidden (issue not open)'}</span>}</span>
+        {!readOnly && !editing && (
+          <button className="text-[12.5px] text-muted hover:text-ink" onClick={() => setEditing(true)}>{issue.publicNotice ? 'Edit' : 'Add'}</button>
+        )}
+      </div>
+      {!editing && issue.publicNotice && <p className="text-[13px] text-ink bg-amber-50 dark:bg-amber-500/10 rounded-lg px-3 py-2 whitespace-pre-wrap">{issue.publicNotice}</p>}
+      {!editing && !issue.publicNotice && <p className="text-[12.5px] text-faint">Tell customers you know about this problem, right on the Messenger home.</p>}
+      {editing && (
+        <>
+          <textarea autoFocus rows={3} value={text} onChange={e => setText(e.target.value)} maxLength={300} className="ic-textarea text-[13px]"
+            placeholder="We’re aware that card payments are failing in the iOS app and are working on a fix." />
+          <div className="flex gap-2 justify-end">
+            {issue.publicNotice && <button className="ic-btn-ghost h-8 text-[12.5px] text-red-600 mr-auto" disabled={busy} onClick={() => save(null)}>Remove</button>}
+            <button className="ic-btn-secondary h-8 text-[12.5px]" disabled={busy} onClick={() => { setText(issue.publicNotice || ''); setEditing(false); }}>Cancel</button>
+            <button className="ic-btn-primary h-8 text-[12.5px]" disabled={busy || !text.trim()} onClick={() => save(text)}>{busy ? 'Saving…' : 'Show on Messenger'}</button>
+          </div>
+        </>
+      )}
+      {error && <p className="text-[12.5px] text-red-600">{error}</p>}
+    </div>
   );
 };

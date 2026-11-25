@@ -13,6 +13,7 @@ import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
 import { describeMacroActions } from '../../lib/macros';
 import ProfileSettings from '../../components/settings/ProfileSettings';
+import MultilingualSettings from '../../components/settings/MultilingualSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import SlaSettings from '../../components/settings/SlaSettings';
 import TeamsSettings from '../../components/settings/TeamsSettings';
@@ -31,10 +32,10 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
+type Section = 'home' | 'multilingual' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['email', 'help', 'outbound', 'teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['multilingual', 'email', 'help', 'outbound', 'teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -272,7 +273,7 @@ export const Settings: React.FC = () => {
             { icon: SlidersHorizontal, label: 'General', desc: 'Workspace name, time zone and snooze options', target: 'general' as Section },
             { icon: Shield, label: 'Security', desc: 'Identity verification and allowed domains for the Messenger', target: 'messenger' as Section, tab: 'security' },
             { icon: Calendar, label: 'Office Hours', desc: 'Set your support availability', target: 'officeHours' as Section },
-            { icon: Languages, label: 'Multilingual', desc: 'Manage language settings', target: 'home' as Section, soon: true },
+            { icon: Languages, label: 'Multilingual', desc: 'Show the Messenger in each visitor’s language', target: 'multilingual' as Section },
             { icon: Globe, label: 'Brands', desc: 'Manage your brand identity', target: 'home' as Section, soon: true },
             { icon: Activity, label: 'Teammates', desc: 'Invite and manage agents', target: 'teammates' as Section },
           ].map((item: { icon: any; label: string; desc: string; target: Section; badge?: string; tab?: string; soon?: boolean }) => (
@@ -845,6 +846,7 @@ export const Settings: React.FC = () => {
 
   const PAGE_TITLES: Record<Section, string> = {
     home: 'Home',
+    multilingual: 'Multilingual',
     general: 'General',
     workspace: 'Notifications & preferences',
     profile: 'Details',
@@ -882,6 +884,7 @@ export const Settings: React.FC = () => {
               <SettingsNavItem icon={Users} label="Teammates" active={section === 'teammates'} onClick={() => setSection('teammates')} />
               <SettingsNavItem icon={UsersRound} label="Teams" active={section === 'teams'} onClick={() => setSection('teams')} />
               <SettingsNavItem icon={Clock} label="Office hours" active={section === 'officeHours'} onClick={() => setSection('officeHours')} />
+              <SettingsNavItem icon={Languages} label="Multilingual" active={section === 'multilingual'} onClick={() => setSection('multilingual')} />
               <SettingsNavItem icon={Timer} label="SLAs" active={section === 'sla'} onClick={() => setSection('sla')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
@@ -923,6 +926,7 @@ export const Settings: React.FC = () => {
       <div className="ic-panel flex-1 min-w-0 h-full flex flex-col">
         {section === 'teammates' && <TeammatesSettings onBack={() => setSection('home')} />}
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
+        {section === 'multilingual' && <MultilingualSettings onBack={() => setSection('home')} />}
         {section === 'sla' && <SlaSettings onBack={() => setSection('home')} />}
         {section === 'teams' && <TeamsSettings onBack={() => setSection('home')} />}
         {section === 'email' && <EmailSettings onBack={() => setSection('home')} />}

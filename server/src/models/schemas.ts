@@ -203,6 +203,7 @@ export interface IConversationDoc extends Document {
   linkedIssueId?: string;
   participants?: string[];
   participantThreadIds?: string[];
+  publicNotice?: string;
 }
 
 export const ConversationSchema = new Schema<IConversationDoc>({
@@ -238,7 +239,8 @@ export const ConversationSchema = new Schema<IConversationDoc>({
   language: { type: String },
   linkedIssueId: { type: String, index: true },
   participants: { type: [String], default: undefined },
-  participantThreadIds: { type: [String], default: undefined }
+  participantThreadIds: { type: [String], default: undefined },
+  publicNotice: { type: String }
 }, { timestamps: true });
 
 export const ConversationModel = mongoose.model<IConversationDoc>('Conversation', ConversationSchema);

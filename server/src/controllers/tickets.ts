@@ -790,6 +790,7 @@ export async function createManualTicket(req: AuthenticatedRequest, res: Respons
 
     const fresh = (await convRepo.findById(created.id)) || created;
     SocketService.broadcastConversationNew(fresh);
+    if (kind === 'ticket') import('../services/email').then(m => m.sendTicketUpdate(fresh, 'created')).catch(() => {});
     return res.status(201).json(fresh);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -900,6 +901,7 @@ export async function convertToTicket(req: AuthenticatedRequest, res: Response) 
     const actor = await getActor(req);
     await recordEvent(conv.id, 'tickets', `${actor?.name || 'A teammate'} converted this conversation into a ticket`, actor,
       { field: 'kind', from: 'conversation', to: 'ticket' });
+    import('../services/email').then(m => m.sendTicketUpdate(updated, 'created')).catch(() => {});
     return res.json(updated);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });

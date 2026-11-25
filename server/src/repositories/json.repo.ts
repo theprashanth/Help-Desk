@@ -450,6 +450,7 @@ export class JsonConversationRepository implements IConversationRepository {
         linkedIssueId: raw.linkedIssueId || undefined,
         participants: raw.participants?.length ? raw.participants : undefined,
         participantThreadIds: raw.participantThreadIds?.length ? raw.participantThreadIds : undefined,
+        publicNotice: raw.publicNotice || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

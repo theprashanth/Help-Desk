@@ -48,6 +48,7 @@ export function publicEmailSettings(ws: Workspace, admin: boolean) {
     missedReplyAlerts: e.missedReplyAlerts !== false,
     missedReplyDelayMinutes: e.missedReplyDelayMinutes || 5,
     transcripts: e.transcripts !== false,
+    ticketUpdates: e.ticketUpdates !== false,
     lastSentAt: e.lastSentAt || null,
     lastError: e.lastError || null,
     ready: canSend(e),
@@ -455,5 +456,54 @@ export async function checkEmail(): Promise<void> {
       if (pollNow) await pollImap(ws).catch(() => {});
       await sendMissedReplyAlerts(ws).catch(err => console.error('[Email] alerts failed:', err.message));
     });
+  }
+}
+
+// ── Ticket updates ─────────────────────────────────────────────────────────
+
+const TICKET_EMAIL = {
+  created: { subject: 'We’ve opened a ticket for you', line: 'We’ve opened a ticket for your request. We’ll keep you posted here.', state: 'In progress' },
+  waiting: { subject: 'We need a reply about your ticket', line: 'We need a little more information from you to carry on. Just reply to this email.', state: 'Waiting on you' },
+  resolved: { subject: 'Your ticket is resolved', line: 'We’ve resolved your ticket. If anything still isn’t right, reply to this email and we’ll pick it up again.', state: 'Resolved' },
+} as const;
+
+/**
+ * Settings › Email › Ticket updates: email the customer when their ticket is opened, needs their reply,
+ * or is resolved. Customer tickets only (not chats, internal tickets or issues). Replying continues the ticket.
+ */
+export async function sendTicketUpdate(conv: Conversation, event: keyof typeof TICKET_EMAIL): Promise<void> {
+  if (conv.kind !== 'ticket' || conv.sharing === 'internal' || conv.mergedInto) return;
+  const ws = await RepositoryFactory.getWorkspaceRepository().findById(conv.workspaceId || tenantStorage.getStore() || 'default_workspace');
+  if (!ws) return;
+  const e = emailSettingsOf(ws);
+  if (!canSend(e) || e.ticketUpdates === false) return;
+  const to = (conv.channel === 'email' ? conv.email?.address : undefined) || conv.customer.email;
+  if (!to) return;
+  const t = TICKET_EMAIL[event];
+  const brand = ws.customerFacingName?.trim() || ws.name;
+  const title = conv.title || `Your request to ${brand}`;
+  const threadIds = conv.email?.threadIds || [];
+  try {
+    const id = await sendMail(ws, {
+      to,
+      subject: `${t.subject}: ${title} ${tagFor(conv)}`,
+      text: `Hi ${conv.customer.name.split(' ')[0] || 'there'},\n\n${t.line}\n\n${title} (${conv.ticketNumber}) · ${t.state}\n\n— ${brand}`,
+      html: layout(ws, `<p style="margin:0 0 14px;font-size:15px">Hi ${esc(conv.customer.name.split(' ')[0] || 'there')},</p>
+<p style="margin:0 0 18px;font-size:15px;line-height:1.55">${esc(t.line)}</p>
+<div style="border:1px solid #e6e6e9;border-radius:10px;padding:14px 16px">
+<div style="font-size:12px;color:#8a8a93">Ticket ${esc(conv.ticketNumber)}</div>
+<div style="font-size:16px;font-weight:600;margin:4px 0 8px">${esc(title)}</div>
+<span style="display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;background:${event === 'resolved' ? '#e7f6ee;color:#16794a' : event === 'waiting' ? '#fdf1e3;color:#9a5b12' : '#e8efff;color:#2a5bd7'}">${t.state}</span>
+</div>`),
+      inReplyTo: threadIds[threadIds.length - 1],
+      references: threadIds,
+    });
+    // Replies to this email continue the ticket
+    await RepositoryFactory.getConversationRepository().update(conv.id, {
+      email: { subject: conv.email?.subject || title, address: conv.email?.address || to, threadIds: [...threadIds, id].slice(-50) },
+    }, { touch: false });
+    await recordEvent(conv.id, 'other', `Emailed ${to}: ${t.subject.toLowerCase()}`, undefined, { field: 'email', ticketUpdate: event });
+  } catch (err: any) {
+    await recordEvent(conv.id, 'other', `Couldn’t email ${to} about this ticket: ${err.message}`, undefined, { field: 'email', error: true });
   }
 }

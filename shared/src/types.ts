@@ -103,6 +103,7 @@ export interface MessengerAppearance {
   welcome: string;       // home screen message
   launcherPosition: 'right' | 'left';
   showLauncher: boolean; // false = open it from your own button via ChaiSamosa('show')
+  autoLanguage?: boolean; // Settings › Multilingual: show the Messenger in each visitor's browser language
 }
 
 /** A website or app where the Messenger has loaded (detected automatically). */
@@ -313,6 +314,7 @@ export interface Conversation {
   reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
   participants?: string[];         // extra people (email addresses) who get every teammate reply by email
   participantThreadIds?: string[]; // Messenger conversations: Message-IDs of the participants' email thread
+  publicNotice?: string;           // issues: shown on the Messenger home while the issue is open ("We're aware of…")
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation
@@ -374,6 +376,7 @@ export interface EmailSettings {
   missedReplyAlerts?: boolean;       // email customers replies they haven't seen (default true)
   missedReplyDelayMinutes?: number;  // wait this long first (default 5)
   transcripts?: boolean;             // email the transcript when a conversation is closed (default true)
+  ticketUpdates?: boolean;           // email customers about their tickets: opened, waiting on you, resolved (default true)
   lastSentAt?: string;
   lastError?: string | null;
   enabledAt?: string;
