@@ -310,6 +310,7 @@ export interface Conversation {
   attributes?: { platforms?: string[]; rootCause?: string };
   sharing?: 'shared' | 'internal'; // tickets: visible to the customer or internal only
   linkedIssueId?: string;          // conversations/tickets: the tracker issue this report belongs to
+  reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
   mergedInto?: { id: string; ticketNumber: string; at: string; by?: string }; // set when merged into a primary conversation

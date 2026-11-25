@@ -19,7 +19,7 @@ import { PRIORITY_OPTIONS, PriorityIcon, priorityLabel } from '../../lib/priorit
 import { Agent } from '../../../../../shared/src/types';
 import SlaChip, { slaState } from '../ui/SlaChip';
 
-type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until' | 'sla_due';
+type SortKey = 'last_activity' | 'date_started' | 'priority' | 'snoozed_until' | 'sla_due' | 'reports';
 
 const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] = [
   { key: 'last_activity', label: 'Last activity', icon: Bell },
@@ -27,6 +27,7 @@ const SORT_OPTIONS: { key: SortKey; label: string; icon: React.ElementType }[] =
   { key: 'priority', label: 'Priority', icon: SignalHigh },
   { key: 'snoozed_until', label: 'Snoozed until', icon: AlarmClock },
   { key: 'sla_due', label: 'SLA due', icon: Timer },
+  { key: 'reports', label: 'Most reports', icon: Wrench }, // Issues view only
 ];
 
 const PRIORITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, none: 0 };
@@ -68,6 +69,11 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
   // List presentation: search toggle, sort, and Open/Snoozed/All view
   const [showSearch, setShowSearch] = useState(false);
   const [sortBy, setSortBy] = useState<SortKey>('last_activity');
+  // The Issues view starts sorted by how many conversations report each issue
+  useEffect(() => {
+    if (currentQueue === 'kind:issue') setSortBy('reports');
+    else setSortBy(s => (s === 'reports' ? 'last_activity' : s));
+  }, [currentQueue]);
   const [sortDesc, setSortDesc] = useState(true);
   const stateView = useStore((state) => state.stateFilter);
   const setStateView = useStore((state) => state.setStateFilter);
@@ -180,6 +186,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
         case 'snoozed_until': return isSnoozed(c, now) ? time(c.snoozedUntil) : 0;
         // Soonest due first (when "descending"); conversations without a clock go last
         case 'sla_due': { const st = slaState(c, now); return st ? -st.dueAt : -Number.MAX_SAFE_INTEGER; }
+        case 'reports': return c.reportCount || 0;
         default: return time(c.updatedAt || c.createdAt);
       }
     };
@@ -422,7 +429,8 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
       : sameFetch && o.key === 'snoozed' ? snoozedCount
       : null,
   }));
-  const currentSort = SORT_OPTIONS.find(o => o.key === sortBy) || SORT_OPTIONS[0];
+  const sortOptions = SORT_OPTIONS.filter(o => o.key !== 'reports' || currentQueue === 'kind:issue');
+  const currentSort = sortOptions.find(o => o.key === sortBy) || sortOptions[0];
 
   // Bulk palette entries for the current view (plain data; rendered below)
   type BulkItem = { key: string; label: string; icon?: React.ReactNode; run: () => void; sub?: boolean; danger?: boolean; hint?: string };
@@ -627,7 +635,7 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
             </button>
             {openPopover === 'sort' && (
               <div className="ic-menu absolute right-0 top-full mt-1.5 w-56 animate-fade-in">
-                {SORT_OPTIONS.map(o => (
+                {sortOptions.map(o => (
                   <button
                     key={o.key}
                     onClick={() => { setSortBy(o.key); setOpenPopover(null); }}
@@ -891,6 +899,11 @@ export const InboxList: React.FC<InboxListProps> = ({ currentQueue, viewTitle, a
                       <span className={`ic-badge capitalize shrink-0 ${categoryBadge}`}>
                         {c.category.replace('_', ' ')}
                       </span>
+                      {c.kind === 'issue' && (
+                        <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12px] font-medium bg-subtle text-muted shrink-0" title="Conversations linked to this issue">
+                          <Wrench className="w-3 h-3" /> {c.reportCount ?? 0} report{c.reportCount === 1 ? '' : 's'}
+                        </span>
+                      )}
                       {snoozed && c.snoozedUntil && (
                         <span className="inline-flex items-center gap-1 h-5 px-2 rounded-full text-[12px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 min-w-0">
                           <AlarmClock className="w-3 h-3 shrink-0" />

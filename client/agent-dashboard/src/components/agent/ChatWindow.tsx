@@ -19,7 +19,8 @@ import { computeSnoozeUntil, isSnoozed, formatSnoozeUntil } from '../../lib/snoo
 import { RichText, handleFormattedPaste } from '../../lib/richText';
 import RichComposer, { RichComposerHandle } from './RichComposer';
 import MergeDialog from './MergeDialog';
-import { ConvertToTicketDialog, LinkIssueDialog } from './IssueDialogs';
+import { ConvertToTicketDialog, LinkIssueDialog, IssueBroadcastDialog } from './IssueDialogs';
+import { KnownIssueBar, linkedCounts, broadcastSummary } from './IssueLinks';
 import CloseDialog from './CloseDialog';
 import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
@@ -217,6 +218,8 @@ export const ChatWindow: React.FC = () => {
   const [showSnoozeMenu, setShowSnoozeMenu] = useState(false);
   const [showMergePanel, setShowMergePanel] = useState(false);
   const [issueDialog, setIssueDialog] = useState<'convert' | 'link' | null>(null);
+  // Resolving an issue that still has open reports offers to message those customers
+  const [issueBroadcast, setIssueBroadcast] = useState<{ total: number; open: number } | null>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const snoozeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -765,6 +768,10 @@ export const ChatWindow: React.FC = () => {
         },
         body: JSON.stringify({ status: newStatus })
       });
+      if (ticket.kind === 'issue' && newStatus === 'resolved' && token) {
+        const counts = await linkedCounts(ticket.id, token);
+        if (counts.open > 0) setIssueBroadcast(counts);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -1422,6 +1429,22 @@ export const ChatWindow: React.FC = () => {
           onDone={updated => { setIssueDialog(null); useStore.getState().updateConversation(updated); }}
         />
       ))}
+
+      {issueBroadcast && ticket && token && (
+        <IssueBroadcastDialog
+          issue={ticket}
+          token={token}
+          totalReports={issueBroadcast.total}
+          openReports={issueBroadcast.open}
+          resolveByDefault
+          aiReady={aiStatus.configured}
+          onClose={() => setIssueBroadcast(null)}
+          onDone={r => { setIssueBroadcast(null); showToast(broadcastSummary(r)); }}
+        />
+      )}
+
+      {/* Linked to an issue: say so before anyone starts investigating */}
+      {ticket?.linkedIssueId && token && <KnownIssueBar issueId={ticket.linkedIssueId} token={token} />}
 
       {/* Message feed */}
       <div

@@ -14,7 +14,9 @@ import { sendReplyTimeNotice } from '../services/autoReply';
 import { notifyIntegrations } from '../services/notifications';
 import { resolveCustomerId } from '../services/customerIdentity';
 import { verifyUserHash } from '../services/messenger';
-import { inBackground, translateCustomerMessage, triageConversation } from '../services/aiAssist';
+import { inBackground, translateCustomerMessage, triageConversation, draftIssueUpdate, aiFor, translateReply } from '../services/aiAssist';
+import { sendAgentReply } from './messages';
+import { AiError } from '../services/ai';
 
 export async function getTickets(req: AuthenticatedRequest, res: Response) {
   try {
@@ -49,7 +51,12 @@ export async function getTickets(req: AuthenticatedRequest, res: Response) {
       const ids = await mentionedConversationIds(req.user.id);
       list = list.filter(c => ids.has(c.id));
     }
-    
+    // Issues: how many conversations are linked to each
+    if (list.some(c => c.kind === 'issue')) {
+      const counts = await reportCounts();
+      list = list.map(c => (c.kind === 'issue' ? { ...c, reportCount: counts[c.id] || 0 } : c));
+    }
+
     return res.json(list);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -927,6 +934,9 @@ export async function linkIssue(req: AuthenticatedRequest, res: Response) {
       await recordEvent(conv.id, 'tickets', `${who} linked this to ${label(issue)}`, actor, extra(issue));
       await recordEvent(issue.id, 'tickets', `${who} linked ${label(conv)}`, actor, { field: 'linkedConversation', targetId: conv.id });
     }
+    // The issues' report counts changed
+    const counts = await reportCounts();
+    for (const i of [previous, issue]) if (i) SocketService.broadcastConversationUpdate({ ...i, reportCount: counts[i.id] || 0 });
     return res.json(updated);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -943,6 +953,80 @@ export async function getLinkedConversations(req: AuthenticatedRequest, res: Res
         customer: { id: c.customer.id, name: c.customer.name }, updatedAt: c.updatedAt,
       }));
     return res.json(list);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}
+
+/** Number of conversations linked to each issue. */
+async function reportCounts(): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  for (const c of await RepositoryFactory.getConversationRepository().findAll()) {
+    if (c.linkedIssueId && !c.mergedInto) counts[c.linkedIssueId] = (counts[c.linkedIssueId] || 0) + 1;
+  }
+  return counts;
+}
+
+/** POST /api/tickets/:id/broadcast/draft — an AI-written update for an issue's linked customers. */
+export async function draftIssueBroadcast(req: AuthenticatedRequest, res: Response) {
+  try { return res.json({ text: await draftIssueUpdate(req.params.id) }); }
+  catch (e: any) { return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message }); }
+}
+
+/**
+ * POST /api/tickets/:id/broadcast { content, resolve? } — send one message to every conversation and
+ * ticket linked to an issue, each in its own thread (translated when the customer writes in another
+ * language and translation is on), and optionally resolve them.
+ */
+export async function broadcastIssueUpdate(req: AuthenticatedRequest, res: Response) {
+  const content = String(req.body?.content || '').trim();
+  const resolve = !!req.body?.resolve;
+  if (!content) return res.status(400).json({ error: 'Write the message to send' });
+  try {
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const issue = await convRepo.findById(req.params.id);
+    if (!issue || issue.kind !== 'issue') return res.status(404).json({ error: 'Issue not found' });
+    const targets = (await convRepo.findAll()).filter(c => c.linkedIssueId === issue.id && !c.mergedInto && c.status !== 'archived');
+    if (!targets.length) return res.status(400).json({ error: 'No conversations are linked to this issue' });
+
+    const actor = await getActor(req);
+    const me = req.user ? await RepositoryFactory.getUserRepository().findById(req.user.id) : null;
+    const sender = { id: me?.id || actor?.id || 'agent', name: me?.name || actor?.name || 'Agent', ...(me?.avatar ? { avatar: me.avatar } : {}) };
+    const translation = await aiFor('translation');
+    let sent = 0, resolved = 0;
+    const failed: { id: string; error: string }[] = [];
+
+    for (const conv of targets) {
+      try {
+        let text = content;
+        const metadata: Record<string, any> = { issueUpdate: issue.id };
+        if (translation && conv.language) {
+          try {
+            const t = await translateReply(conv.id, content);
+            text = t.text;
+            metadata.original = { text: content, language: translation.features.teamLanguage };
+          } catch { /* send it as written */ }
+        }
+        await sendAgentReply(conv, sender, text, metadata);
+        sent++;
+        if (resolve && conv.status !== 'resolved' && conv.status !== 'closed') {
+          const before = (await convRepo.findById(conv.id)) || conv;
+          const after = await convRepo.update(conv.id, { status: 'resolved', snoozedUntil: null });
+          if (after) {
+            SocketService.broadcastConversationUpdate(after);
+            await recordUpdateEvents(before, after, actor);
+            await refreshSla(conv.id);
+            resolved++;
+          }
+        }
+      } catch (e: any) {
+        failed.push({ id: conv.id, error: e.message });
+      }
+    }
+    const n = `${sent} linked conversation${sent === 1 ? '' : 's'}`;
+    await recordEvent(issue.id, 'tickets', `${actor?.name || 'A teammate'} sent an update to ${n}${resolved ? ` and resolved ${resolved}` : ''}`, actor,
+      { field: 'issueBroadcast', sent, resolved });
+    return res.json({ sent, resolved, failed });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }

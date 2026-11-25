@@ -17,7 +17,7 @@ import {
   updateCustomerProfile, getSavedReplies, createSavedReply, updateSavedReply, 
   deleteSavedReply, getTags, createTag, deleteTag, getCustomerTickets, mergeTickets,
   createManualTicket, getInboxCounts, searchCustomers,
-  convertToTicket, linkIssue, getLinkedConversations
+  convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
 import { 
   getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
@@ -122,6 +122,8 @@ router.put('/tickets/:id/assign', authenticateJWT, requireFullSeat, assignTicket
 router.post('/tickets/:id/convert', authenticateJWT, requireFullSeat, convertToTicket); // conversation → customer ticket
 router.put('/tickets/:id/issue', authenticateJWT, requireFullSeat, linkIssue); // link to / unlink from a tracker issue
 router.get('/tickets/:id/linked', authenticateJWT, getLinkedConversations); // an issue's linked conversations
+router.post('/tickets/:id/broadcast', authenticateJWT, requireFullSeat, broadcastIssueUpdate); // message every linked conversation
+router.post('/tickets/:id/broadcast/draft', authenticateJWT, requireFullSeat, draftIssueBroadcast); // AI draft of that message
 router.put('/customers/:customerId', authenticateJWT, requireFullSeat, updateCustomerProfile);
 router.get('/customers/:customerId/tickets', authenticateJWT, getCustomerTickets);
 router.post('/tickets/:id/merge', authenticateJWT, requireFullSeat, mergeTickets);

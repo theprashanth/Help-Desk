@@ -3,6 +3,7 @@ import { getActiveWorkspaceId } from '../context/tenant.context';
 import { SocketService } from './socket';
 import { recordUpdateEvents } from './events';
 import { complete, transcriptOf, AiError } from './ai';
+import { plainText } from './conversationView';
 import { AiFeatures, AiSettings, Conversation, Message, TicketPriority } from '../../../shared/src/types';
 
 /**
@@ -206,6 +207,40 @@ export async function translateReply(conversationId: string, text: string): Prom
     `You translate a support teammate's reply into ${conv.language}. Keep the meaning, tone, names, numbers, links and markdown formatting (**bold**, *italic*, [links](url)). Output only the translated text.`,
     [{ role: 'user', content: text.slice(0, 8000) }]);
   return { text: translated.trim(), language: conv.language };
+}
+
+// ── Issue updates ──────────────────────────────────────────────────────────
+
+/**
+ * Draft the message sent to every customer linked to a tracker issue (usually: it's fixed).
+ * Written from the issue's title, description, root cause and its internal notes.
+ */
+export async function draftIssueUpdate(issueId: string): Promise<string> {
+  const setup = await aiFor();
+  if (!setup) throw new AiError('Ask AI isn’t set up. An admin can turn it on in Settings › AI assistant.', 409);
+  const thread = await loadThread(issueId);
+  if (!thread || thread.conv.kind !== 'issue') throw new AiError('Issue not found', 404);
+  const { conv, messages } = thread;
+  const notes = messages
+    .filter(m => m.sender.type === 'agent' && m.metadata?.type !== 'event')
+    .slice(-15)
+    .map(m => `- ${m.sender.name}: ${plainText(m.content).slice(0, 600)}`)
+    .join('\n');
+  const facts = [
+    `Issue: ${conv.title || 'Untitled'}`,
+    conv.description ? `Description: ${conv.description}` : '',
+    conv.attributes?.platforms?.length ? `Platforms: ${conv.attributes.platforms.join(', ')}` : '',
+    conv.attributes?.rootCause ? `Root cause: ${conv.attributes.rootCause}` : '',
+    `State: ${conv.status === 'resolved' || conv.status === 'closed' ? 'fixed / resolved' : 'still being worked on'}`,
+    notes ? `Team notes:\n${notes}` : '',
+  ].filter(Boolean).join('\n');
+  const text = await complete(setup.ai,
+    `You write a short update from the ${setup.brand} support team to customers who reported the problem below. ` +
+    'It is sent to each of them in their own conversation. Be warm, plain and specific; 2–4 sentences; ' +
+    'thank them for reporting it, say what changed and what (if anything) they need to do. ' +
+    'No greeting with a name (it goes to many people), no internal details, no promises you can’t see in the facts. Output only the message.',
+    [{ role: 'user', content: facts }]);
+  return text.trim();
 }
 
 // ── Bot hand-off ───────────────────────────────────────────────────────────

@@ -3,7 +3,7 @@ import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
 import { SocketService } from '../services/socket';
 import { CUSTOMER_SYSTEM_TYPES, AGENTS_ROOM } from '../services/socket';
-import { Message, Attachment } from '../../../shared/src/types';
+import { Message, Attachment, Conversation } from '../../../shared/src/types';
 import path from 'path';
 import { recordEvent, getActor } from '../services/events';
 import { refreshSla } from '../services/sla';
@@ -195,6 +195,41 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
   }
+}
+
+/**
+ * A teammate's public reply created by the server (for example an issue update sent to every linked
+ * conversation): the same effects as a reply typed in the composer — previews, the customer's unread
+ * count, live updates, email delivery for email conversations, and the SLA clock.
+ */
+export async function sendAgentReply(
+  conv: Conversation,
+  sender: { id: string; name: string; avatar?: string },
+  content: string,
+  metadata?: Record<string, any>,
+): Promise<Message> {
+  const msgRepo = RepositoryFactory.getMessageRepository();
+  const convRepo = RepositoryFactory.getConversationRepository();
+  const msg = await msgRepo.create({
+    conversationId: conv.id,
+    sender: { type: 'agent', ...sender },
+    content,
+    attachments: [],
+    isInternalNote: false,
+    seen: false,
+    delivered: true,
+    reactions: [],
+    ...(metadata ? { metadata } : {}),
+  });
+  const snippet = plainText(content);
+  const update: any = { unreadCountCustomer: (conv.unreadCountCustomer || 0) + 1, lastMessageSnippet: snippet, customerSnippet: snippet };
+  if (conv.bot && conv.bot.state !== 'handoff') update.bot = { ...conv.bot, state: 'handoff' };
+  const updated = await convRepo.update(conv.id, update);
+  SocketService.broadcastMessageNew(msg);
+  if (updated) SocketService.broadcastConversationUpdate(updated);
+  if ((updated || conv).channel === 'email') deliverAgentReply(updated || conv, msg).catch(() => {});
+  await refreshSla(conv.id);
+  return msg;
 }
 
 export async function addReaction(req: AuthenticatedRequest, res: Response) {

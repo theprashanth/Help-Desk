@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Plus, Wrench, X, MessageSquare, Ticket } from 'lucide-react';
+import { Plus, Wrench, X, MessageSquare, Ticket, Megaphone, ChevronRight } from 'lucide-react';
 import { Conversation } from '../../../../../shared/src/types';
 import { useStore } from '../../store/useStore';
 import { useSocket } from '../../context/SocketContext';
 import { BACKEND_URL, StatusPill, statusOf } from './mergeUi';
-import { LinkIssueDialog } from './IssueDialogs';
+import { LinkIssueDialog, IssueBroadcastDialog } from './IssueDialogs';
+import { useAiStatus } from '../../lib/aiFeatures';
 
 type LinkedRow = { id: string; ticketNumber: string; kind: string; title?: string; status: string; customer: { id: string; name: string } };
 
@@ -23,6 +24,9 @@ export const TrackerLinks: React.FC<{ conv: Conversation; token: string; readOnl
   const [issue, setIssue] = useState<Conversation | null>(null);
   const [linked, setLinked] = useState<LinkedRow[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [broadcast, setBroadcast] = useState(false);
+  const [sentNote, setSentNote] = useState<string | null>(null);
+  const ai = useAiStatus();
   const fromStore = useStore(s => (conv.linkedIssueId ? s.conversations.find(c => c.id === conv.linkedIssueId) : undefined));
 
   // The linked issue (from the loaded list when it's there, otherwise fetched)
@@ -50,8 +54,13 @@ export const TrackerLinks: React.FC<{ conv: Conversation; token: string; readOnl
     loadLinked();
     if (!socket) return;
     const onMsg = (m: any) => { if (m?.conversationId === conv.id && m?.metadata?.field === 'linkedConversation') loadLinked(); };
+    // A linked conversation changed state (reopened, resolved…): keep its pill current
+    const onUpdate = (c: any) => {
+      if (c?.id) setLinked(prev => (prev?.some(r => r.id === c.id) ? prev.map(r => (r.id === c.id ? { ...r, status: c.status, title: c.title ?? r.title } : r)) : prev));
+    };
     socket.on('message:new', onMsg);
-    return () => { socket.off('message:new', onMsg); };
+    socket.on('conversation:update', onUpdate);
+    return () => { socket.off('message:new', onMsg); socket.off('conversation:update', onUpdate); };
   }, [conv.id, conv.kind, socket, loadLinked]);
 
   const unlink = async () => {
@@ -72,6 +81,23 @@ export const TrackerLinks: React.FC<{ conv: Conversation; token: string; readOnl
         </div>
         {linked === null && <p className="py-1 text-[13px] text-faint">Loading…</p>}
         {linked?.length === 0 && <p className="py-1 text-[13px] text-faint">None yet. Link reports from a conversation's ⋯ menu.</p>}
+        {!!linked?.length && !readOnly && (
+          <button onClick={() => { setSentNote(null); setBroadcast(true); }} className="ic-btn-secondary h-8 text-[13px] self-start my-1">
+            <Megaphone className="w-3.5 h-3.5" /> Message linked customers
+          </button>
+        )}
+        {sentNote && <p className="py-1 text-[13px] text-emerald-600 dark:text-emerald-400">{sentNote}</p>}
+        {broadcast && linked && (
+          <IssueBroadcastDialog
+            issue={conv}
+            token={token}
+            totalReports={linked.length}
+            openReports={linked.filter(c => c.status !== 'resolved' && c.status !== 'closed').length}
+            aiReady={ai.configured}
+            onClose={() => setBroadcast(false)}
+            onDone={r => { setBroadcast(false); setSentNote(broadcastSummary(r)); loadLinked(); }}
+          />
+        )}
         {linked?.map(c => {
           const Icon = c.kind === 'ticket' ? Ticket : MessageSquare;
           return (
@@ -121,5 +147,64 @@ export const TrackerLinks: React.FC<{ conv: Conversation; token: string; readOnl
         <LinkIssueDialog conversation={conv} token={token} onClose={() => setDialog(false)} onDone={c => { setDialog(false); onUpdated(c); }} />
       )}
     </>
+  );
+};
+
+export const broadcastSummary = (r: { sent: number; resolved: number; failed: unknown[] }) =>
+  `Sent to ${r.sent} conversation${r.sent === 1 ? '' : 's'}${r.resolved ? `, resolved ${r.resolved}` : ''}${r.failed.length ? ` · ${r.failed.length} failed` : ''}`;
+
+/** Count of an issue's linked conversations, and how many are still open. */
+export async function linkedCounts(issueId: string, token: string): Promise<{ total: number; open: number }> {
+  try {
+    const r = await fetch(`${BACKEND_URL}/api/tickets/${issueId}/linked`, { headers: { Authorization: `Bearer ${token}` } });
+    const list: LinkedRow[] = r.ok ? await r.json() : [];
+    return { total: list.length, open: list.filter(c => c.status !== 'resolved' && c.status !== 'closed').length };
+  } catch { return { total: 0, open: 0 }; }
+}
+
+/**
+ * Slim bar under a chat's header when it's linked to an issue, so nobody re-investigates a problem the
+ * team already tracks: "Known issue · Payments #41168 · 3 reports · In progress". Opens the issue beside the chat.
+ */
+export const KnownIssueBar: React.FC<{ issueId: string; token: string }> = ({ issueId, token }) => {
+  const fromStore = useStore(s => s.conversations.find(c => c.id === issueId));
+  const [fetched, setFetched] = useState<Conversation | null>(null);
+  const [reports, setReports] = useState<number | null>(null);
+  const socket = useSocket();
+  useEffect(() => {
+    let live = true;
+    setFetched(null);
+    if (!fromStore) {
+      fetch(`${BACKEND_URL}/api/tickets/${issueId}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => (r.ok ? r.json() : null)).then(c => { if (live) setFetched(c); }).catch(() => {});
+    }
+    return () => { live = false; };
+  }, [issueId, token, !!fromStore]);
+  useEffect(() => {
+    let live = true;
+    const load = () => linkedCounts(issueId, token).then(c => { if (live) setReports(c.total); });
+    load();
+    // Keep the issue's state and report count current while the chat is open
+    const onUpdate = (c: any) => { if (c?.id === issueId) { setFetched(prev => (prev ? { ...prev, ...c } : prev)); if (typeof c.reportCount === 'number') setReports(c.reportCount); } };
+    socket?.on('conversation:update', onUpdate);
+    return () => { live = false; socket?.off('conversation:update', onUpdate); };
+  }, [issueId, token, socket]);
+
+  const issue = fromStore || fetched;
+  if (!issue) return null;
+  const fixed = issue.status === 'resolved' || issue.status === 'closed';
+  return (
+    <button
+      onClick={() => open(issueId)}
+      className={`w-full flex items-center gap-2 px-5 h-9 text-[13px] border-b border-line text-left shrink-0 ${
+        fixed ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200'}`}
+      title="Open the issue"
+    >
+      <Wrench className="w-3.5 h-3.5 shrink-0" />
+      <span className="font-medium shrink-0">{fixed ? 'Linked issue fixed' : 'Known issue'}</span>
+      <span className="flex-1 truncate min-w-0">· {issue.title || 'Untitled issue'} <span className="opacity-70">{num(issue.ticketNumber)}</span></span>
+      {reports !== null && <span className="shrink-0 opacity-80">{reports} report{reports === 1 ? '' : 's'}</span>}
+      <ChevronRight className="w-4 h-4 shrink-0 opacity-70" />
+    </button>
   );
 };
