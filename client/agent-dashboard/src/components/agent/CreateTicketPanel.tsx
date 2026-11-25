@@ -247,7 +247,8 @@ export const CreateTicketPanel: React.FC<Props> = ({ agents, onCreated }) => {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Add description..."
                 rows={3}
-                className="w-full -mt-2 px-0 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none resize-none leading-relaxed"
+                className="w-full px-3 -mx-3 py-2.5 rounded-lg bg-subtle/60 hover:bg-subtle focus:bg-subtle text-[15px] text-ink placeholder:text-faint focus:outline-none resize-none leading-relaxed"
+                style={{ width: 'calc(100% + 1.5rem)' }}
               />
 
               {/* Attributes */}

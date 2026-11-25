@@ -108,7 +108,7 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
 
         {/* Articles */}
         <div className="w-80 shrink-0 border-r border-line flex flex-col min-h-0">
-          <label className="flex items-center gap-2 mx-3 mt-3 ic-input h-9">
+          <label className="flex items-center gap-2 mx-3 mt-3 ic-input w-auto h-9">
             <Search className="w-4 h-4 text-muted shrink-0" />
             <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search articles" className="flex-1 min-w-0 bg-transparent focus:outline-none" />
           </label>
@@ -143,13 +143,19 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
             <div className="ic-empty flex-1"><BookOpen className="w-10 h-10 text-muted mb-2" strokeWidth={1.25} /><p className="text-[14px] text-muted">Select an article, or write a new one.</p></div>
           ) : (
             <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-4">
-              <input className="text-[22px] font-semibold text-ink bg-transparent focus:outline-none placeholder:text-faint" disabled={!canEdit} placeholder="Article title"
-                value={draft.title} maxLength={200} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} aria-label="Title" />
-              <div className="flex items-center gap-2 flex-wrap">
-                <select className="ic-input h-9 w-56" disabled={!canEdit} value={draft.collectionId} onChange={e => setDraft(d => ({ ...d, collectionId: e.target.value }))} aria-label="Collection">
-                  <option value="">No collection</option>
-                  {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[13px] font-medium text-ink">Title</span>
+                <input className="ic-input h-11 text-[17px] font-semibold" disabled={!canEdit} placeholder="e.g. How do I cancel my subscription?"
+                  value={draft.title} maxLength={200} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))} autoFocus={selected === 'new'} />
+              </label>
+              <div className="flex items-end gap-2 flex-wrap">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[13px] font-medium text-ink">Collection</span>
+                  <select className="ic-select h-9 w-56" disabled={!canEdit} value={draft.collectionId} onChange={e => setDraft(d => ({ ...d, collectionId: e.target.value }))}>
+                    <option value="">No collection</option>
+                    {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </label>
                 <div className="inline-flex rounded-lg border border-line p-0.5 ml-auto">
                   <button onClick={() => setPreview(false)} className={`px-3 h-8 rounded-md text-[13px] ${!preview ? 'bg-subtle text-ink font-medium' : 'text-muted'}`}>Write</button>
                   <button onClick={() => setPreview(true)} className={`px-3 h-8 rounded-md text-[13px] ${preview ? 'bg-subtle text-ink font-medium' : 'text-muted'}`}>Preview</button>
@@ -161,9 +167,12 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
                   <RichText className="text-[15px] text-ink whitespace-pre-wrap leading-relaxed" text={draft.body || '_Nothing written yet._'} linkClass="text-link underline" />
                 </div>
               ) : (
-                <textarea className="ic-textarea min-h-[320px] flex-1 font-normal leading-relaxed" disabled={!canEdit} value={draft.body}
-                  placeholder={'Write the answer. Use **bold**, *italic*, [links](https://…) and blank lines between paragraphs.'}
-                  onChange={e => setDraft(d => ({ ...d, body: e.target.value }))} aria-label="Article body" />
+                <label className="flex flex-col gap-1.5 flex-1">
+                  <span className="text-[13px] font-medium text-ink">Answer</span>
+                  <textarea className="ic-textarea min-h-[320px] flex-1 font-normal leading-relaxed" disabled={!canEdit} value={draft.body}
+                    placeholder={'Write the answer. Use **bold**, *italic*, [links](https://…) and blank lines between paragraphs.'}
+                    onChange={e => setDraft(d => ({ ...d, body: e.target.value }))} />
+                </label>
               )}
               {canEdit && (
                 <div className="flex items-center gap-2 pt-2 border-t border-line">
@@ -176,6 +185,9 @@ export default function KnowledgeBaseSettings({ onBack }: { onBack: () => void }
                     <>
                       <button onClick={() => save('published')} disabled={saving || !draft.title.trim() || !draft.body.trim()} className="ic-btn-primary disabled:opacity-40">{saving ? 'Saving…' : 'Publish'}</button>
                       <button onClick={() => save('draft')} disabled={saving || !draft.title.trim()} className="ic-btn-ghost disabled:opacity-40">Save draft</button>
+                      {(!draft.title.trim() || !draft.body.trim()) && (
+                        <span className="text-[12.5px] text-muted">{!draft.title.trim() ? 'Add a title' : 'Write the answer'} to publish.</span>
+                      )}
                     </>
                   )}
                   {current && <span className="text-[12.5px] text-muted ml-2">{current.authorName ? `By ${current.authorName} · ` : ''}{current.views || 0} views</span>}

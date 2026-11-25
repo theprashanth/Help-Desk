@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import {
   ArrowDown, ArrowLeft, ArrowUp, Ban, Building2, ChevronLeft, ChevronRight, Download, GitMerge, Globe, Mail,
-  MessageSquare, Phone, Plus, Search, Ticket, Trash2, Users, Wrench, X,
+  MessageSquare, Pencil, Phone, Plus, Search, Ticket, Trash2, Users, Wrench, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -577,8 +577,10 @@ const EditableRow: React.FC<{ icon: React.ReactNode; label: string; value: strin
           onKeyDown={e => { if (e.key === 'Enter') done(); if (e.key === 'Escape') { setV(value); setEditing(false); } }}
           className="flex-1 min-w-0 h-7 -ml-[7px] px-1.5 rounded-md border border-line bg-surface text-[13px] focus:outline-none focus:border-ink/40" />
       ) : (
-        <button disabled={readOnly} onClick={() => setEditing(true)} className="flex-1 min-w-0 text-left truncate h-7 -ml-[7px] px-1.5 rounded-md hover:bg-subtle disabled:hover:bg-transparent">
-          {value || <span className="text-faint">—</span>}
+        <button disabled={readOnly} onClick={() => setEditing(true)} title={readOnly ? undefined : `Edit ${label.toLowerCase()}`}
+          className="group/edit flex-1 min-w-0 flex items-center gap-1.5 text-left h-7 -ml-[7px] px-1.5 rounded-md hover:bg-subtle disabled:hover:bg-transparent">
+          <span className="truncate">{value || <span className="text-faint">—</span>}</span>
+          {!readOnly && <Pencil className="w-3 h-3 text-muted shrink-0 opacity-0 group-hover/edit:opacity-100" />}
         </button>
       )}
     </div>
