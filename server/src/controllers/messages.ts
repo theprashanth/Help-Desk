@@ -188,6 +188,16 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
       // Bot chats: the customer's first typed message is when the hand-off summary and triage can say something useful
       if (conv.bot) inBackground('hand-off', () => onCustomerTyped(conversationId, createdMsg.id));
     }
+    // Settings › AI Agent: it answers the customer while it has the conversation; a teammate's reply takes over
+    if (conv.aiAgent && conv.aiAgent.state !== 'handoff' && !isInternalNote) {
+      const ai = await import('../services/aiAgent');
+      if (sender.type === 'customer' && content) {
+        const msgId = createdMsg.id;
+        inBackground('ai agent', () => ai.respond(conversationId, msgId));
+      } else if (sender.type === 'agent' && sender.id !== ai.AI_AGENT_ID && conv.aiAgent.state === 'active') {
+        await ai.takeOver(updatedConv || conv, sender.name);
+      }
+    }
     // Customer wrote → their clock may start; a teammate replied → it stops
     if (!isInternalNote && (sender.type === 'customer' || sender.type === 'agent')) await refreshSla(conversationId);
 

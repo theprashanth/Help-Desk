@@ -1468,6 +1468,25 @@ export const ChatWindow: React.FC = () => {
         />
       )}
 
+      {/* The AI Agent is answering this conversation: say so, and let a teammate take over */}
+      {ticket?.aiAgent?.state === 'active' && token && (
+        <div className="w-full flex items-center gap-2 px-5 h-9 text-[13px] border-b border-line bg-violet-50 text-violet-900 dark:bg-violet-500/10 dark:text-violet-200 shrink-0">
+          <Sparkles className="w-3.5 h-3.5 shrink-0" />
+          <span className="flex-1 truncate">The AI Agent is answering this conversation{ticket.aiAgent.replies ? ` · ${ticket.aiAgent.replies} repl${ticket.aiAgent.replies === 1 ? 'y' : 'ies'}` : ''}</span>
+          {!isLight && (
+            <button
+              className="text-[12.5px] font-medium hover:underline shrink-0"
+              onClick={async () => {
+                const res = await fetch(`${BACKEND_URL}/api/tickets/${ticket.id}/ai-takeover`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                if (res.ok) useStore.getState().updateConversation(await res.json());
+              }}
+            >
+              Take over
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Linked to an issue: say so before anyone starts investigating */}
       {ticket?.linkedIssueId && token && <KnownIssueBar issueId={ticket.linkedIssueId} token={token} />}
 
@@ -1754,6 +1773,15 @@ export const ChatWindow: React.FC = () => {
                       <Languages className="w-3 h-3" />
                       {showOriginal.has(m.id) ? `What you wrote (${m.metadata.original.language}) · Show what was sent` : 'Sent translated · Show what you wrote'}
                     </button>
+                  )}
+                  {/* AI Agent answers: label, confidence and the articles it used */}
+                  {m.metadata?.type === 'ai_agent' && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[12px] text-muted">
+                      <span className="inline-flex items-center gap-1"><Sparkles className="w-3 h-3 text-accent" /> AI Agent{typeof m.metadata.confidence === 'number' ? ` · ${Math.round(m.metadata.confidence * 100)}% sure` : ''}{m.metadata.handoff ? ' · handed over' : ''}</span>
+                      {(m.metadata.sources || []).map((src: { id: string; title: string }) => (
+                        <span key={src.id} className="ic-badge text-[11.5px] truncate max-w-[200px]" title={src.title}>{src.title}</span>
+                      ))}
+                    </div>
                   )}
 
                   {/* File Attachments */}

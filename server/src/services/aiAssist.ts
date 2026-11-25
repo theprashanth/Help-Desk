@@ -87,7 +87,7 @@ export async function suggestReplies(conversationId: string): Promise<string[]> 
   const thread = await loadThread(conversationId);
   if (!thread) return [];
   // What a person said (automatic messages like the reply-time notice don't count as an answer)
-  const AUTO = new Set(['auto_reply', 'bot', 'bot_choice', 'csat_request', 'customer_event', 'event']);
+  const AUTO = new Set(['auto_reply', 'bot', 'bot_choice', 'csat_request', 'customer_event', 'event', 'ai_agent']);
   const visible = thread.messages.filter(m => m.sender.type !== 'system' && !m.isInternalNote && m.sender.id !== 'bot' && !AUTO.has(m.metadata?.type));
   const last = visible[visible.length - 1];
   if (!last || last.sender.type !== 'customer') return []; // only while the customer is waiting

@@ -35,6 +35,8 @@ export function toCustomerView(conv: Conversation): Conversation {
   const { createdByAgentId: _c, attributes: _a, unreadCountAgent: _u, linkedIssueId: _l, participantThreadIds: _p, ...rest } = conv;
   return {
     ...rest,
+    // The AI Agent: customers only need to know whether it's answering (not why it handed over)
+    ...(conv.aiAgent ? { aiAgent: { state: conv.aiAgent.state, replies: conv.aiAgent.replies, startedAt: conv.aiAgent.startedAt } } : {}),
     unreadCountAgent: 0,
     lastMessageSnippet: conv.customerSnippet ?? legacySnippet,
     customerSnippet: conv.customerSnippet ?? legacySnippet,

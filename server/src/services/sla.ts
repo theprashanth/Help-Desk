@@ -33,7 +33,7 @@ export function slaPolicyOf(ws?: Workspace | null): SlaPolicy {
   };
 }
 
-const NOT_A_REPLY = new Set(['event', 'auto_reply', 'bot', 'bot_choice', 'csat_request', 'customer_event', 'imported']);
+const NOT_A_REPLY = new Set(['event', 'auto_reply', 'bot', 'bot_choice', 'csat_request', 'customer_event', 'imported', 'ai_agent']);
 const isTeammateReply = (m: Message) =>
   m.sender.type === 'agent' && m.sender.id !== 'bot' && !m.isInternalNote && !NOT_A_REPLY.has(m.metadata?.type);
 const isBotMessage = (m: Message) => m.sender.id === 'bot' || m.metadata?.type === 'bot';
@@ -44,6 +44,7 @@ export function deriveSla(conv: Conversation, msgs: Message[], policy: SlaPolicy
   if (!policy.enabled) return undefined;
   if (conv.status !== 'open' || conv.mergedInto || conv.kind === 'issue') return undefined;
   if (conv.bot && conv.bot.state !== 'handoff') return undefined;
+  if (conv.aiAgent?.state === 'active') return undefined; // the AI Agent is answering
 
   const sorted = [...msgs].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const lastReply = [...sorted].reverse().find(isTeammateReply);

@@ -386,6 +386,17 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     if (!isOpen) return;
     api('/api/messenger/known-issues').then(r => (r.ok ? r.json() : [])).then(l => setKnownIssues(Array.isArray(l) ? l : [])).catch(() => {});
   }, [isOpen, api]);
+  // AI Agent buttons: it helped (resolve) / it didn't / talk to a person (both hand over to the team)
+  const [aiBusy, setAiBusy] = useState(false);
+  const sendAiFeedback = async (action: 'helpful' | 'not_helpful' | 'human') => {
+    if (!activeConv) return;
+    setAiBusy(true);
+    try {
+      const res = await api('/api/messenger/ai-feedback', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversationId: activeConv.id, action }) });
+      if (res.ok) { const c = await res.json(); setActiveConv(c); setLocalConversations(prev => prev.map(x => (x.id === c.id ? c : x))); }
+    } catch { /* offline: the buttons stay */ }
+    setAiBusy(false);
+  };
   // "Updated 5m" — or "Just now" for anything this minute
   const updatedText = (iso?: string) => (shortAgo(iso) === 'Now' ? t('justNow') : t('updated', { time: shortAgo(iso) }));
   const ticketPill = (c: Conversation) => {
@@ -1400,8 +1411,22 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             )}
                           </div>
 
+                          {/* AI Agent: the help articles it answered from */}
+                          {m.metadata?.type === 'ai_agent' && Array.isArray(m.metadata.sources) && m.metadata.sources.length > 0 && (
+                            <div className="mt-1.5 flex flex-col gap-1 items-start">
+                              <span className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{t('aiSources')}</span>
+                              {m.metadata.sources.map((src: { id: string; title: string }) => (
+                                <button key={src.id} onClick={() => openHelp({ kind: 'article', id: src.id })}
+                                  className="text-left text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:underline flex items-center gap-1.5 max-w-full"
+                                  style={{ color: themeColor }}>
+                                  <span className="truncate">{src.title}</span><ChevronRight className="w-3 h-3 shrink-0" />
+                                </button>
+                              ))}
+                            </div>
+                          )}
                           {lastInGroup && (
                             <span className="mt-1 px-1 text-[11px] text-slate-400 dark:text-slate-500">
+                              {!isMe && m.metadata?.type === 'ai_agent' && <span className="mr-1 px-1 py-px rounded bg-slate-200/70 dark:bg-slate-800 text-[9px] font-bold text-slate-500">{t('aiLabel')}</span>}
                               {!isMe && <>{m.sender.name} · </>}
                               <TimeHover iso={m.createdAt}>{shortAgo(m.createdAt) === 'Now' ? t('justNow') : shortAgo(m.createdAt)}</TimeHover>
                             </span>
@@ -1409,6 +1434,21 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                         </div>
                       );
                     })}
+
+                    {/* AI Agent: "Did that answer your question?" under its latest answer */}
+                    {activeConv?.aiAgent?.state === 'active' && (() => {
+                      const last = [...chatMessages].reverse().find(x => x.sender.type !== 'system');
+                      if (!last || last.metadata?.type !== 'ai_agent' || !last.metadata?.askFeedback || last.metadata?.handoff) return null;
+                      return (
+                        <div className="self-start flex flex-col gap-2 max-w-[85%]">
+                          <span className="px-1 text-xs text-slate-500 dark:text-slate-400">{t('aiHelpful')}</span>
+                          <div className="flex gap-2">
+                            <button disabled={aiBusy} onClick={() => sendAiFeedback('helpful')} className="text-xs font-semibold px-3 py-1.5 rounded-full text-white disabled:opacity-60" style={{ background: themeColor }}>{t('aiYes')}</button>
+                            <button disabled={aiBusy} onClick={() => sendAiFeedback('not_helpful')} className="text-xs font-semibold px-3 py-1.5 rounded-full border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 disabled:opacity-60">{t('aiNo')}</button>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Chat flow buttons under the bot's latest message */}
                     {liveFlow && activeConv?.bot && activeConv.bot.state !== 'handoff' && (
@@ -1459,6 +1499,15 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
                     {isPendingNewConv && !pendingOutbound && !flowIntake && (
                       <ArticleSuggestions api={api} text={inputText} onOpen={id => openHelp({ kind: 'article', id })} />
+                    )}
+
+                    {/* While the AI Agent is answering, a person is always one tap away */}
+                    {activeConv?.aiAgent?.state === 'active' && (
+                      <div className="mb-2 flex justify-end">
+                        <button disabled={aiBusy} onClick={() => sendAiFeedback('human')} className="text-xs font-semibold hover:underline disabled:opacity-60" style={{ color: themeColor }}>
+                          {t('talkToPerson')}
+                        </button>
+                      </div>
                     )}
 
                     {sendError && (

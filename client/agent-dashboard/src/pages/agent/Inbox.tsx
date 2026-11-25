@@ -236,6 +236,7 @@ export const Inbox: React.FC = () => {
     if (activeTab.startsWith('kind:')) return KIND_LABELS[activeTab.slice(5)] || 'Inbox';
     if (activeTab.startsWith('team:')) return useStore.getState().teams.find(t => t.id === activeTab.slice(5))?.name || 'Team inbox';
     if (activeTab === 'bot') return 'All bot chats';
+    if (activeTab === 'ai') return 'AI Agent';
     if (activeTab === 'bot:active') return 'Bot chats in progress';
     if (activeTab === 'bot:resolved') return 'Resolved by bot';
     return 'Inbox';

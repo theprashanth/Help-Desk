@@ -8,11 +8,12 @@ import {
   Home, Shield, Languages, CreditCard, Activity,
   Mail, Phone, ArrowLeft,
   Zap, Hash, Plus, X, Edit2, Trash2, Search, ChevronDown, PanelLeft, Users, Clock, SlidersHorizontal, Workflow, Sparkles, ArrowUpDown, Timer, UsersRound, ScrollText, Contact, BookOpen, Megaphone
-} from 'lucide-react';
+, Bot } from 'lucide-react';
 import TeammatesSettings from '../../components/settings/TeammatesSettings';
 import MacroActionsEditor from '../../components/settings/MacroActionsEditor';
 import { describeMacroActions } from '../../lib/macros';
 import ProfileSettings from '../../components/settings/ProfileSettings';
+import AiAgentSettings from '../../components/settings/AiAgentSettings';
 import MultilingualSettings from '../../components/settings/MultilingualSettings';
 import OfficeHoursSettings from '../../components/settings/OfficeHoursSettings';
 import SlaSettings from '../../components/settings/SlaSettings';
@@ -32,10 +33,10 @@ import { RichText, handleFormattedPaste } from '../../lib/richText';
 
 const BACKEND_URL = 'http://localhost:3000';
 
-type Section = 'home' | 'multilingual' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
+type Section = 'home' | 'multilingual' | 'aiAgent' | 'general' | 'workspace' | 'messenger' | 'chatFlow' | 'integrations' | 'ai' | 'data' | 'profile' | 'notifications' | 'teammates' | 'officeHours' | 'macros' | 'sla' | 'teams' | 'peopleData' | 'audit' | 'email' | 'help' | 'outbound';
 
 // Pages that render their own header/tabs/scroll area (components/settings/*)
-const SELF_CONTAINED: Section[] = ['multilingual', 'email', 'help', 'outbound', 'teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
+const SELF_CONTAINED: Section[] = ['aiAgent', 'multilingual', 'email', 'help', 'outbound', 'teams', 'peopleData', 'audit', 'sla', 'ai', 'data', 'profile', 'teammates', 'officeHours', 'general', 'integrations', 'messenger', 'chatFlow'];
 function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
@@ -847,6 +848,7 @@ export const Settings: React.FC = () => {
   const PAGE_TITLES: Record<Section, string> = {
     home: 'Home',
     multilingual: 'Multilingual',
+    aiAgent: 'AI Agent',
     general: 'General',
     workspace: 'Notifications & preferences',
     profile: 'Details',
@@ -888,6 +890,7 @@ export const Settings: React.FC = () => {
               <SettingsNavItem icon={Timer} label="SLAs" active={section === 'sla'} onClick={() => setSection('sla')} />
               <SettingsNavItem icon={Puzzle} label="Integrations" active={section === 'integrations'} onClick={() => setSection('integrations')} />
               <SettingsNavItem icon={Sparkles} label="AI assistant" active={section === 'ai'} onClick={() => setSection('ai')} />
+              <SettingsNavItem icon={Bot} label="AI Agent" active={section === 'aiAgent'} onClick={() => setSection('aiAgent')} />
               <SettingsNavItem icon={Shield} label="Security" active={false} onClick={() => { setMessengerTab('security'); setSection('messenger'); }} />
               <SettingsNavItem icon={ScrollText} label="Audit log" active={section === 'audit'} onClick={() => setSection('audit')} />
               <SettingsNavItem icon={CreditCard} label="Billing" active={false} onClick={() => {}} soon />
@@ -927,6 +930,7 @@ export const Settings: React.FC = () => {
         {section === 'teammates' && <TeammatesSettings onBack={() => setSection('home')} />}
         {section === 'officeHours' && <OfficeHoursSettings onBack={() => setSection('home')} />}
         {section === 'multilingual' && <MultilingualSettings onBack={() => setSection('home')} />}
+        {section === 'aiAgent' && <AiAgentSettings onBack={() => setSection('home')} onOpenAi={() => setSection('ai')} />}
         {section === 'sla' && <SlaSettings onBack={() => setSection('home')} />}
         {section === 'teams' && <TeamsSettings onBack={() => setSection('home')} />}
         {section === 'email' && <EmailSettings onBack={() => setSection('home')} />}

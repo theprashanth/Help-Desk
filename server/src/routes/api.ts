@@ -20,6 +20,7 @@ import {
   convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
 import { setParticipants, getSideConversations, createSideConversation, replySide } from '../controllers/participants';
+import { getAiAgentSettings, saveAiAgentSettings, testAiAgent, aiAgentStats, takeOverFromAi, aiFeedback } from '../controllers/aiAgent';
 import { listContacts, exportContacts, getContact, deleteContact, mergeContacts } from '../controllers/contacts';
 import { 
   getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
@@ -63,6 +64,12 @@ router.post('/ai/ask', authenticateJWT, askAi);
 router.post('/ai/suggest', authenticateJWT, requireFullSeat, suggestRepliesHandler);
 router.post('/ai/summarize', authenticateJWT, summarizeHandler);
 router.post('/ai/translate', authenticateJWT, requireFullSeat, translateHandler);
+router.get('/ai-agent/settings', authenticateJWT, getAiAgentSettings); // Settings › AI Agent
+router.put('/ai-agent/settings', authenticateJWT, requireAdmin, saveAiAgentSettings);
+router.post('/ai-agent/test', authenticateJWT, requireFullSeat, testAiAgent); // what it would answer
+router.get('/ai-agent/stats', authenticateJWT, aiAgentStats);
+router.post('/tickets/:id/ai-takeover', authenticateJWT, requireFullSeat, takeOverFromAi); // a teammate takes over
+router.post('/messenger/ai-feedback', requireKnownWorkspace, aiFeedback); // public: Yes / No / Talk to a person
 // Settings › Data › Imports & exports (CSV uploads are sent as text/csv)
 const csvUpload = textBody({ type: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], limit: '25mb' });
 router.post('/data/imports/preview', authenticateJWT, csvUpload, previewImport);

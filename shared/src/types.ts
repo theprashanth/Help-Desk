@@ -55,6 +55,7 @@ export interface Workspace {
   installations?: MessengerInstallation[];
   chatFlow?: ChatFlowSettings;
   ai?: AiSettings;                 // Settings › AI assistant (the API key never leaves the server)
+  aiAgent?: Partial<AiAgentSettings>; // Settings › AI Agent (off by default)
   dataImports?: DataImportRecord[]; // Settings › Data › Imports & exports (newest first, last 50)
 }
 
@@ -314,6 +315,7 @@ export interface Conversation {
   reportCount?: number;            // issues (computed, not stored): how many conversations are linked to it
   participants?: string[];         // extra people (email addresses) who get every teammate reply by email
   participantThreadIds?: string[]; // Messenger conversations: Message-IDs of the participants' email thread
+  aiAgent?: ConversationAiAgent;   // set while/after the AI Agent answered this conversation
   publicNotice?: string;           // issues: shown on the Messenger home while the issue is open ("We're aware of…")
   tags?: string[];                 // conversation tags (separate from the customer's tags)
   bot?: ConversationBotState;      // set while/after the chat-flow bot handled it
@@ -602,4 +604,29 @@ export interface SideConversation {
   messageCount?: number;
   createdAt?: string;
   updatedAt?: string;
+}
+
+/**
+ * Settings › AI Agent: an AI teammate that answers customers itself (from the knowledge base) and hands
+ * the conversation to a person when it can't help. Off by default.
+ */
+export interface AiAgentSettings {
+  enabled: boolean;
+  name: string;                       // shown to customers, e.g. "AI Agent"
+  answerFrom: 'knowledge' | 'general'; // only from help articles, or general knowledge too
+  minConfidence: number;              // 0–1: below this, hand over instead of answering
+  maxReplies: number;                 // per conversation, then hand over
+  handoffTopics: string[];            // words/topics that always go to a person (refund, legal…)
+  handoffMessage: string;             // what the customer sees when it hands over
+  channels: { messenger: boolean; email: boolean };
+  afterChatFlow: boolean;             // also answer chats the chat-flow bot hands to the team
+  askFeedback: boolean;               // "Did that answer your question?" under each answer
+}
+
+export interface ConversationAiAgent {
+  state: 'active' | 'resolved' | 'handoff';
+  replies: number;
+  startedAt: string;
+  endedAt?: string;
+  reason?: string;                    // why it handed over
 }

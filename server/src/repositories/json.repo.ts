@@ -356,6 +356,7 @@ export class JsonConversationRepository implements IConversationRepository {
         teamId: conv.teamId,
         channel: conv.channel,
         email: conv.email,
+        aiAgent: conv.aiAgent,
         createdAt: now,
         updatedAt: now
       };
@@ -451,6 +452,7 @@ export class JsonConversationRepository implements IConversationRepository {
         participants: raw.participants?.length ? raw.participants : undefined,
         participantThreadIds: raw.participantThreadIds?.length ? raw.participantThreadIds : undefined,
         publicNotice: raw.publicNotice || undefined,
+        aiAgent: raw.aiAgent || undefined,
         createdAt: raw.createdAt,
         updatedAt: raw.updatedAt
       });

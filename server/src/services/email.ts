@@ -289,6 +289,10 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
     const { inBackground, translateCustomerMessage } = await import('./aiAssist');
     const cid = conv.id;
     inBackground('translation', () => translateCustomerMessage(cid, msg.id));
+    if (conv.aiAgent && conv.aiAgent.state !== 'handoff') {
+      const ai = await import('./aiAgent');
+      inBackground('ai agent', () => ai.respond(cid, msg.id));
+    }
     return { conversationId: conv.id, created: false };
   }
 
@@ -303,7 +307,10 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
     });
   }
   if (customer.blocked) return null;
-  const route = await routeNewConversation();
+  // Settings › AI Agent: it can answer email too (no teammate is assigned until it hands over)
+  const ai = await import('./aiAgent');
+  const aiAgent = await ai.takesNew('email');
+  const route = aiAgent ? { assignedAgentId: undefined, teamId: undefined, reason: undefined } as Awaited<ReturnType<typeof routeNewConversation>> : await routeNewConversation();
   const subject = mail.subject.replace(TAG_RE, '').trim() || '(no subject)';
   conv = await convRepo.create({
     customer, status: 'open', priority: 'none', category: 'general',
@@ -313,6 +320,7 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
     title: subject,
     channel: 'email',
     email: { subject, address: mail.from.address, threadIds: mail.messageId ? [mail.messageId] : [] },
+    ...(aiAgent ? { aiAgent } : {}),
   } as any);
   const msg = await msgRepo.create({
     conversationId: conv.id,
@@ -332,6 +340,7 @@ export async function handleInbound(mail: InboundMail): Promise<{ conversationId
   const { inBackground, translateCustomerMessage, triageConversation } = await import('./aiAssist');
   const newId = conv.id;
   inBackground('new email', async () => { await translateCustomerMessage(newId, msg.id); await triageConversation(newId); });
+  if (aiAgent) inBackground('ai agent', () => ai.respond(newId, msg.id));
   return { conversationId: conv.id, created: true };
 }
 

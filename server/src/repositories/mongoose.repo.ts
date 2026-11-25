@@ -372,6 +372,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       participants: doc.participants?.length ? doc.participants : undefined,
       participantThreadIds: doc.participantThreadIds?.length ? doc.participantThreadIds : undefined,
       publicNotice: doc.publicNotice || undefined,
+      aiAgent: doc.aiAgent || undefined,
       createdAt: doc.createdAt?.toISOString(),
       updatedAt: doc.updatedAt?.toISOString(),
     };
@@ -416,6 +417,7 @@ export class MongooseConversationRepository implements IConversationRepository {
       teamId: conv.teamId,
       channel: conv.channel,
       email: conv.email,
+      aiAgent: conv.aiAgent,
     });
     await doc.save();
     return this.buildConversationObject(doc);
