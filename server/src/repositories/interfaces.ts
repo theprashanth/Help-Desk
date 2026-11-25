@@ -26,6 +26,7 @@ export interface ICustomerRepository {
   create(customer: Customer): Promise<Customer>;
   update(id: string, updateData: Partial<Customer>): Promise<Customer | null>;
   findAll(): Promise<Customer[]>;
+  delete(id: string): Promise<boolean>;
 }
 
 export interface IConversationRepository {

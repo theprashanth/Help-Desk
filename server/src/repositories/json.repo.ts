@@ -295,6 +295,17 @@ export class JsonCustomerRepository implements ICustomerRepository {
     const workspaceId = getActiveWorkspaceId();
     return customers.filter(c => c.workspaceId === workspaceId);
   }
+
+  async delete(id: string): Promise<boolean> {
+    return transaction(async () => {
+      const customers = await readJson<Customer[]>(this.file, []);
+      const workspaceId = getActiveWorkspaceId();
+      const rest = customers.filter(c => !(c.id === id && c.workspaceId === workspaceId));
+      if (rest.length === customers.length) return false;
+      await writeJson(this.file, rest);
+      return true;
+    });
+  }
 }
 
 // JSON Conversation Repository

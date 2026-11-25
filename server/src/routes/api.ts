@@ -19,6 +19,7 @@ import {
   createManualTicket, getInboxCounts, searchCustomers,
   convertToTicket, linkIssue, getLinkedConversations, broadcastIssueUpdate, draftIssueBroadcast
 } from '../controllers/tickets';
+import { listContacts, exportContacts, getContact, deleteContact, mergeContacts } from '../controllers/contacts';
 import { 
   getMessages, createMessage, rateConversation, addReaction, deleteMessage, uploadFiles, markSeen, updateMessageTags
 } from '../controllers/messages';
@@ -117,6 +118,11 @@ router.post('/tickets', requireKnownWorkspace, createTicket); // Guest can creat
 router.post('/tickets/manual', authenticateJWT, requireFullSeat, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);
 router.get('/customers', authenticateJWT, searchCustomers);
+router.get('/contacts', authenticateJWT, listContacts); // Contacts page: search, filter, sort, page
+router.get('/contacts/export.csv', authenticateJWT, requireFullSeat, exportContacts);
+router.get('/contacts/:id', authenticateJWT, getContact); // one person: profile, conversations, pages
+router.delete('/contacts/:id', authenticateJWT, requireAdmin, deleteContact); // the person and all their conversations
+router.post('/contacts/merge', authenticateJWT, requireFullSeat, mergeContacts); // same person known twice
 router.put('/tickets/:id', authenticateJWT, requireFullSeat, updateTicket);
 router.put('/tickets/:id/assign', authenticateJWT, requireFullSeat, assignTicket);
 router.post('/tickets/:id/convert', authenticateJWT, requireFullSeat, convertToTicket); // conversation → customer ticket

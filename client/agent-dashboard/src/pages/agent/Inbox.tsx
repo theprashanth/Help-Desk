@@ -6,6 +6,7 @@ import ChatWindow from '../../components/agent/ChatWindow';
 import CustomerProfilePanel from '../../components/agent/CustomerProfilePanel';
 import { MergedConversationPanel } from '../../components/agent/MergedConversationPanel';
 import Analytics from './Analytics';
+import Contacts from './Contacts';
 import Settings from './Settings';
 import TestingPanel from '../../components/agent/TestingPanel';
 import { InboxNavPanel, InboxCounts } from '../../components/agent/InboxNavPanel';
@@ -18,7 +19,7 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Sparkles, Globe, Bell, BellOff, Pin, PinOff, Users
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 
@@ -184,7 +185,25 @@ export const Inbox: React.FC = () => {
     navigate('/agent/login');
   };
 
+  // Open any conversation in the inbox (from Contacts): the All view, in the state it's in
+  const openConversation = (convId: string) => {
+    if (!token) return;
+    fetch(`http://localhost:3000/api/tickets/${encodeURIComponent(convId)}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => (res.ok ? res.json() : null))
+      .then(conv => {
+        if (!conv) return;
+        const state: StateFilter = isSnoozed(conv) ? 'snoozed'
+          : (['waiting', 'resolved', 'closed', 'archived'].includes(conv.status) ? conv.status : 'open') as StateFilter;
+        setComposer(null);
+        setStateFilter(state);
+        setActiveTab('all');
+        setActiveConversationId(conv.id);
+      })
+      .catch(e => console.error(e));
+  };
+
   const mainTabs = [
+    { id: 'contacts', label: 'Contacts', icon: <Users className="w-[19px] h-[19px]" /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
     { id: 'testing', label: 'Testing Panel', icon: <Sparkles className="w-[19px] h-[19px]" /> },
   ];
@@ -446,6 +465,8 @@ export const Inbox: React.FC = () => {
             </>
             )}
           </>
+        ) : activeTab === 'contacts' ? (
+          <Contacts onOpenConversation={openConversation} />
         ) : activeTab === 'analytics' ? (
           <Analytics />
         ) : activeTab === 'settings' ? (

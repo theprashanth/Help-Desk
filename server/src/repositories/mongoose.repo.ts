@@ -322,6 +322,11 @@ export class MongooseCustomerRepository implements ICustomerRepository {
     const docs = await CustomerModel.find();
     return docs.map(mapCustomer);
   }
+
+  async delete(id: string): Promise<boolean> {
+    const r = await CustomerModel.deleteOne({ id });
+    return r.deletedCount > 0;
+  }
 }
 
 // Mongoose Conversation Repository
