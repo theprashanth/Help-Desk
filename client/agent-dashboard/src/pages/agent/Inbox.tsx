@@ -60,6 +60,8 @@ export const Inbox: React.FC = () => {
   const setFocusMessageId = useStore((state) => state.setFocusMessageId);
   const setStateFilter = useStore((state) => state.setStateFilter);
   const composer = useStore((state) => state.composer);
+  // Another conversation open beside the chat (from Recent conversations or a merge): the list slides away
+  const sideConversationOpen = !!(viewingMergedConversationId && activeConversationId && !composer);
   const setComposer = useStore((state) => state.setComposer);
   const socket = useStore((state) => state.socket);
 
@@ -502,10 +504,16 @@ export const Inbox: React.FC = () => {
               <SearchPanel agents={agents} />
             ) : (
             <>
-            {/* List column (hidden while another conversation is open beside the chat) */}
-            {!(viewingMergedConversationId && activeConversationId && !composer) && (
+            {/* List column: slides closed while another conversation is open beside the chat (and back
+                when it closes). It stays mounted, so its scroll position and filters are kept. */}
+            <div
+              aria-hidden={sideConversationOpen || undefined}
+              className={`h-full shrink-0 overflow-hidden transition-[width,margin,opacity] ease-[cubic-bezier(0.2,0,0,1)] ${
+                sideConversationOpen ? 'w-0 -mr-2 opacity-0 pointer-events-none duration-200' : 'w-[340px] 2xl:w-[380px] opacity-100 duration-200'
+              }`}
+            >
               <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
-            )}
+            </div>
 
             {composer ? (
               /* Manual create screen replaces the conversation + details panels */
@@ -522,13 +530,20 @@ export const Inbox: React.FC = () => {
                 {/* Chat column */}
                 <ChatWindow />
 
-                {/* Customer metadata Inspector panel or Merged Conversation preview */}
+                {/* Details panel, or another conversation opened from it (Recent conversations, a merge):
+                    the panel grows smoothly into the space the list leaves, and shrinks back on close */}
                 {activeConversationId && (
-                  viewingMergedConversationId ? (
-                    <MergedConversationPanel />
-                  ) : (
-                    <CustomerProfilePanel />
-                  )
+                  <div
+                    className={`h-full min-w-0 flex shrink-0 basis-[320px] 2xl:basis-[360px] transition-[flex-grow] ease-[cubic-bezier(0.2,0,0,1)] [&>*]:!w-full ${
+                      sideConversationOpen ? 'grow duration-200' : 'grow-0 duration-150'
+                    }`}
+                  >
+                    {viewingMergedConversationId ? (
+                      <MergedConversationPanel />
+                    ) : (
+                      <div key="details" className="h-full flex animate-fade-in [&>*]:!w-full"><CustomerProfilePanel /></div>
+                    )}
+                  </div>
                 )}
               </>
             )}
