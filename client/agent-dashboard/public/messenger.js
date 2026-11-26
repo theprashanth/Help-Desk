@@ -66,7 +66,7 @@
     iframe = document.createElement('iframe');
     iframe.title = 'Chat with us';
     iframe.src = BASE + '/messenger/' + encodeURIComponent(appId);
-    iframe.setAttribute('allow', 'clipboard-write');
+    iframe.setAttribute('allow', 'clipboard-write; microphone'); // microphone: the mic button (speech to text)
     iframe.setAttribute('allowtransparency', 'true');
     var s = iframe.style;
     s.position = 'fixed'; s.bottom = '0'; s.right = '0'; s.border = '0'; s.zIndex = '2147483000';

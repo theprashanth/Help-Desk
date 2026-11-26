@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
-import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight, Ticket, AlertTriangle, BookOpen } from 'lucide-react';
+import { MessageSquare, X, Paperclip, Mic, ArrowLeft, ArrowUp, CheckCheck, ChevronRight, Ticket, AlertTriangle, BookOpen } from 'lucide-react';
 import { MessengerTextProvider, useMessengerStrings } from './messengerText';
 import { MESSENGER_STRINGS, MessengerStringKey, fillString } from '../../../../../shared/src/messengerStrings';
 import TimeHover from '../ui/TimeHover';
+import { useDictation, dictationSupported } from '../../lib/dictation';
 import CsatCard from './CsatCard';
 import { createPortal } from 'react-dom';
 import { HelpCenter, HelpHomeCard, ArticleSuggestions, HelpView } from './HelpCenter';
@@ -164,7 +165,6 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const [uploading, setUploading] = useState(false);
   // Files attached to the draft; sent together with the text when the customer presses Send
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
-  const [showEmoji, setShowEmoji] = useState(false);
   // True when the user clicked "Start New Chat" but hasn't sent a first message yet.
   // The actual ticket is created lazily on first send to avoid empty tickets.
   const [isPendingNewConv, setIsPendingNewConv] = useState(false);
@@ -947,6 +947,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
     setSendError(null);
     setInputText('');
+    dictation.stop(); // sent: stop listening so later words don't start the next message
     if (text === undefined) setPendingAttachments([]);
 
     try {
@@ -1076,10 +1077,10 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     if (files.length) { e.preventDefault(); stageFiles(files); }
   };
 
-  const handleEmojiSelect = (emoji: string) => {
-    setInputText(prev => prev + emoji);
-    setShowEmoji(false);
-  };
+  // Mic: speech to text into the message box (the visitor can edit before sending), in their browser's language
+  const dictation = useDictation(text => setInputText(prev => (prev && !/\s$/.test(prev) ? `${prev} ` : prev) + text));
+  const [canDictate] = useState(dictationSupported);
+  useEffect(() => { dictation.stop(); dictation.clearError(); }, [activeConv?.id, activeTab, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Bubble style helpers ─────────────────────────────────────────────────
   const senderBubbleStyle =
@@ -1535,20 +1536,6 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                     </div>
                   ) : (
                   <div className="p-3 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 relative">
-                    {/* Emoji dropdown picker */}
-                    {showEmoji && (
-                      <div className="absolute bottom-full mb-1 left-4 p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl flex gap-2 z-20">
-                        {['👍', '👋', '❤️', '😊', '💡', '🎉'].map(emoji => (
-                          <button
-                            key={emoji}
-                            onClick={() => handleEmojiSelect(emoji)}
-                            className="text-lg hover:scale-125 transition-transform"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
-                    )}
 
                     {isPendingNewConv && !pendingOutbound && !flowIntake && (
                       <ArticleSuggestions api={api} text={inputText} onOpen={id => openHelp({ kind: 'article', id })} />
@@ -1633,13 +1620,22 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                         >
                           <Paperclip className="w-[18px] h-[18px]" />
                         </button>
-                        <button
-                          onClick={() => setShowEmoji(!showEmoji)}
-                          title="Emoji"
-                          className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${showEmoji ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                        >
-                          <Smile className="w-[18px] h-[18px]" />
-                        </button>
+                        {canDictate && (
+                          <button
+                            onClick={() => dictation.toggle()}
+                            title={dictation.listening ? t('listening') : t('speak')}
+                            aria-label={t('speak')}
+                            aria-pressed={dictation.listening}
+                            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${dictation.listening ? 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                          >
+                            <Mic className={`w-[18px] h-[18px] ${dictation.listening ? 'animate-pulse' : ''}`} />
+                          </button>
+                        )}
+                        {(dictation.listening || dictation.errorCode) && (
+                          <span className={`ml-1 text-[11px] leading-tight truncate ${dictation.errorCode ? 'text-red-600 dark:text-red-400' : 'text-slate-500'}`}>
+                            {dictation.listening ? t('listening') : dictation.errorCode === 'blocked' ? t('micBlocked') : t('micFailed')}
+                          </span>
+                        )}
                         <span className="flex-1" />
                         {(() => {
                           const canSend = (!!inputText.trim() || pendingAttachments.length > 0) && !uploading;
