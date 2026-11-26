@@ -386,6 +386,8 @@ type TreeCtx = {
   setDragId: (id: string | null) => void;
   /** Settings › Teams, for "Send to team" */
   teams: { id: string; name: string }[];
+  /** Teammates who can reply (not Light seats), for "Assign to" */
+  agents: { id: string; name: string }[];
 };
 
 const optionMatches = (o: ChatFlowOption, q: string): boolean =>
@@ -427,12 +429,13 @@ const PRIORITY_CHOICES: { value: TicketPriority; label: string }[] = [
 ];
 
 /** Short summary of a button's extra actions, for its row ("Ticket · Urgent · Accounts"). */
-function actionsSummary(a: ChatFlowOptionActions | undefined, teams: { id: string; name: string }[]): string[] {
+function actionsSummary(a: ChatFlowOptionActions | undefined, teams: { id: string; name: string }[], agents: { id: string; name: string }[] = []): string[] {
   if (!a) return [];
   const out: string[] = [];
   if (a.createTicket) out.push('Creates ticket');
   if (a.priority && a.priority !== 'none') out.push(PRIORITY_CHOICES.find(p => p.value === a.priority)?.label || a.priority);
   if (a.teamId) out.push(teams.find(t => t.id === a.teamId)?.name || 'Team');
+  if (a.assigneeId) out.push(`→ ${agents.find(t => t.id === a.assigneeId)?.name || 'Teammate'}`);
   if (a.tags?.length) out.push(a.tags.map(t => `#${t}`).join(' '));
   return out;
 }
@@ -479,6 +482,15 @@ function OptionActionsEditor({ o, ctx }: { o: ChatFlowOption; ctx: TreeCtx }) {
             {ctx.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             {a.teamId && !ctx.teams.some(t => t.id === a.teamId) && <option value={a.teamId}>Deleted team</option>}
           </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="ic-label" htmlFor={`opt-agent-${o.id}`}>Assign to</label>
+          <select id={`opt-agent-${o.id}`} className="ic-select" disabled={ctx.readOnly} value={a.assigneeId || ''} onChange={e => set({ assigneeId: e.target.value || undefined })}>
+            <option value="">{a.teamId ? 'Whoever the team’s rule picks' : 'No change (usual assignment)'}</option>
+            {ctx.agents.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {a.assigneeId && !ctx.agents.some(t => t.id === a.assigneeId) && <option value={a.assigneeId}>Removed teammate</option>}
+          </select>
+          <p className="ic-help">Light seats can’t reply to customers, so they aren’t listed.</p>
         </div>
       </div>
       <div>
@@ -597,7 +609,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
           <span className="ic-badge shrink-0">
             {o.kind === 'menu' ? `Opens menu · ${kids.length}` : o.kind === 'agent' ? 'Connects to agent' : 'Shows answer'}
           </span>
-          {actionsSummary(o.kind !== 'menu' ? o.actions : undefined, ctx.teams).map(t => (
+          {actionsSummary(o.kind !== 'menu' ? o.actions : undefined, ctx.teams, ctx.agents).map(t => (
             <span key={t} className="ic-badge shrink-0 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200 hidden lg:inline-flex">{t}</span>
           ))}
           {(own.length > 0 || nestedIssue) && <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" aria-label="Needs attention" />}
@@ -1096,6 +1108,13 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
   const [dragId, setDragId] = useState<string | null>(null);
   const teams = useStore(s => s.teams);
   useEffect(() => { loadTeams().catch(() => {}); }, []);
+  const [assignable, setAssignable] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/auth/agents`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then((list: { id: string; name: string; role: string }[]) => setAssignable((Array.isArray(list) ? list : []).filter(a => a.role !== 'light').map(a => ({ id: a.id, name: a.name }))))
+      .catch(() => {});
+  }, [token]);
   const actions: TreeActions = {
     toggle,
     canDrop: (dragged, target, where) => (draft ? dropProblem(draft.options, dragged, target, where) : 'missing'),
@@ -1284,7 +1303,7 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
   const renderMenu = (f: ChatFlow) => {
     const total = countAll(f.options);
     const q = query.trim().toLowerCase();
-    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions, dragId, setDragId, teams };
+    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions, dragId, setDragId, teams, agents: assignable };
     const anyMatch = !q || f.options.some(o => subtreeMatches(o, q));
     return (
       <>

@@ -244,9 +244,17 @@ async function applyOptionActions(conv: Conversation, acts: ChatFlowOptionAction
     const team = await teamsRepo.get(acts.teamId);
     if (team && team.id !== conv.teamId) {
       patch.teamId = team.id;
-      const who = conv.assignedAgentId ? undefined : await pickFromTeam(team);
+      const who = conv.assignedAgentId || acts.assigneeId ? undefined : await pickFromTeam(team);
       if (who) patch.assignedAgentId = who;
       await recordEvent(conv.id, 'assignment', `${by} sent this to the ${team.name} team`, undefined, { bot: true, field: 'teamId', from: conv.teamId || null, to: team.id });
+    }
+  }
+  if (acts.assigneeId && acts.assigneeId !== conv.assignedAgentId) {
+    // A teammate who was removed, or a Light seat (can't reply), is skipped: the chat stays with the team
+    const agent = await RepositoryFactory.getUserRepository().findById(acts.assigneeId);
+    if (agent && agent.role !== 'light') {
+      patch.assignedAgentId = agent.id;
+      await recordEvent(conv.id, 'assignment', `${by} assigned this to ${agent.name}`, undefined, { bot: true, field: 'assignedAgentId', from: conv.assignedAgentId || null, to: agent.id });
     }
   }
   return patch;

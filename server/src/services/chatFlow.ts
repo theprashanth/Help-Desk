@@ -141,6 +141,7 @@ function actionsOf(a: any, label: string): ChatFlowOptionActions | undefined {
     if (tags.length) out.tags = tags;
   }
   if (typeof a.teamId === 'string' && a.teamId.trim()) out.teamId = a.teamId.trim().slice(0, 80);
+  if (typeof a.assigneeId === 'string' && a.assigneeId.trim()) out.assigneeId = a.assigneeId.trim().slice(0, 80);
   return Object.keys(out).length ? out : undefined;
 }
 

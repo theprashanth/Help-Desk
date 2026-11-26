@@ -483,7 +483,8 @@ export interface ChatFlowOptionActions {
   createTicket?: boolean;     // turn the chat into a ticket, titled with the path ("My Account › Delete Account › Proceed")
   priority?: TicketPriority;  // e.g. 'critical' (Urgent)
   tags?: string[];            // conversation tags to add
-  teamId?: string;            // team inbox it goes to
+  teamId?: string;            // team inbox it goes to (a teammate is picked by the team's rule)
+  assigneeId?: string;        // or straight to this teammate
 }
 
 export interface ChatFlow {
