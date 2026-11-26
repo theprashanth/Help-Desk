@@ -1,0 +1,27 @@
+# systemd service: keeps the help desk server running and restarts it if it stops or the machine reboots.
+# Copy to /etc/systemd/system/help-desk.service, adjust User and paths, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now help-desk
+#   journalctl -u help-desk -f          (its log)
+[Unit]
+Description=Help desk server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=helpdesk
+WorkingDirectory=/opt/help-desk/server
+# Settings live in this file (chmod 600, owned by the helpdesk user). See server/.env.example.
+EnvironmentFile=/opt/help-desk/server/.env
+ExecStart=/usr/bin/node dist/server/src/index.js
+Restart=always
+RestartSec=3
+# Hardening: no new privileges, read-only system, writable only where it must write
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/help-desk
+
+[Install]
+WantedBy=multi-user.target

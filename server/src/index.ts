@@ -45,7 +45,7 @@ if (IS_PROD) {
 }
 
 const app = express();
-app.set('trust proxy', 1); // behind Render/Railway/Fly: real client IPs for rate limits
+app.set('trust proxy', 1); // behind one reverse proxy (nginx): real client IPs and https for rate limits and links
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -479,9 +479,11 @@ async function startServer() {
     });
   });
 
-  server.listen(PORT, () => {
+  // HOST=127.0.0.1 behind nginx: only the proxy on the same machine can reach the server directly
+  const HOST = process.env.HOST || undefined;
+  server.listen(Number(PORT), HOST as any, () => {
     console.log(`=================================================`);
-    console.log(`🚀 Support Platform Backend Running on: http://localhost:${PORT}`);
+    console.log(`🚀 Support Platform Backend Running on: http://${HOST || 'localhost'}:${PORT}`);
     console.log(`🏥 Health Check endpoint: http://localhost:${PORT}/health`);
     console.log(`=================================================`);
   });

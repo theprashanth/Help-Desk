@@ -1,66 +1,96 @@
-# Deploying the help desk
+# Deploying the help desk on your own server
 
-The help desk is two pieces, hosted separately:
+Everything runs on one machine and one address (e.g. `https://help.yourco.com`):
 
-| Piece | What it is | Where it runs |
+| Piece | What it is | How it runs |
 |---|---|---|
-| **Dashboard + Messenger** | Static files built from `client/agent-dashboard` | Any static web host (your own web server, a CDN, or the same machine as the server) |
-| **Server** | Node.js API + live updates (Socket.IO), in `server/` | **Render** or **Railway** (always-on Node) |
-| **Database** | All workspaces, conversations, settings | **MongoDB Atlas** (free tier is fine to start) |
-
-The server must stay running (live chat) and needs a real database, so it can't live on a static host. Locally the
-server keeps data in `server/.data/` JSON files; in production it refuses to start without MongoDB.
+| **Dashboard + Messenger** | Static files built from `client/agent-dashboard` | Served by **nginx** |
+| **Server** | Node.js API + live chat (Socket.IO), in `server/` | A **systemd** service on `127.0.0.1:3000`, behind nginx |
+| **Database** | All workspaces, conversations, settings | **MongoDB** (Atlas, or your own MongoDB) |
 
 ```
-Customer's website ──<script src=".../messenger.js">──▶ Static host (Messenger iframe) ──┐
-Your team ──────────────────────────────────────────▶ Static host (dashboard) ───────────┤ HTTPS + WebSocket
-                                                                                     ▼
-                                                                   Render/Railway (server) ──▶ MongoDB Atlas
+Customer's website ──<script src="https://help.yourco.com/messenger.js">──┐
+Your team (browser) ──────────────────────────────────────────────────────┤ HTTPS
+                                                                          ▼
+                     nginx ── /            → dashboard + Messenger files (/var/www/help-desk)
+                           ── /api, /socket.io, /uploads, /health → Node on 127.0.0.1:3000 ──▶ MongoDB
 ```
+
+Ready-made config is in [`deploy/`](deploy/): `nginx.conf.example`, `nginx-proxy.conf.example`,
+`help-desk.service.example` (systemd) and `update.sh` (pull, build, publish, restart).
+
+Locally the server keeps data in `server/.data/` JSON files; in production it refuses to start without MongoDB.
 
 ---
 
-## 1. Database: MongoDB Atlas
+## 1. Database
 
-1. Create a free cluster at [cloud.mongodb.com](https://cloud.mongodb.com).
-2. **Database Access** › add a user with a password.
-3. **Network Access** › allow `0.0.0.0/0` (Render and Railway don't have fixed addresses on free plans).
-4. **Connect › Drivers** › copy the connection string and put your password in it, plus a database name before the `?`:
-   `mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/help-desk?retryWrites=true&w=majority`
+**MongoDB Atlas:** create a cluster, add a database user (**Database Access**) that can only use the help desk's
+database, and under **Network Access** allow only your server's public IP. Copy the connection string
+(**Connect › Drivers**) and add the database name before the `?`:
+`mongodb+srv://USER:PASSWORD@cluster0.xxxxx.mongodb.net/help-desk?retryWrites=true&w=majority`
 
-## 2. Server: Render (or Railway)
+**Your own MongoDB:** use a user with access to that one database, and don't expose port 27017 to the internet.
 
-**Render** (uses `render.yaml` from this repo):
-1. [dashboard.render.com](https://dashboard.render.com) › **New › Blueprint** › pick this GitHub repo.
-2. Fill in when asked:
-   - `MONGODB_URI`: the Atlas string from step 1
-   - `DASHBOARD_URL`: your dashboard's address, e.g. `https://help.yourco.com` (you can set it after step 3)
-   - `PUBLIC_API_URL`: this service's own address, e.g. `https://help-desk-api.onrender.com`
-   - `JWT_SECRET` is generated for you.
-3. Deploy, then open `https://<your-service>.onrender.com/health`. It should say the server is up.
+Use a database just for the help desk (it has its own `users` collection for your support team).
 
-**Railway** instead: New project › Deploy from GitHub › root directory `server`, build
-`npm ci --include=dev && npm run build`, start `npm start`, and add the same variables (see `server/.env.example`),
-with `NODE_ENV=production` and a `JWT_SECRET` from `openssl rand -hex 32`.
+## 2. Server (once)
 
-If something is missing, the server stops at start-up and its log says exactly which setting to fix.
+Needs Node.js 20+, nginx, git and certbot. As root/sudo:
 
-## 3. Dashboard: any static web host
+```bash
+sudo useradd --system --home /opt/help-desk --shell /usr/sbin/nologin helpdesk
+sudo mkdir -p /opt/help-desk /var/lib/help-desk/uploads /var/www/help-desk
+sudo chown -R helpdesk: /opt/help-desk /var/lib/help-desk
+sudo -u helpdesk git clone https://github.com/theprashanth/Help-Desk.git /opt/help-desk
+```
 
-1. Build it with your server's address (it's built into the files, so rebuild whenever it changes):
-   ```bash
-   cd client/agent-dashboard
-   npm ci
-   VITE_API_URL=https://help-desk-api.yourco.com npm run build
-   ```
-   Upload the contents of `client/agent-dashboard/dist/` to your web host, served over **HTTPS**.
-2. **Every address must serve `index.html`** (it's a single-page app: `/agent/inbox`, `/agent/settings/…`,
-   `/messenger/<appId>`). nginx: `location / { try_files $uri /index.html; }`.
-3. **Recommended headers**: on every response `X-Content-Type-Options: nosniff` and
-   `Referrer-Policy: strict-origin-when-cross-origin`; on `/agent/*` also `X-Frame-Options: DENY` (so the
-   dashboard can't be shown inside other sites). Do **not** add a frame block on `/messenger/*`: customers'
-   websites show the Messenger in a frame. Optionally redirect `/` to `/agent`.
-4. Put the dashboard's address in the server's `DASHBOARD_URL` (step 2) if you haven't, and restart the server.
+**Settings:** create `/opt/help-desk/server/.env` (only the `helpdesk` user may read it):
+
+```bash
+NODE_ENV=production
+HOST=127.0.0.1
+PORT=3000
+MONGODB_URI=mongodb+srv://...            # from step 1
+JWT_SECRET=...                            # openssl rand -hex 32  (never reuse your laptop's)
+DASHBOARD_URL=https://help.yourco.com
+PUBLIC_API_URL=https://help.yourco.com
+UPLOAD_DIR=/var/lib/help-desk/uploads     # attachments live outside the code folder
+ALLOW_SIGNUP=false                        # only your company uses it (after you've created your workspace)
+```
+
+```bash
+sudo chown helpdesk: /opt/help-desk/server/.env && sudo chmod 600 /opt/help-desk/server/.env
+```
+
+See `server/.env.example` for the optional settings (email, GIFs, your user database).
+
+**Dashboard address:** create `/opt/help-desk/client/agent-dashboard/.env.production` with
+`VITE_API_URL=https://help.yourco.com` (it's built into the dashboard's files).
+
+**Service and nginx:**
+
+```bash
+sudo cp /opt/help-desk/deploy/help-desk.service.example /etc/systemd/system/help-desk.service
+sudo cp /opt/help-desk/deploy/nginx-proxy.conf.example /etc/nginx/help-desk-proxy.conf
+sudo cp /opt/help-desk/deploy/nginx.conf.example /etc/nginx/sites-available/help-desk   # set server_name
+sudo ln -s /etc/nginx/sites-available/help-desk /etc/nginx/sites-enabled/
+sudo certbot --nginx -d help.yourco.com
+sudo systemctl daemon-reload && sudo systemctl enable help-desk
+```
+
+**Firewall:** allow only SSH, 80 and 443 (e.g. `sudo ufw allow OpenSSH && sudo ufw allow 'Nginx Full' && sudo ufw enable`).
+Port 3000 stays private because the server listens on `127.0.0.1`.
+
+## 3. Deploy (first time and every update)
+
+```bash
+cd /opt/help-desk && ./deploy/update.sh
+```
+
+It pulls `main`, builds the server and the dashboard, copies the dashboard to `/var/www/help-desk`, restarts the
+service and checks `/health`. If a setting is missing, the server stops at start-up and `journalctl -u help-desk`
+says exactly which one.
 
 ## 4. Create your company's workspace
 
@@ -111,9 +141,12 @@ To bring conversations over from another tool (e.g. Intercom), export them there
 ## Before you go live (checklist)
 
 **Settings**
-- [ ] `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET` (64 random hex characters from `openssl rand -hex 32`,
-      never the one from your laptop), `DASHBOARD_URL` and `PUBLIC_API_URL` are set on the server.
-- [ ] The dashboard was built with `VITE_API_URL` set to the server's address, and serves `index.html` for every address.
+- [ ] `server/.env` on the server has `NODE_ENV=production`, `HOST=127.0.0.1`, `MONGODB_URI`, `JWT_SECRET` (64 random
+      hex characters from `openssl rand -hex 32`, never the one from your laptop), `DASHBOARD_URL`, `PUBLIC_API_URL`
+      and `UPLOAD_DIR`, and only the `helpdesk` user can read it (`chmod 600`).
+- [ ] `client/agent-dashboard/.env.production` has `VITE_API_URL=https://help.yourco.com`.
+- [ ] HTTPS works (certbot), port 3000 isn't reachable from outside, and the firewall allows only SSH, 80 and 443.
+- [ ] MongoDB only accepts connections from your server.
 - [ ] The production database is **not** the one you tested with, or its test data has been cleared. Use a
       database user that can only reach this database, and a password you haven't pasted anywhere.
 - [ ] `ALLOW_SIGNUP=false` if only your company uses this help desk (otherwise anyone can create a workspace).
@@ -126,25 +159,25 @@ To bring conversations over from another tool (e.g. Intercom), export them there
 - [ ] Settings › Messenger › Allowed domains lists only your sites.
 
 **After the first deploy**
-- [ ] `https://<server>/health` says `mongoConnected: true`.
+- [ ] `https://help.yourco.com/health` says `mongoConnected: true`.
 - [ ] Sign up your workspace, invite teammates, send a test chat from your website, reply from the dashboard,
       attach a file, and open it from both sides.
-- [ ] Add a persistent disk for `uploads/` (see below), or attachments disappear on the next deploy.
-- [ ] Two-step sign-in (2FA) is on for GitHub, your hosting and MongoDB Atlas accounts.
+- [ ] Back up the database (Atlas backups, or `mongodump` on a schedule) and `/var/lib/help-desk/uploads`.
+- [ ] Two-step sign-in (2FA) is on for GitHub and MongoDB Atlas; SSH to the server uses keys, not passwords.
 
 **Built-in protections** (no action needed): sign-in attempts are limited (10 per email / 40 per network every
 15 minutes); visitors' messages and uploads are rate-limited; uploads must be images, documents, archives, audio
 or video (no web pages or scripts) and are served so they can't run in the browser; the dashboard can't be
-embedded in other sites (with the headers from step 3); the Testing panel is off; each company only ever sees its own data.
+embedded in other sites (nginx config); the Testing panel is off; each company only ever sees its own data.
 
 ## Good to know
 
-- **File uploads** (attachments, avatars) are stored on the server's disk. On Render/Railway free plans that disk
-  is wiped on each deploy; add a persistent disk (Render: Disks, mount at `/opt/render/project/src/server/uploads`)
-  if attachments must survive.
-- **Free plans sleep** when idle (Render free: after ~15 minutes); the first request then takes ~30 seconds and
-  live chat reconnects. Use a paid instance for a real support team.
-- **Custom domains**: if the dashboard has more than one address, list them all in the server's `CORS_ORIGINS`
-  (comma-separated) and update `VITE_API_URL` if the server moves.
+- **Attachments** (and profile pictures) are files in `UPLOAD_DIR`. Deploys never touch them; include the folder
+  in your backups.
+- **Logs:** `journalctl -u help-desk -f`. Passwords and connection strings are never written to the log.
+- **More than one address:** list them all in the server's `CORS_ORIGINS` (comma-separated). If the address
+  changes, update `DASHBOARD_URL`, `PUBLIC_API_URL` and `VITE_API_URL`, then run `./deploy/update.sh`.
+- **One server process:** sign-in and visitor limits are kept in memory, per process. Running several copies
+  behind a load balancer would need shared limits (and Socket.IO's Redis adapter).
 - **Local development is unchanged**: `npm run dev` in `server/` and `client/agent-dashboard/` still uses
   `localhost` and the JSON files, and pre-fills the local test login.

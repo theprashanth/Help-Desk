@@ -3,7 +3,8 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 
-const uploadDir = path.resolve(process.cwd(), 'uploads');
+// UPLOAD_DIR keeps attachments outside the code folder (e.g. /var/lib/help-desk/uploads), so deploys never touch them
+const uploadDir = path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads'));
 
 try {
   if (!fs.existsSync(uploadDir)) {
