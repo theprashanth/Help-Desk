@@ -1,3 +1,4 @@
+import { jwtSecret } from '../env';
 import { previewText } from '../services/previewText';
 import fs from 'fs/promises';
 import { AsyncLocalStorage } from 'async_hooks';
@@ -36,7 +37,6 @@ export async function migrateJsonTicketNumbers(): Promise<number> {
     return changed;
   });
 }
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 async function ensureDataDir() {
   try {
@@ -143,7 +143,7 @@ export class JsonUserRepository implements IUserRepository {
     
     const token = jwt.sign(
       { id: agent.id, email: agent.email, role: agent.role, workspaceId: agent.workspaceId },
-      JWT_SECRET,
+      jwtSecret(),
       { expiresIn: '7d' }
     );
     return { agent, token };

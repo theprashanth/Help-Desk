@@ -7,6 +7,7 @@ import { listHelpAdmin, searchHelpAdmin, createCollection, updateCollection, del
 import { listOutbound, createOutbound, updateOutbound, deleteOutbound, matchOutbound, outboundEvent } from '../controllers/outbound';
 import { listTeams, createTeam, updateTeam, deleteTeam, setDefaultTeam, getAttributeDefs, saveAttributeDefs, listCompanies, getCompany, createCompany, updateCompany, deleteCompany, getAuditLog } from '../controllers/org';
 import { upload } from '../middleware/upload';
+import { rateLimit } from '../middleware/rateLimit';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
   createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen, signup } from '../controllers/auth';
@@ -45,13 +46,35 @@ const router = Router();
 // Apply tenant context resolution to all API paths
 router.use(resolveTenant);
 
+// ── Abuse limits (per IP) ──
+// Password guessing: 10 tries per email per 15 minutes, and 40 per network
+const loginPerEmail = rateLimit({ windowMs: 15 * 60_000, max: 10, key: req => `${req.ip}|${String(req.body?.email || '').toLowerCase()}`, message: 'Too many sign-in attempts. Wait 15 minutes and try again.' });
+const loginPerIp = rateLimit({ windowMs: 15 * 60_000, max: 40, message: 'Too many sign-in attempts from this network. Wait 15 minutes and try again.' });
+// What visitors can send without signing in (chats, messages, button taps): generous for people, not for scripts
+const publicWrites = rateLimit({ windowMs: 60_000, max: 60 });
+const publicUploads = rateLimit({ windowMs: 10 * 60_000, max: 30, message: 'Too many files. Wait a few minutes and try again.' });
+/** A teammate (signed in) or a Messenger visitor of a real workspace (X-Workspace-Id + their X-Customer-Id). */
+const uploader = (req: any, res: any, next: any) => {
+  if (req.user) return next();
+  if (typeof req.headers['x-workspace-id'] !== 'string' || typeof req.headers['x-customer-id'] !== 'string' || !req.headers['x-customer-id']) {
+    return res.status(401).json({ error: 'Not allowed to upload files' });
+  }
+  return publicUploads(req, res, next);
+};
+/** One file, with a readable error when it's too big or a type that can't be attached. */
+const singleFile = (req: any, res: any, next: any) => upload.single('file')(req, res, (err: any) => {
+  if (!err) return next();
+  const tooBig = err?.code === 'LIMIT_FILE_SIZE';
+  return res.status(tooBig ? 413 : 400).json({ error: tooBig ? 'That file is too big (20 MB at most).' : err.message || 'Upload failed' });
+});
+
 // --- Root API status ---
 router.get('/', (req, res) => {
   res.json({ status: 'healthy', message: 'Help Desk API root' });
 });
 
 // --- Auth Routes ---
-router.post('/auth/login', login);
+router.post('/auth/login', loginPerIp, loginPerEmail, login);
 router.post('/auth/signup', signup); // public: create a new workspace and its first admin
 router.get('/auth/profile', authenticateJWT, getProfile);
 router.put('/auth/profile', authenticateJWT, updateProfile);
@@ -73,7 +96,7 @@ router.put('/ai-agent/settings', authenticateJWT, requireAdmin, saveAiAgentSetti
 router.post('/ai-agent/test', authenticateJWT, requireFullSeat, testAiAgent); // what it would answer
 router.get('/ai-agent/stats', authenticateJWT, aiAgentStats);
 router.post('/tickets/:id/ai-takeover', authenticateJWT, requireFullSeat, takeOverFromAi); // a teammate takes over
-router.post('/messenger/ai-feedback', requireKnownWorkspace, aiFeedback); // public: Yes / No / Talk to a person
+router.post('/messenger/ai-feedback', publicWrites, requireKnownWorkspace, aiFeedback); // public: Yes / No / Talk to a person
 // Settings › Data › Imports & exports (CSV uploads are sent as text/csv)
 const csvUpload = textBody({ type: ['text/csv', 'text/plain', 'application/csv', 'application/vnd.ms-excel'], limit: '25mb' });
 router.post('/data/imports/preview', authenticateJWT, csvUpload, previewImport);
@@ -112,7 +135,7 @@ router.put('/messenger/settings', authenticateJWT, updateMessengerSettings);
 router.get('/messenger/identity-secret', authenticateJWT, getIdentitySecret);
 router.post('/messenger/identity-secret/rotate', authenticateJWT, rotateIdentitySecret);
 router.delete('/messenger/installations/:id', authenticateJWT, removeInstallation);
-router.post('/messenger/ping', requireKnownWorkspace, messengerPing);
+router.post('/messenger/ping', publicWrites, requireKnownWorkspace, messengerPing);
 router.get('/messenger/conversations', requireKnownWorkspace, myConversations); // public: the visitor's own (X-Customer-Id)
 router.get('/messenger/known-issues', requireKnownWorkspace, knownIssues);      // public: open issues' notices
 router.get('/messenger/i18n', requireKnownWorkspace, messengerI18n);            // public: Messenger text in a language
@@ -122,14 +145,14 @@ router.get('/chat-flow', authenticateJWT, getChatFlow);
 router.put('/chat-flow', authenticateJWT, saveChatFlowDraft);
 router.post('/chat-flow/publish', authenticateJWT, publishChatFlow);
 router.post('/chat-flow/discard', authenticateJWT, discardChatFlowDraft);
-router.post('/chat-flow/start', requireKnownWorkspace, startChatFlow);     // public: visitor finished the details form
-router.post('/chat-flow/action', requireKnownWorkspace, chatFlowAction);   // public: visitor tapped a button
+router.post('/chat-flow/start', publicWrites, requireKnownWorkspace, startChatFlow);     // public: visitor finished the details form
+router.post('/chat-flow/action', publicWrites, requireKnownWorkspace, chatFlowAction);   // public: visitor tapped a button
 router.get('/search', authenticateJWT, searchConversations); // full search: messages, notes, tickets, customers, tags
 router.get('/tickets/state-counts', authenticateJWT, getStateCounts); // counts per state for the list's state menu
 router.post('/tickets/bulk', authenticateJWT, requireFullSeat, bulkUpdate); // bulk close/snooze/assign/priority/category/tag/delete
 router.get('/tickets', authenticateJWT, getTickets);
 router.get('/tickets/:id', optionalJWT, getTicket); // Let guest fetch single ticket details if needed
-router.post('/tickets', requireKnownWorkspace, createTicket); // Guest can create conversations
+router.post('/tickets', publicWrites, requireKnownWorkspace, createTicket); // Guest can create conversations
 router.post('/tickets/manual', authenticateJWT, requireFullSeat, createManualTicket); // Teammate creates a conversation/ticket/issue
 router.get('/inbox/counts', authenticateJWT, getInboxCounts);
 router.get('/customers', authenticateJWT, searchCustomers);
@@ -190,14 +213,14 @@ router.get('/help/home', requireKnownWorkspace, helpHome);
 router.get('/help/search', requireKnownWorkspace, helpSearch);
 router.get('/help/collections/:id', requireKnownWorkspace, helpCollection);
 router.get('/help/articles/:id', requireKnownWorkspace, helpArticle);
-router.post('/help/articles/:id/feedback', requireKnownWorkspace, helpFeedback);
+router.post('/help/articles/:id/feedback', publicWrites, requireKnownWorkspace, helpFeedback);
 
 router.get('/outbound', authenticateJWT, listOutbound);
 router.post('/outbound', authenticateJWT, requireAdmin, createOutbound);
 router.put('/outbound/:id', authenticateJWT, requireAdmin, updateOutbound);
 router.delete('/outbound/:id', authenticateJWT, requireAdmin, deleteOutbound);
 router.post('/messenger/outbound', requireKnownWorkspace, matchOutbound);          // public
-router.post('/messenger/outbound/:id/event', requireKnownWorkspace, outboundEvent); // public
+router.post('/messenger/outbound/:id/event', publicWrites, requireKnownWorkspace, outboundEvent); // public
 
 // --- Saved Replies Routes ---
 router.get('/saved-replies', authenticateJWT, getSavedReplies);
@@ -213,13 +236,13 @@ router.delete('/tags/:id', authenticateJWT, requireFullSeat, deleteTag);
 
 // --- Message Routes ---
 router.get('/messages/:conversationId', optionalJWT, getMessages); // Open for guest testing
-router.post('/messages', requireKnownWorkspace, optionalJWT, createMessage); // Guest & Agent can post messages
-router.post('/conversations/:id/rating', requireKnownWorkspace, optionalJWT, rateConversation); // CSAT from the Messenger
+router.post('/messages', requireKnownWorkspace, optionalJWT, (req: any, res: any, next: any) => (req.user ? next() : publicWrites(req, res, next)), createMessage); // Guest & Agent can post messages
+router.post('/conversations/:id/rating', publicWrites, requireKnownWorkspace, optionalJWT, rateConversation); // CSAT from the Messenger
 router.put('/messages/:messageId/react', authenticateJWT, addReaction);
 router.put('/messages/:messageId/tags', authenticateJWT, requireFullSeat, updateMessageTags);
 router.delete('/messages/:messageId', authenticateJWT, requireFullSeat, deleteMessage);
-router.post('/messages/upload', upload.single('file'), uploadFiles); // File attachments
-router.post('/attachments/upload', upload.single('file'), uploadFiles); // Alias for widget file attachments
+router.post('/messages/upload', requireKnownWorkspace, optionalJWT, uploader, singleFile, uploadFiles); // File attachments
+router.post('/attachments/upload', requireKnownWorkspace, optionalJWT, uploader, singleFile, uploadFiles); // Alias for widget file attachments
 router.put('/messages/seen/:conversationId', optionalJWT, markSeen); // Mark conversation as read
 
 // --- Analytics Route ---
@@ -227,7 +250,13 @@ router.get('/analytics', authenticateJWT, getAnalytics);
 
 // --- Seeding & Simulation Routes ---
 // Testing panel: admins only (reset wipes the workspace's data)
-const adminOnly = (req: any, res: any, next: any) => (req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only admins can use the testing tools' }));
+// Off in production: "seed" creates the well-known test login and "reset" wipes the workspace.
+// ALLOW_TESTING_TOOLS=true turns them back on (a staging server, never the live one).
+const testingToolsOn = () => process.env.NODE_ENV !== 'production' || process.env.ALLOW_TESTING_TOOLS === 'true';
+const adminOnly = (req: any, res: any, next: any) => {
+  if (!testingToolsOn()) return res.status(404).json({ error: 'The testing tools are turned off on this server' });
+  return req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'Only admins can use the testing tools' });
+};
 router.post('/simulation/reset', authenticateJWT, adminOnly, resetDatabase);
 router.post('/simulation/seed', authenticateJWT, adminOnly, seedData);
 router.post('/simulation/activity', authenticateJWT, adminOnly, simulateActivity);

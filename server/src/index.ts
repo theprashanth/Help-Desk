@@ -1,10 +1,10 @@
+import './env'; // first: loads server/.env before any module reads its settings
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import apiRouter from './routes/api';
 import { RepositoryFactory } from './repositories/factory';
 import { migrateJsonTicketNumbers } from './repositories/json.repo';
@@ -17,9 +17,8 @@ import { tenantStorage } from './context/tenant.context';
 
 const customerTypingTimers = new Map<string, ReturnType<typeof setTimeout>>();
 import { verifyAgentToken } from './middleware/auth';
-import { uploadDir } from './middleware/upload';
+import { uploadDir, uploadHeaders } from './middleware/upload';
 
-dotenv.config();
 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -46,7 +45,7 @@ if (IS_PROD) {
 }
 
 const app = express();
-app.set('trust proxy', 1); // behind Render/Railway/Fly: real client IPs for rate limits
+app.set('trust proxy', 1); // behind one reverse proxy (nginx): real client IPs and https for rate limits and links
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -60,8 +59,18 @@ app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: '6mb' })); // imports send files as JSON
 app.use(express.urlencoded({ extended: true, limit: '6mb' }));
 
-// Serve uploaded files statically
-app.use('/uploads', express.static(uploadDir));
+// Basic security headers on every API response
+app.disable('x-powered-by');
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  if (IS_PROD) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
+  next();
+});
+
+// Uploaded files: served with headers that stop them running as web pages (middleware/upload.ts)
+app.use('/uploads', express.static(uploadDir, { setHeaders: (res, filePath) => uploadHeaders(res, filePath), dotfiles: 'deny', index: false }));
 
 // API Routes
 app.use('/api', apiRouter);
@@ -343,6 +352,7 @@ async function startServer() {
   });
 
   // Root endpoint for status / navigation
+  const DASH = (process.env.DASHBOARD_URL || 'http://localhost:5173').replace(/\/+$/, '');
   app.get('/', (req, res) => {
     if (req.accepts('html')) {
       res.send(`
@@ -440,10 +450,9 @@ async function startServer() {
                 API Server Online
               </div>
               <h1>Help Desk Backend</h1>
-              <p>The Express &amp; Socket.IO backend service is running successfully on port ${PORT}. If you want to use the customer support web application or agent dashboard, open the frontend:</p>
+              <p>The Express &amp; Socket.IO backend service is running. If you want to use the customer support web application or agent dashboard, open the frontend:</p>
               <div class="actions">
-                <a href="http://localhost:5173/agent" class="btn-primary">Go to Agent Dashboard (localhost:5173/agent)</a>
-                <a href="http://localhost:5173" class="btn-secondary">View Customer Demo Site (localhost:5173)</a>
+                <a href="${DASH}/agent" class="btn-primary">Go to the dashboard</a>
                 <a href="/health" class="btn-secondary">Check System Health Status (/health)</a>
               </div>
             </div>
@@ -454,8 +463,7 @@ async function startServer() {
       res.json({
         status: 'healthy',
         message: 'Help Desk Backend API is running',
-        port: PORT,
-        dashboardUrl: 'http://localhost:5173',
+        dashboardUrl: DASH,
         healthCheck: '/health'
       });
     }
@@ -471,9 +479,11 @@ async function startServer() {
     });
   });
 
-  server.listen(PORT, () => {
+  // HOST=127.0.0.1 behind nginx: only the proxy on the same machine can reach the server directly
+  const HOST = process.env.HOST || undefined;
+  server.listen(Number(PORT), HOST as any, () => {
     console.log(`=================================================`);
-    console.log(`🚀 Support Platform Backend Running on: http://localhost:${PORT}`);
+    console.log(`🚀 Support Platform Backend Running on: http://${HOST || 'localhost'}:${PORT}`);
     console.log(`🏥 Health Check endpoint: http://localhost:${PORT}/health`);
     console.log(`=================================================`);
   });

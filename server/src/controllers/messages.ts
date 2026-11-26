@@ -1,3 +1,4 @@
+import { uploadsUrl } from '../services/publicUrl';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
@@ -380,7 +381,7 @@ export async function uploadFiles(req: AuthenticatedRequest, res: Response) {
       type = 'pdf';
     }
 
-    const fileUrl = `http://localhost:3000/uploads/${req.file.filename}`;
+    const fileUrl = `${uploadsUrl(req)}${req.file.filename}`;
     const attachment: Attachment = {
       name: req.file.originalname,
       url: fileUrl,

@@ -1,0 +1,5 @@
+# Copy to /etc/nginx/help-desk-proxy.conf (included by nginx.conf.example for every request sent to Node)
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;

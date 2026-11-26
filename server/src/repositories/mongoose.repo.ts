@@ -1,3 +1,4 @@
+import { jwtSecret } from '../env';
 import { previewText } from '../services/previewText';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
@@ -41,7 +42,6 @@ export async function migrateMongoTicketNumbers(): Promise<number> {
   return changed;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 // Mappers
 const mapWorkspace = (doc: any): Workspace => ({
@@ -220,7 +220,7 @@ export class MongooseUserRepository implements IUserRepository {
     const agent = mapAgent(userDoc);
     const token = jwt.sign(
       { id: agent.id, email: agent.email, role: agent.role, workspaceId: agent.workspaceId },
-      JWT_SECRET,
+      jwtSecret(),
       { expiresIn: '7d' }
     );
     return { agent, token };
@@ -807,15 +807,17 @@ export async function bulkImportMongo(plan: {
     const ticketNumber = nextTicketNumber(existing);
     existing.push(ticketNumber);
     const { id: tempId, ...rest } = c;
-    const res = await ConversationModel.collection.insertOne({ ...rest, workspaceId, ticketNumber,
+    // Same 15-digit numeric ids as every other conversation (the model's _id is a string)
+    const newId = String(100_000_000_000_000 + Math.floor(Math.random() * 900_000_000_000_000));
+    await ConversationModel.collection.insertOne({ _id: newId, ...rest, workspaceId, ticketNumber,
       createdAt: new Date(c.createdAt), updatedAt: new Date(c.updatedAt) } as any);
-    ids[tempId] = res.insertedId.toString();
+    ids[tempId] = newId;
     numbers[tempId] = ticketNumber;
   }
   for (const [id, patch] of Object.entries(plan.conversationPatches)) {
     const p: any = { ...patch };
     if (p.updatedAt) p.updatedAt = new Date(p.updatedAt);
-    await ConversationModel.collection.updateOne({ _id: new mongoose.Types.ObjectId(id) } as any, { $set: p });
+    await ConversationModel.collection.updateOne({ _id: id, workspaceId } as any, { $set: p });
   }
   if (plan.messages.length) {
     await MessageModel.collection.insertMany(plan.messages.map(m => {

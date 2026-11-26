@@ -1,3 +1,4 @@
+import { publicApiUrl } from './publicUrl';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import { ImapFlow } from 'imapflow';
@@ -167,7 +168,7 @@ export async function deliverAgentReply(conv: Conversation, msg: Message): Promi
   }
 }
 
-const absoluteUrl = (u: string) => (/^https?:/i.test(u) ? u : `${process.env.PUBLIC_API_URL || 'http://localhost:3000'}${u}`);
+const absoluteUrl = (u: string) => (/^https?:/i.test(u) ? u : `${publicApiUrl()}${u}`);
 
 // ── Receiving ──────────────────────────────────────────────────────────────
 

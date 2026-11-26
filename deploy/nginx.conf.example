@@ -1,0 +1,75 @@
+# nginx for the help desk on your own server: one address (e.g. help.yourco.com) for everything.
+#   /                        the dashboard + Messenger (static files from client/agent-dashboard/dist)
+#   /api, /socket.io,        the Node server on 127.0.0.1:3000
+#   /uploads, /health
+# Copy to /etc/nginx/sites-available/help-desk, adjust server_name and paths, enable it, then:
+#   sudo nginx -t && sudo systemctl reload nginx
+#   sudo certbot --nginx -d help.yourco.com        (free HTTPS certificate, renews itself)
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+server {
+    listen 80;
+    server_name help.yourco.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name help.yourco.com;
+    # certbot fills these in:
+    # ssl_certificate     /etc/letsencrypt/live/help.yourco.com/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/help.yourco.com/privkey.pem;
+
+    root /var/www/help-desk;          # the contents of client/agent-dashboard/dist
+    index index.html;
+
+    client_max_body_size 25m;         # attachments are up to 20 MB
+    server_tokens off;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+
+    # The Node server
+    location /api/       { proxy_pass http://127.0.0.1:3000; include /etc/nginx/help-desk-proxy.conf; }
+    location /uploads/   { proxy_pass http://127.0.0.1:3000; include /etc/nginx/help-desk-proxy.conf; }
+    location = /health   { proxy_pass http://127.0.0.1:3000; include /etc/nginx/help-desk-proxy.conf; }
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:3000;
+        include /etc/nginx/help-desk-proxy.conf;
+        proxy_http_version 1.1;                     # live chat (WebSocket)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 120s;
+    }
+
+    # The dashboard can't be shown inside other websites...
+    location /agent {
+        add_header X-Frame-Options "DENY" always;
+        add_header Content-Security-Policy "frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+        add_header Cache-Control "no-cache" always;
+        rewrite ^ /index.html break;      # every /agent/... address is the app (break keeps these headers)
+    }
+    # ...but the Messenger must be: your websites show it in a frame. No frame block here.
+    location /messenger/ {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        rewrite ^ /index.html break;
+    }
+
+    # Built files have content hashes in their names: cache them for a long time
+    location /assets/ { expires 1y; add_header Cache-Control "public, immutable"; try_files $uri =404; }
+    # Always fetch the latest messenger.js and index.html
+    location = /messenger.js { add_header Cache-Control "no-cache"; try_files $uri =404; }
+    location = /index.html   { add_header Cache-Control "no-cache"; }
+
+    location = / { return 302 /agent; }
+    location /   { try_files $uri /index.html; }
+}
