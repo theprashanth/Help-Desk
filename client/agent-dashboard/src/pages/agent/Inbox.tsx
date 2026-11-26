@@ -21,7 +21,7 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, Pin, PinOff, Users, BookOpen
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, Pin, PinOff, Users, BookOpen, Sparkles, Bot
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 import { API_URL } from '../../lib/config';
@@ -230,13 +230,17 @@ export const Inbox: React.FC = () => {
   };
 
   const mainTabs = [
-    { id: 'contacts', label: 'Contacts', icon: <Users className="w-[19px] h-[19px]" /> },
-    { id: 'knowledge', label: 'Knowledge base', icon: <BookOpen className="w-[19px] h-[19px]" /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[19px] h-[19px]" /> },
+    { id: 'contacts', label: 'Contacts', icon: <Users className="w-[18px] h-[18px]" /> },
+    { id: 'knowledge', label: 'Knowledge base', icon: <BookOpen className="w-[18px] h-[18px]" /> },
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 className="w-[18px] h-[18px]" /> },
     // The testing panel (seed data, simulations) is still at /agent/testing, just not in the menu
   ];
 
   const isChatTab = isInboxView(activeTab) || activeTab === 'search';
+  // The AI Assistant / AI Agent menu items open those Settings pages and light up while you're there
+  const aiSection = activeTab !== 'settings' ? null
+    : /^\/agent\/settings\/ai\/?$/.test(location.pathname) ? 'ai'
+    : /^\/agent\/settings\/ai-agent\/?$/.test(location.pathname) ? 'aiAgent' : null;
 
   // Remember the last inbox queue so the rail's Inbox icon returns to it
   const [lastQueue, setLastQueue] = useState<string>('yours');
@@ -310,9 +314,9 @@ export const Inbox: React.FC = () => {
       key={o.key}
       onClick={o.onClick}
       title={railExpanded ? undefined : o.title}
-      className={`relative h-9 shrink-0 flex items-center rounded-lg text-ink/80 hover:bg-ink/[0.06] hover:text-ink transition-colors ${
-        railExpanded ? 'w-full gap-3 px-[8.5px]' : 'w-9 justify-center'
-      } ${o.active ? 'bg-surface shadow-pill text-ink hover:bg-surface' : ''} ${o.className || ''}`}
+      className={`relative h-8 shrink-0 flex items-center rounded-lg text-ink hover:bg-ink/[0.06] transition-colors ${
+        railExpanded ? 'w-full gap-3 px-[7px]' : 'w-8 justify-center'
+      } ${o.active ? 'bg-surface shadow-pill hover:bg-surface' : ''} ${o.className || ''}`}
     >
       <span className="relative shrink-0 flex">
         {o.icon}
@@ -322,7 +326,7 @@ export const Inbox: React.FC = () => {
           </span>
         )}
       </span>
-      {railExpanded && <span className="truncate text-[14px] font-medium">{o.label}</span>}
+      {railExpanded && <span className="truncate text-[14px] font-semibold">{o.label}</span>}
       {railExpanded && !!o.badge && (
         <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums">
           {o.badge > 99 ? '99+' : o.badge}
@@ -337,25 +341,29 @@ export const Inbox: React.FC = () => {
   return (
     <div className="h-screen w-screen bg-canvas text-ink flex overflow-hidden p-2 pl-0 gap-2">
       {/* Far-left navigation: a slim icon bar that expands over the page on hover (or stays open when pinned) */}
-      <div className="relative h-full shrink-0 transition-[width] duration-150" style={{ width: railPinned ? 220 : 56 }}>
+      {/* Sizes match Intercom: a 44px icon rail (32px tiles) and a 196px menu when hovered or pinned.
+          The rail's box is 8px narrower than the nav because the page's 8px gap sits under it. */}
+      <div className="relative h-full shrink-0 transition-[width] duration-150" style={{ width: railPinned ? 188 : 36 }}>
         <nav
           onMouseEnter={railHoverIn}
           onMouseLeave={railHoverOut}
-          className={`absolute left-0 top-0 bottom-0 z-50 flex flex-col gap-1 px-2.5 py-1.5 overflow-hidden transition-[width,box-shadow] duration-150 ease-out ${
-            railExpanded ? 'w-[220px]' : 'w-14'
-          } ${railExpanded && !railPinned ? 'bg-canvas shadow-2xl rounded-r-2xl ring-1 ring-line' : ''}`}
+          className={`absolute left-0 top-0 bottom-0 z-50 flex flex-col gap-1 px-1.5 py-1.5 overflow-hidden transition-[width,box-shadow] duration-150 ease-out ${
+            railExpanded ? 'w-[196px]' : 'w-11'
+          } ${railExpanded && !railPinned ? 'bg-canvas shadow-[6px_0_24px_-8px_rgba(0,0,0,0.18)] border-r border-line' : ''}`}
         >
           {/* Logo + pin */}
-          <div className="h-9 mb-2 flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 shrink-0 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Shots">
-              <Globe className="w-[18px] h-[18px]" />
+          <div className="h-8 mb-1.5 flex items-center gap-2.5 shrink-0">
+            <div className="w-8 h-8 shrink-0 flex items-center justify-center">
+              <div className="w-6 h-6 rounded-md bg-ink text-on-ink flex items-center justify-center" title="Chai Shots">
+                <Globe className="w-[15px] h-[15px]" />
+              </div>
             </div>
             {railExpanded && (
               <>
-                <span className="flex-1 min-w-0 truncate text-[15px] font-semibold text-ink">{workspaceName}</span>
+                <span className="flex-1 min-w-0 truncate text-[14px] font-semibold text-ink">{workspaceName}</span>
                 <button
                   onClick={toggleRailPinned}
-                  className="ic-icon-btn-ghost shrink-0"
+                  className="ic-icon-btn-ghost !w-7 !h-7 shrink-0"
                   title={railPinned ? 'Unpin — collapse to icons' : 'Pin — keep the menu open'}
                 >
                   {railPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
@@ -370,12 +378,23 @@ export const Inbox: React.FC = () => {
             active: isChatTab,
             onClick: () => setActiveTab(lastQueue),
             title: counts?.yoursUnread ? `Inbox (${counts.yoursUnread} unread in your inbox)` : 'Inbox',
-            icon: <InboxIcon className="w-[19px] h-[19px]" />,
+            icon: <InboxIcon className="w-[18px] h-[18px]" />,
             badge: counts?.yoursUnread || 0,
           })}
           {mainTabs.map(item => railItem({
             key: item.id, label: item.label, active: activeTab === item.id, onClick: () => setActiveTab(item.id), title: item.label, icon: item.icon,
           }))}
+          {/* AI: shortcuts to their Settings pages */}
+          {railItem({
+            key: 'ai-assistant', label: 'AI Assistant', title: 'AI Assistant',
+            active: aiSection === 'ai', onClick: () => routeTo(settingsPath('ai')),
+            icon: <Sparkles className="w-[18px] h-[18px]" />,
+          })}
+          {railItem({
+            key: 'ai-agent', label: 'AI Agent', title: 'AI Agent',
+            active: aiSection === 'aiAgent', onClick: () => routeTo(settingsPath('aiAgent')),
+            icon: <Bot className="w-[18px] h-[18px]" />,
+          })}
 
           <div className="flex-1" />
 
@@ -390,18 +409,18 @@ export const Inbox: React.FC = () => {
               : 'Your browser keeps a page silent until you click on it. Sound alerts start after your first click anywhere (or click here).',
             icon: (
               <span className="relative inline-flex">
-                <Bell className="w-[19px] h-[19px]" />
+                <Bell className="w-[18px] h-[18px]" />
                 {!soundReady && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-canvas" />}
               </span>
             ),
           })}
           {railItem({
             key: 'theme', label: darkMode ? 'Light mode' : 'Dark mode', onClick: toggleDarkMode, title: 'Toggle Dark Mode',
-            icon: darkMode ? <Sun className="w-[19px] h-[19px]" /> : <Moon className="w-[19px] h-[19px]" />,
+            icon: darkMode ? <Sun className="w-[18px] h-[18px]" /> : <Moon className="w-[18px] h-[18px]" />,
           })}
           {railItem({
-            key: 'settings', label: 'Settings', active: activeTab === 'settings', onClick: () => setActiveTab('settings'), title: 'Settings',
-            icon: <SettingsIcon className="w-[19px] h-[19px]" />,
+            key: 'settings', label: 'Settings', active: activeTab === 'settings' && !aiSection, onClick: () => setActiveTab('settings'), title: 'Settings',
+            icon: <SettingsIcon className="w-[18px] h-[18px]" />,
           })}
 
           {/* Profile + sign out */}
@@ -409,14 +428,14 @@ export const Inbox: React.FC = () => {
             <button
               ref={profileButtonRef}
               onClick={() => setProfileMenuOpen(o => !o)}
-              className={`relative h-9 flex items-center gap-3 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-9 justify-center'}`}
+              className={`relative h-8 flex items-center gap-2.5 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-8 justify-center'}`}
               title={agent.name}
             >
-              <span className="relative w-9 h-9 shrink-0 flex items-center justify-center">
+              <span className="relative w-8 h-8 shrink-0 flex items-center justify-center">
                 <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
-                <span className={`absolute bottom-1 right-1 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${agent.away ? 'bg-amber-400' : 'bg-emerald-500'}`} title={agent.away ? 'Away' : 'Online'} />
+                <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${agent.away ? 'bg-amber-400' : 'bg-emerald-500'}`} title={agent.away ? 'Away' : 'Online'} />
               </span>
-              {railExpanded && <span className="truncate text-[14px] font-medium text-ink">{agent.name}</span>}
+              {railExpanded && <span className="truncate text-[14px] font-semibold text-ink">{agent.name}</span>}
             </button>
 
             {profileMenuOpen && (
