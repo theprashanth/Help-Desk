@@ -4,7 +4,23 @@ import { useEffect, useRef, useState } from 'react';
  * Speech to text with the browser's own speech recognition (Chrome, Edge, Safari; not Firefox).
  * Used by the agent reply box (⋯ › Dictate) and the customer Messenger's mic button.
  */
-export const dictationSupported = () => typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+/**
+ * Inside a mobile app's web view (iOS WKWebView, Android WebView) speech recognition doesn't work: Android
+ * doesn't offer it, and iOS exposes it but never asks for the microphone or hears anything.
+ */
+export function inAppWebView(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  const iOS = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (navigator as any).maxTouchPoints > 1);
+  if (iOS) return !/Safari\//.test(ua) || /(FBAN|FBAV|Instagram|Line\/|GSA\/)/.test(ua);
+  if (/Android/.test(ua)) return /; wv\)/.test(ua);
+  return false;
+}
+
+/** Real browsers with speech recognition: Chrome, Edge, Safari (not Firefox, not in-app web views). */
+export const dictationSupported = () => typeof window !== 'undefined'
+  && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)
+  && !inAppWebView();
 
 export type DictationError = 'unsupported' | 'blocked' | 'failed';
 
