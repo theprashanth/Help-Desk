@@ -947,7 +947,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
 
     setSendError(null);
     setInputText('');
-    dictation.stop(); // sent: stop listening so later words don't start the next message
+    dictation.cancel(); // sent: stop listening and drop late words so they don't start the next message
     if (text === undefined) setPendingAttachments([]);
 
     try {
@@ -1080,7 +1080,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   // Mic: speech to text into the message box (the visitor can edit before sending), in their browser's language
   const dictation = useDictation(text => setInputText(prev => (prev && !/\s$/.test(prev) ? `${prev} ` : prev) + text));
   const [canDictate] = useState(dictationSupported);
-  useEffect(() => { dictation.stop(); dictation.clearError(); }, [activeConv?.id, activeTab, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { dictation.cancel(); dictation.clearError(); }, [activeConv?.id, activeTab, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Bubble style helpers ─────────────────────────────────────────────────
   const senderBubbleStyle =
