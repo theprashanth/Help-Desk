@@ -598,20 +598,28 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
         <button
           type="button"
           onClick={() => actions.toggle(o.id)}
-          className="flex-1 min-w-0 flex items-center gap-2 py-2 text-left"
+          className="flex-1 min-w-0 flex items-center gap-2 py-2 text-left overflow-hidden"
           aria-expanded={open}
         >
           <ChevronRight className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
           <Icon className={`w-4 h-4 shrink-0 ${iconColor}`} />
-          <span title={o.label.trim() || undefined} className={`truncate text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
+          <span title={o.label.trim() || undefined} className={`truncate shrink-0 max-w-[55%] text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
             {o.label.trim() || 'Untitled option'}
           </span>
           <span className="ic-badge shrink-0">
             {o.kind === 'menu' ? `Opens menu · ${kids.length}` : o.kind === 'agent' ? 'Connects to agent' : 'Shows answer'}
           </span>
-          {actionsSummary(o.kind !== 'menu' ? o.actions : undefined, ctx.teams, ctx.agents).map(t => (
-            <span key={t} className="ic-badge shrink-0 bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200 hidden lg:inline-flex">{t}</span>
-          ))}
+          {(() => {
+            // One chip for the extra actions; it shortens with "…" when the row is narrow (full list on hover)
+            const summary = actionsSummary(o.kind !== 'menu' ? o.actions : undefined, ctx.teams, ctx.agents);
+            if (!summary.length) return null;
+            const text = summary.join(' · ');
+            return (
+              <span title={`Also: ${text}`} className="min-w-0 truncate h-[22px] leading-[22px] px-2 rounded-full text-[12px] font-medium bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+                ⚡ {text}
+              </span>
+            );
+          })()}
           {(own.length > 0 || nestedIssue) && <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" aria-label="Needs attention" />}
         </button>
         {!readOnly && (
