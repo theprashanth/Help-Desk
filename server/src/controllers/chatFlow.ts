@@ -10,7 +10,7 @@ import { resolveCustomerId } from '../services/customerIdentity';
 import { verifyUserHash } from '../services/messenger';
 import { toCustomerView } from '../services/conversationView';
 import {
-  chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, fillName, validPhone, validEmail,
+  chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, findOption, fillName, validPhone, validEmail,
 } from '../services/chatFlow';
 import { ChatFlow, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
 import { logAudit } from '../services/audit';
@@ -317,3 +317,34 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
   }
 }
 
+
+/**
+ * POST /api/tickets/:id/chat-flow { node: optionId | null } — a teammate hands the conversation to the
+ * chat flow (reply box ⋯ › Workflows): the bot shows that menu and the customer picks from its buttons.
+ * Choosing "talk to a person" hands it straight back; the conversation stays in the inbox meanwhile.
+ */
+export async function passToChatFlow(req: AuthenticatedRequest, res: Response) {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthenticated' });
+    const ws = await RepositoryFactory.getWorkspaceRepository().findById(wsIdOf(req));
+    const live = liveChatFlow(ws);
+    if (!live) return res.status(409).json({ error: 'Publish a chat flow first (Settings › Channels › Chat flow).' });
+    const convRepo = RepositoryFactory.getConversationRepository();
+    const conv = await convRepo.findById(req.params.id);
+    if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+    if (conv.channel === 'email') return res.status(409).json({ error: 'The chat flow runs in the Messenger, not over email.' });
+    const { flow, version } = live;
+    const node = typeof req.body?.node === 'string' && req.body.node ? req.body.node : null;
+    const opt = node ? findOption(flow.options, node) : null;
+    if (node && (!opt || opt.kind !== 'menu')) return res.status(400).json({ error: 'That menu is no longer in the chat flow' });
+
+    await say(conv.id, flow, opt ? (opt.prompt || opt.label) : (flow.restartPrompt || fillName(flow.menuPrompt, conv.customer.name)), true);
+    const updated = await convRepo.update(conv.id, { bot: { state: 'menu', node: opt ? opt.id : null, path: opt ? [opt.label] : [], version } });
+    const me = await RepositoryFactory.getUserRepository().findById(req.user.id);
+    await recordEvent(conv.id, 'status', `${me?.name || 'A teammate'} passed this conversation to ${flow.botName} (chat flow${opt ? `: ${opt.label}` : ''})`, { id: req.user.id, name: me?.name || 'Agent' });
+    if (updated) SocketService.broadcastConversationUpdate(updated);
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+}

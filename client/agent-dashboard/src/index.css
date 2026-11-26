@@ -354,3 +354,9 @@
 /* Horizontal chip rows (e.g. suggested replies): scroll without showing a scrollbar */
 .no-scrollbar { scrollbar-width: none; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
+
+/* Tables in messages (reply box ⋯ › Table) */
+.rt-table-wrap { overflow-x: auto; margin: 4px 0; white-space: normal; }
+.rt-table { border-collapse: collapse; font-size: 13px; line-height: 1.35; min-width: 100%; }
+.rt-table th, .rt-table td { border: 1px solid rgba(127,127,127,.28); padding: 5px 9px; text-align: left; vertical-align: top; }
+.rt-table th { font-weight: 600; background: rgba(127,127,127,.08); }

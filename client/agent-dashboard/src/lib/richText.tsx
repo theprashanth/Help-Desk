@@ -19,7 +19,42 @@ const safeHref = (raw: string) => {
   return null;
 };
 
-export function markdownToHtml(text: string, codeClass = '', linkClass = ''): string {
+const TABLE_ROW = /^\s*\|.*\|\s*$/;
+const TABLE_RULE = /^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*(:?-{3,}:?\s*)?\|?\s*$/;
+const cellsOf = (line: string) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+
+/** Markdown tables (| a | b |, then | --- | --- |) as HTML; everything else formatted inline. */
+function withTables(text: string, codeClass: string, linkClass: string): string {
+  const lines = text.split('\n');
+  const out: string[] = [];
+  let plain: string[] = [];
+  const flush = () => { if (plain.length) out.push(inlineHtml(plain.join('\n'), codeClass, linkClass)); plain = []; };
+  for (let i = 0; i < lines.length; i++) {
+    if (TABLE_ROW.test(lines[i]) && i + 1 < lines.length && TABLE_RULE.test(lines[i + 1])) {
+      const head = cellsOf(lines[i]);
+      const rows: string[][] = [];
+      let j = i + 2;
+      while (j < lines.length && TABLE_ROW.test(lines[j])) rows.push(cellsOf(lines[j++]));
+      const cell = (tag: string, c: string) => `<${tag}>${inlineHtml(c, codeClass, linkClass)}</${tag}>`;
+      flush();
+      out.push(`<div class="rt-table-wrap"><table class="rt-table"><thead><tr>${head.map(c => cell('th', c)).join('')}</tr></thead><tbody>${
+        rows.map(r => `<tr>${head.map((_, k) => cell('td', r[k] || '')).join('')}</tr>`).join('')}</tbody></table></div>`);
+      i = j - 1;
+      continue;
+    }
+    plain.push(lines[i]);
+  }
+  flush();
+  return out.join('');
+}
+
+export function markdownToHtml(text: string, codeClass = '', linkClass = '', opts: { tables?: boolean } = {}): string {
+  if (!text) return '';
+  if (opts.tables && text.includes('|')) return withTables(text, codeClass, linkClass);
+  return inlineHtml(text, codeClass, linkClass);
+}
+
+function inlineHtml(text: string, codeClass = '', linkClass = ''): string {
   if (!text) return '';
   // Pull out code spans first so their contents aren't formatted
   const codes: string[] = [];
@@ -41,7 +76,7 @@ export function markdownToHtml(text: string, codeClass = '', linkClass = ''): st
 
 /** Renders a message body (keeps line breaks; caller supplies whitespace-pre-wrap). */
 export const RichText: React.FC<{ text: string; codeClass?: string; linkClass?: string; className?: string }> = ({ text, codeClass, linkClass, className }) =>
-  text ? <div className={className} dangerouslySetInnerHTML={{ __html: markdownToHtml(text, codeClass, linkClass) }} /> : null;
+  text ? <div className={className} dangerouslySetInnerHTML={{ __html: markdownToHtml(text, codeClass, linkClass, { tables: true }) }} /> : null;
 
 /** Plain text for previews/notifications: drops the markers. */
 export const stripMarkdown = (text: string) =>

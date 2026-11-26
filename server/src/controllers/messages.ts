@@ -46,7 +46,8 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
   const { conversationId, content, attachments, isInternalNote } = req.body;
   let sender = req.body.sender;
 
-  if (!conversationId || !sender || (!content && (!attachments || attachments.length === 0))) {
+  const sharesArticles = Array.isArray(req.body.metadata?.articles) && req.body.metadata.articles.length > 0;
+  if (!conversationId || !sender || (!content && (!attachments || attachments.length === 0) && !sharesArticles)) {
     return res.status(400).json({ error: 'conversationId, sender, and content/attachments are required' });
   }
 
@@ -89,6 +90,16 @@ export async function createMessage(req: AuthenticatedRequest, res: Response) {
     // A teammate's reply sent in the customer's language: keep what they wrote
     if (raw.original && typeof raw.original === 'object' && req.user && sender?.type !== 'customer' && !isInternalNote) {
       metadata.original = { text: str(raw.original.text, 20_000) || '', language: str(raw.original.language, 40) || '' };
+    }
+    // Knowledge-base articles a teammate shares (reply box ⋯ › Articles): only published ones, by id
+    if (Array.isArray(raw.articles) && req.user && sender?.type !== 'customer' && !isInternalNote) {
+      const { articlesRepo } = await import('./help');
+      const picked: { id: string; title: string }[] = [];
+      for (const id of Array.from(new Set(raw.articles.map((a: any) => (typeof a === 'string' ? a : a?.id)).filter((x: unknown) => typeof x === 'string'))).slice(0, 5)) {
+        const a = await articlesRepo.get(id as string);
+        if (a && a.state === 'published') picked.push({ id: a.id, title: a.title });
+      }
+      if (picked.length) metadata.articles = picked;
     }
     for (const k of Object.keys(metadata)) if (metadata[k] === undefined) delete metadata[k];
     if (!Object.keys(metadata).length) metadata = undefined;

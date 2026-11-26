@@ -1,4 +1,5 @@
-import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction } from '../controllers/chatFlow';
+import { getChatFlow, saveChatFlowDraft, publishChatFlow, discardChatFlowDraft, startChatFlow, chatFlowAction, passToChatFlow } from '../controllers/chatFlow';
+import { searchGifs } from '../controllers/gifs';
 import { Router, text as textBody } from 'express';
 import { authenticateJWT, optionalJWT, requireFullSeat, requireAdmin } from '../middleware/auth';
 import { getEmailSettings, saveEmailSettings, sendTestEmail, pollNow, inboundWebhook } from '../controllers/emailChannel';
@@ -9,7 +10,7 @@ import { upload } from '../middleware/upload';
 import { 
   login, getProfile, getSettings, updateSettings, getAgents, updateProfile,
   createAgent, updateAgent, deleteAgent, uploadAvatar, deleteAvatar, updateStatus, markMentionsSeen, signup } from '../controllers/auth';
-import { getAiSettings, saveAiSettings, testAiSettings, askAi, suggestRepliesHandler, summarizeHandler, translateHandler } from '../controllers/ai';
+import { getAiSettings, saveAiSettings, testAiSettings, askAi, suggestRepliesHandler, summarizeHandler, translateHandler, composeHandler } from '../controllers/ai';
 import { previewImport, runDataImport, listImports, downloadExport } from '../controllers/data';
 import { 
   getTickets, getTicket, createTicket, updateTicket, assignTicket, 
@@ -64,6 +65,9 @@ router.post('/ai/ask', authenticateJWT, askAi);
 router.post('/ai/suggest', authenticateJWT, requireFullSeat, suggestRepliesHandler);
 router.post('/ai/summarize', authenticateJWT, summarizeHandler);
 router.post('/ai/translate', authenticateJWT, requireFullSeat, translateHandler);
+router.post('/ai/compose', authenticateJWT, requireFullSeat, composeHandler);   // reply box ⋯ › AI Compose
+router.get('/gifs', authenticateJWT, searchGifs);                              // reply box ⋯ › GIFs (GIPHY_API_KEY)
+router.post('/tickets/:id/chat-flow', authenticateJWT, requireFullSeat, passToChatFlow); // reply box ⋯ › Workflows
 router.get('/ai-agent/settings', authenticateJWT, getAiAgentSettings); // Settings › AI Agent
 router.put('/ai-agent/settings', authenticateJWT, requireAdmin, saveAiAgentSettings);
 router.post('/ai-agent/test', authenticateJWT, requireFullSeat, testAiAgent); // what it would answer
