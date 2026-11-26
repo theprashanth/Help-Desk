@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ChatFlowSettings, Workspace } from '../../../shared/src/types';
+import { ChatFlow, ChatFlowOption, ChatFlowOptionActions, ChatFlowQuestion, ChatFlowSettings, TicketPriority, Workspace } from '../../../shared/src/types';
 
 // ── Starting content (from the Chai Shots support flow); everything is editable in Settings › Chat flow ──
 
@@ -123,6 +123,30 @@ function str(v: unknown, field: string, max: number, allowEmpty = false): string
 const bool = (v: unknown, field: string) => { if (typeof v !== 'boolean') throw new Error(`${field} must be true or false`); return v; };
 const cleanId = (v: unknown) => (typeof v === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(v) ? v : id());
 
+const PRIORITIES: TicketPriority[] = ['none', 'low', 'medium', 'high', 'critical'];
+
+/** A button's extra actions, cleaned; undefined when it has none. */
+function actionsOf(a: any, label: string): ChatFlowOptionActions | undefined {
+  if (!a || typeof a !== 'object') return undefined;
+  const out: ChatFlowOptionActions = {};
+  if (a.createTicket === true) out.createTicket = true;
+  if (a.priority !== undefined && a.priority !== 'none') {
+    if (!PRIORITIES.includes(a.priority)) throw new Error(`"${label}" has an unknown priority`);
+    out.priority = a.priority;
+  }
+  if (Array.isArray(a.tags)) {
+    const tags = Array.from(new Set(a.tags.filter((t: unknown) => typeof t === 'string').map((t: string) => t.trim()).filter(Boolean))) as string[];
+    if (tags.length > 10) throw new Error(`"${label}" can add at most 10 tags`);
+    if (tags.some(t => t.length > 50)) throw new Error(`"${label}" has a tag that is too long`);
+    if (tags.length) out.tags = tags;
+  }
+  if (typeof a.teamId === 'string' && a.teamId.trim()) out.teamId = a.teamId.trim().slice(0, 80);
+  return Object.keys(out).length ? out : undefined;
+}
+
+/** Does this button do anything besides its message? */
+export const hasOptionActions = (o: ChatFlowOption | null | undefined) => !!o && o.kind !== 'menu' && !!o.actions && Object.keys(o.actions).length > 0;
+
 export function validateChatFlow(input: any): ChatFlow {
   if (!input || typeof input !== 'object') throw new Error('flow must be an object');
   let count = 0;
@@ -145,10 +169,11 @@ export function validateChatFlow(input: any): ChatFlow {
         children: kids.map((k: any, i: number) => option(k, depth + 1, `"${label}" option ${i + 1}`)),
       };
     }
+    const acts = actionsOf(o.actions, label);
     if (o.kind === 'agent') {
-      return { id: oid, label, kind: 'agent', answer: str(o.answer ?? '', `"${label}" message`, LIMITS.text, true) };
+      return { id: oid, label, kind: 'agent', answer: str(o.answer ?? '', `"${label}" message`, LIMITS.text, true), ...(acts ? { actions: acts } : {}) };
     }
-    return { id: oid, label, kind: 'answer', answer: str(o.answer, `"${label}" answer`, LIMITS.answer) };
+    return { id: oid, label, kind: 'answer', answer: str(o.answer, `"${label}" answer`, LIMITS.answer), ...(acts ? { actions: acts } : {}) };
   };
 
   const questions: ChatFlowQuestion[] = (Array.isArray(input.questions) ? input.questions : []).slice(0, LIMITS.questions).map((q: any, i: number) => {
