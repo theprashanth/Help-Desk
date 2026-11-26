@@ -31,7 +31,7 @@ function officeHoursResponse(ws: Workspace | null) {
   };
 }
 
-const DEFAULT_ATTRIBUTION = 'Powered by Chai Samosa';
+const DEFAULT_ATTRIBUTION = 'Powered by Chai Shots';
 
 /** Teammate-facing workspace settings (never includes integrations / secrets). */
 function workspaceSettingsResponse(ws: Workspace) {

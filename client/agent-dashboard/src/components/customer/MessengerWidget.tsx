@@ -23,7 +23,7 @@ const BACKEND_URL = API_URL;
 /** Where the Messenger runs: the demo page in this app, inside the iframe on a customer's site, or a mobile WebView. */
 export type MessengerMode = 'demo' | 'embedded' | 'fullscreen';
 
-/** Who the visitor is on the host site/app (set by the host via ChaiSamosaSettings / boot). */
+/** Who the visitor is on the host site/app (set by the host via ChaiShotsSettings / boot). */
 type Identity = { userId?: string; name?: string; email?: string; phone?: string; userHash?: string };
 
 /** localStorage, namespaced per app id when embedded so different sites/apps never share visitors. */
@@ -63,7 +63,7 @@ function getStoredSettings() {
   } catch {}
   return {
     themeColor: '#8B5CF6',
-    brandName: 'Chai Samosa',
+    brandName: 'Chai Shots',
     greeting: 'We reply in a few minutes',
     welcome: 'Ask us anything, or share your feedback.',
     darkTheme: false,
@@ -461,11 +461,11 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   // ── Host page <-> Messenger (embedded in an iframe by messenger.js) ─────
   const postToHost = useCallback((msg: any) => {
     if (!embedded || window.parent === window) return;
-    window.parent.postMessage({ source: 'chai-samosa', ...msg }, parentOriginRef.current || '*');
+    window.parent.postMessage({ source: 'chai-shots', ...msg }, parentOriginRef.current || '*');
   }, [embedded]);
 
   const resetVisitor = useCallback(() => {
-    // ChaiSamosa('shutdown'): forget this visitor (e.g. on logout) and start fresh as a new lead
+    // ChaiShots('shutdown'): forget this visitor (e.g. on logout) and start fresh as a new lead
     const id = store.get('customer_guest_id');
     if (id) store.remove(`guest_conv_ids_${id}`);
     ['customer_guest_id', 'customer_guest_name', 'customer_guest_email', 'customer_guest_phone'].forEach(k => store.remove(k));
@@ -481,7 +481,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   useEffect(() => {
     if (!embedded) return;
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== window.parent || !e.data || e.data.source !== 'chai-samosa-host') return;
+      if (e.source !== window.parent || !e.data || e.data.source !== 'chai-shots-host') return;
       const { type, settings, page } = e.data;
       if (type === 'boot') {
         parentOriginRef.current = e.origin; // the browser guarantees this is the real host site
@@ -508,7 +508,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       }
     };
     window.addEventListener('message', onMessage);
-    window.parent.postMessage({ source: 'chai-samosa', type: 'ready' }, '*'); // ask the host for boot settings
+    window.parent.postMessage({ source: 'chai-shots', type: 'ready' }, '*'); // ask the host for boot settings
     return () => window.removeEventListener('message', onMessage);
   }, [embedded, resetVisitor]);
 
@@ -591,7 +591,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
         if (!res) return;
         if (res.allowed === false) { setBlocked(true); return; }
         if (res.identity === 'rejected') {
-          console.warn('[Chai Samosa] Identity verification failed (missing or wrong user_hash). Continuing as an anonymous visitor.');
+          console.warn('[Chai Shots] Identity verification failed (missing or wrong user_hash). Continuing as an anonymous visitor.');
           setIdentity({});
           return;
         }
@@ -1666,9 +1666,9 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             {/* Attribution (Settings > General) */}
             {availability?.showAttribution !== false && (
               <div className="shrink-0 py-1.5 text-center text-[11px] text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800">
-                {availability?.attributionText && availability.attributionText !== 'Powered by Chai Samosa'
+                {availability?.attributionText && availability.attributionText !== 'Powered by Chai Shots'
                   ? availability.attributionText
-                  : '⚡ Powered by Chai Samosa'}
+                  : '⚡ Powered by Chai Shots'}
               </div>
             )}
           </motion.div>

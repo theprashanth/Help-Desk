@@ -1,22 +1,22 @@
 /*!
- * Chai Samosa Messenger loader
+ * Chai Shots Messenger loader
  *
  *   <script>
- *     window.ChaiSamosaSettings = { app_id: "YOUR_APP_ID",
+ *     window.ChaiShotsSettings = { app_id: "YOUR_APP_ID",
  *       // logged-in users (optional): user_id, name, email, phone, user_hash (HMAC-SHA256 of user_id from your server)
  *     };
  *   </script>
  *   <script async src="https://YOUR-DASHBOARD/messenger.js"></script>
  *
- * JavaScript API: ChaiSamosa('boot', settings) · ChaiSamosa('update', settings) · ChaiSamosa('shutdown')
- *                 ChaiSamosa('show') · ChaiSamosa('hide')
+ * JavaScript API: ChaiShots('boot', settings) · ChaiShots('update', settings) · ChaiShots('shutdown')
+ *                 ChaiShots('show') · ChaiShots('hide')
  * Calls made before this script loads are queued by the stub:
- *   window.ChaiSamosa=window.ChaiSamosa||function(){(ChaiSamosa.q=ChaiSamosa.q||[]).push(arguments)};
+ *   window.ChaiShots=window.ChaiShots||function(){(ChaiShots.q=ChaiShots.q||[]).push(arguments)};
  */
 (function () {
   'use strict';
-  if (window.__chaiSamosaLoaded) return;
-  window.__chaiSamosaLoaded = true;
+  if (window.__chaiShotsLoaded) return;
+  window.__chaiShotsLoaded = true;
 
   var script = document.currentScript || (function () {
     var all = document.getElementsByTagName('script');
@@ -25,8 +25,8 @@
   })();
   var BASE = script ? new URL(script.src, location.href).origin : location.origin;
 
-  var queued = (window.ChaiSamosa && window.ChaiSamosa.q) || [];
-  var settings = window.ChaiSamosaSettings || null;
+  var queued = (window.ChaiShots && window.ChaiShots.q) || [];
+  var settings = window.ChaiShotsSettings || null;
   var iframe = null;
   var frameReady = false;
   var pending = [];        // messages waiting for the iframe
@@ -35,7 +35,7 @@
   var bannerEl = null;     // proactive banner drawn across the top of the host page
 
   function send(type, extra) {
-    var msg = { source: 'chai-samosa-host', type: type };
+    var msg = { source: 'chai-shots-host', type: type };
     for (var k in extra || {}) msg[k] = extra[k];
     if (iframe && frameReady) iframe.contentWindow.postMessage(msg, BASE);
     else pending.push(msg);
@@ -77,10 +77,10 @@
   window.addEventListener('message', function (e) {
     if (!iframe || e.source !== iframe.contentWindow || e.origin !== BASE) return;
     var d = e.data || {};
-    if (d.source !== 'chai-samosa') return;
+    if (d.source !== 'chai-shots') return;
     if (d.type === 'ready') {
       frameReady = true;
-      iframe.contentWindow.postMessage({ source: 'chai-samosa-host', type: 'boot', settings: settings, page: { url: location.href, title: document.title } }, BASE);
+      iframe.contentWindow.postMessage({ source: 'chai-shots-host', type: 'boot', settings: settings, page: { url: location.href, title: document.title } }, BASE);
       while (pending.length) iframe.contentWindow.postMessage(pending.shift(), BASE);
     } else if (d.type === 'resize') {
       open = !!d.open;
@@ -96,7 +96,7 @@
 
   // ── Proactive banner (the Messenger decides what to show; it's drawn here, on the host page) ──
   function showBanner(b) {
-    if (bannerEl) { bannerEl.remove(); bannerEl = null; document.documentElement.style.removeProperty('--chai-samosa-banner'); }
+    if (bannerEl) { bannerEl.remove(); bannerEl = null; document.documentElement.style.removeProperty('--chai-shots-banner'); }
     if (!b || !b.body) return;
     var promo = b.style === 'promo';
     var el = document.createElement('div');
@@ -147,7 +147,7 @@
 
   function boot(s) {
     settings = s || settings || {};
-    if (!settings.app_id) { console.error('[Chai Samosa] app_id is required'); return; }
+    if (!settings.app_id) { console.error('[Chai Shots] app_id is required'); return; }
     if (!iframe) mount(settings.app_id);
     else send('update', { settings: settings });
   }
@@ -166,10 +166,10 @@
         break;
       case 'show': send('show'); break;
       case 'hide': send('hide'); break;
-      default: console.warn('[Chai Samosa] unknown command', cmd);
+      default: console.warn('[Chai Shots] unknown command', cmd);
     }
   }
-  window.ChaiSamosa = api;
+  window.ChaiShots = api;
 
   function start() {
     if (settings && settings.app_id) boot(settings);

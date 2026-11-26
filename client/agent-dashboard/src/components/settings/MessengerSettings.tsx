@@ -37,7 +37,7 @@ const DEFAULT_APPEARANCE: MessengerAppearance = {
   showLauncher: true,
 };
 /** The old browser-only defaults (store/useStore.ts widgetSettings). */
-const OLD_LOCAL_DEFAULTS = { themeColor: '#8B5CF6', brandName: 'Chai Samosa', greeting: 'We reply in a few minutes', welcome: 'Ask us anything, or share your feedback.' };
+const OLD_LOCAL_DEFAULTS = { themeColor: '#8B5CF6', brandName: 'Chai Shots', greeting: 'We reply in a few minutes', welcome: 'Ask us anything, or share your feedback.' };
 
 const PRESET_COLORS = [
   '#8B5CF6', '#6366F1', '#3B82F6', '#0EA5E9', '#10B981',
@@ -197,28 +197,28 @@ type WebFramework = 'web' | 'react' | 'next' | 'vue';
 type ServerLang = 'node' | 'python' | 'php' | 'ruby';
 type MobilePlatform = 'ios' | 'android' | 'react-native';
 
-const STUB = 'window.ChaiSamosa=window.ChaiSamosa||function(){(ChaiSamosa.q=ChaiSamosa.q||[]).push(arguments)};';
+const STUB = 'window.ChaiShots=window.ChaiShots||function(){(ChaiShots.q=ChaiShots.q||[]).push(arguments)};';
 
 function webSnippet(fw: WebFramework, appId: string, origin: string): string {
   const src = `${origin}/messenger.js`;
   if (fw === 'react') return `import { useEffect } from 'react';
 
-// Render once near the root of your app, e.g. <ChaiSamosaMessenger user={currentUser} />
-export function ChaiSamosaMessenger({ user }) {
+// Render once near the root of your app, e.g. <ChaiShotsMessenger user={currentUser} />
+export function ChaiShotsMessenger({ user }) {
   useEffect(() => {
     const settings = {
       app_id: "${appId}",
       // For logged-in users (optional); user_hash comes from YOUR server:
-      ...(user ? { user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiSamosaHash } : {}),
+      ...(user ? { user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiShotsHash } : {}),
     };
-    if (document.getElementById('chai-samosa-messenger')) {
-      window.ChaiSamosa('boot', settings); // the user changed (logged in / switched account)
+    if (document.getElementById('chai-shots-messenger')) {
+      window.ChaiShots('boot', settings); // the user changed (logged in / switched account)
       return;
     }
-    window.ChaiSamosaSettings = settings;
+    window.ChaiShotsSettings = settings;
     ${STUB}
     const script = document.createElement('script');
-    script.id = 'chai-samosa-messenger';
+    script.id = 'chai-shots-messenger';
     script.async = true;
     script.src = "${src}";
     document.body.appendChild(script);
@@ -227,7 +227,7 @@ export function ChaiSamosaMessenger({ user }) {
 }
 
 // In your logout handler:
-window.ChaiSamosa('shutdown');`;
+window.ChaiShots('shutdown');`;
   if (fw === 'next') return `// app/layout.tsx
 import Script from 'next/script';
 
@@ -236,8 +236,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         {children}
-        <Script id="chai-samosa-settings" strategy="afterInteractive">
-          {\`window.ChaiSamosaSettings = { app_id: "${appId}" };
+        <Script id="chai-shots-settings" strategy="afterInteractive">
+          {\`window.ChaiShotsSettings = { app_id: "${appId}" };
           ${STUB}\`}
         </Script>
         <Script src="${src}" strategy="afterInteractive" />
@@ -247,18 +247,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 // After a user logs in (in a client component):
-// window.ChaiSamosa('boot', { app_id: "${appId}", user_id, name, email, user_hash });
+// window.ChaiShots('boot', { app_id: "${appId}", user_id, name, email, user_hash });
 // In your logout handler:
-// window.ChaiSamosa('shutdown');`;
+// window.ChaiShots('shutdown');`;
   if (fw === 'vue') return `<!-- App.vue -->
 <script setup>
 import { onMounted } from 'vue';
 
 onMounted(() => {
-  window.ChaiSamosaSettings = {
+  window.ChaiShotsSettings = {
     app_id: "${appId}",
     // For logged-in users (optional); user_hash comes from YOUR server:
-    // user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiSamosaHash,
+    // user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiShotsHash,
   };
   ${STUB}
   const script = document.createElement('script');
@@ -268,10 +268,10 @@ onMounted(() => {
 });
 
 // In your logout handler:
-// window.ChaiSamosa('shutdown');
+// window.ChaiShots('shutdown');
 </script>`;
   return `<script>
-  window.ChaiSamosaSettings = {
+  window.ChaiShotsSettings = {
     app_id: "${appId}",
     // For logged-in users (optional):
     // user_id: "123",            // your user id
@@ -288,33 +288,33 @@ function jsApiSnippet(appId: string): string {
 ${STUB}
 
 // Start (or restart) the Messenger, e.g. right after a user logs in
-ChaiSamosa('boot', { app_id: "${appId}", user_id, name, email, user_hash });
+ChaiShots('boot', { app_id: "${appId}", user_id, name, email, user_hash });
 
 // Update the current user's details
-ChaiSamosa('update', { name, email });
+ChaiShots('update', { name, email });
 
 // Call on logout, so the next person on this browser starts fresh
-ChaiSamosa('shutdown');
+ChaiShots('shutdown');
 
 // Open / close the Messenger (e.g. from your own "Help" button)
-ChaiSamosa('show');
-ChaiSamosa('hide');`;
+ChaiShots('show');
+ChaiShots('hide');`;
 }
 
 function serverSnippet(lang: ServerLang): string {
   if (lang === 'python') return `import hmac, hashlib, os
 
 # The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-SECRET = os.environ["CHAI_SAMOSA_IDENTITY_SECRET"]
+SECRET = os.environ["CHAI_SHOTS_IDENTITY_SECRET"]
 
-def chai_samosa_user_hash(user_id: str) -> str:
+def chai_shots_user_hash(user_id: str) -> str:
     return hmac.new(SECRET.encode(), str(user_id).encode(), hashlib.sha256).hexdigest()
 
 # Pass it to the page that loads the Messenger:
-# user_hash = chai_samosa_user_hash(current_user.id)`;
+# user_hash = chai_shots_user_hash(current_user.id)`;
   if (lang === 'php') return `<?php
 // The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-$secret = getenv('CHAI_SAMOSA_IDENTITY_SECRET');
+$secret = getenv('CHAI_SHOTS_IDENTITY_SECRET');
 
 $userHash = hash_hmac('sha256', (string) $user->id, $secret);
 
@@ -323,7 +323,7 @@ $userHash = hash_hmac('sha256', (string) $user->id, $secret);
   if (lang === 'ruby') return `require 'openssl'
 
 # The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-secret = ENV.fetch('CHAI_SAMOSA_IDENTITY_SECRET')
+secret = ENV.fetch('CHAI_SHOTS_IDENTITY_SECRET')
 
 user_hash = OpenSSL::HMAC.hexdigest('sha256', secret, current_user.id.to_s)
 
@@ -332,14 +332,14 @@ user_hash = OpenSSL::HMAC.hexdigest('sha256', secret, current_user.id.to_s)
   return `const crypto = require('crypto');
 
 // The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-const SECRET = process.env.CHAI_SAMOSA_IDENTITY_SECRET;
+const SECRET = process.env.CHAI_SHOTS_IDENTITY_SECRET;
 
-function chaiSamosaUserHash(userId) {
+function chaiShotsUserHash(userId) {
   return crypto.createHmac('sha256', SECRET).update(String(userId)).digest('hex');
 }
 
 // Pass it to the page that loads the Messenger:
-// user_hash: chaiSamosaUserHash(currentUser.id)`;
+// user_hash: chaiShotsUserHash(currentUser.id)`;
 }
 
 function mobileSnippet(p: MobilePlatform, url: string): string {
@@ -942,7 +942,7 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
             <Toggle checked={draft.showLauncher} disabled={!isAdmin} onChange={v => setA('showLauncher', v)} />
             <div>
               <p className="text-[14px] font-medium text-ink">Show the launcher</p>
-              <p className="ic-help">Turn off to open the Messenger from your own button with <code className="font-mono">ChaiSamosa('show')</code></p>
+              <p className="ic-help">Turn off to open the Messenger from your own button with <code className="font-mono">ChaiShots('show')</code></p>
             </div>
           </div>
         </SettingsFormSection>
@@ -999,7 +999,7 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
         </div>
         <CodeBox
           code={webSnippet(framework, data.appId, origin)}
-          title={framework === 'web' ? 'HTML' : framework === 'react' ? 'ChaiSamosaMessenger.jsx' : framework === 'next' ? 'app/layout.tsx' : 'App.vue'}
+          title={framework === 'web' ? 'HTML' : framework === 'react' ? 'ChaiShotsMessenger.jsx' : framework === 'next' ? 'app/layout.tsx' : 'App.vue'}
         />
       </div>
 

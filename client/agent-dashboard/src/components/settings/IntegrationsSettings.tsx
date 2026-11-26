@@ -23,8 +23,8 @@ const EVENT_OPTIONS: { id: IntegrationEvent; label: string; help: string }[] = [
 ];
 
 const SLACK_URL_RE = /^https:\/\/hooks\.slack\.com\/(services|workflows|triggers)\//;
-const SIGNATURE_HEADER = 'X-ChaiSamosa-Signature';
-const EVENT_HEADER = 'X-ChaiSamosa-Event';
+const SIGNATURE_HEADER = 'X-ChaiShots-Signature';
+const EVENT_HEADER = 'X-ChaiShots-Event';
 
 const PAYLOAD_EXAMPLE = `{
   "event": "conversation.created",
@@ -397,7 +397,7 @@ function WebhookCard({ status, isAdmin, api, onChange }: { status: WebhookStatus
       <div>
         <label className="ic-label" htmlFor="wh-url">Endpoint URL</label>
         <input id="wh-url" className="ic-input font-mono text-[13px]" value={url} autoFocus autoComplete="off" spellCheck={false}
-          placeholder={status.connected ? `Currently ${status.urlHint} — leave blank to keep` : 'https://example.com/webhooks/chai-samosa'}
+          placeholder={status.connected ? `Currently ${status.urlHint} — leave blank to keep` : 'https://example.com/webhooks/chai-shots'}
           onChange={e => setUrl(e.target.value)} />
         <p className="ic-help mt-1.5">Must use https:// (http:// is allowed for localhost while testing).</p>
       </div>

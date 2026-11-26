@@ -31,8 +31,8 @@ export interface Workspace {
   // Settings > General
   customerFacingName?: string;     // shown to customers in the Messenger; defaults to name
   timezone?: string;               // IANA; office hours use this zone
-  showAttribution?: boolean;       // "Powered by Chai Samosa" in the Messenger (default true)
-  attributionText?: string;        // custom attribution text (default "Powered by Chai Samosa")
+  showAttribution?: boolean;       // "Powered by Chai Shots" in the Messenger (default true)
+  attributionText?: string;        // custom attribution text (default "Powered by Chai Shots")
   showStateToCustomer?: boolean;   // post "Ticket in progress / Waiting on you / Ticket resolved / Conversation closed" lines in the Messenger (default true)
   sla?: SlaPolicy;                 // response-time targets (Settings › SLAs)
   csatEnabled?: boolean;           // ask customers to rate resolved conversations (default true)
@@ -103,7 +103,7 @@ export interface MessengerAppearance {
   greeting: string;      // header subtitle when no reply time is set
   welcome: string;       // home screen message
   launcherPosition: 'right' | 'left';
-  showLauncher: boolean; // false = open it from your own button via ChaiSamosa('show')
+  showLauncher: boolean; // false = open it from your own button via ChaiShots('show')
   autoLanguage?: boolean; // Settings › Multilingual: show the Messenger in each visitor's browser language
 }
 

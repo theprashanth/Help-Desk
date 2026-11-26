@@ -118,7 +118,7 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
       return res.status(401).json({ error: 'Identity verification failed', code: 'identity_verification_failed' });
     }
 
-    // Details the visitor doesn't have to type: what your app passed (ChaiSamosaSettings name/email/phone,
+    // Details the visitor doesn't have to type: what your app passed (ChaiShotsSettings name/email/phone,
     // sent as `known`) and, for verified signed-in users, what your user database has. The Messenger skips
     // those questions, so they're accepted as given (your app's format, e.g. a phone without +country code)
     // and aren't shown in the transcript as if the visitor had typed them.
