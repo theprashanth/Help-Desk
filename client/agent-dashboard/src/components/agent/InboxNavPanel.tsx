@@ -68,7 +68,7 @@ export const InboxNavPanel: React.FC<Props> = ({
       onClick={() => onSelect(id)}
       className={`ic-nav-item ${activeView === id ? 'ic-nav-item-active' : ''}`}
     >
-      <span className="w-[18px] flex justify-center text-ink shrink-0 [&_svg]:stroke-[2.25]">{icon}</span>
+      <span className="w-4 flex justify-center text-ink shrink-0 [&_svg]:stroke-[2.25] [&_svg]:w-4 [&_svg]:h-4 [&_img]:w-4 [&_img]:h-4">{icon}</span>
       <span className="truncate">{label}</span>
       <Count n={count} />
     </button>
@@ -78,16 +78,16 @@ export const InboxNavPanel: React.FC<Props> = ({
   const teammates = agents.filter(a => a.id !== me.id);
 
   return (
-    <aside className="ic-panel-side w-[208px] h-full shrink-0 flex flex-col animate-fade-in">
+    <aside className="ic-panel-side w-[236px] h-full shrink-0 flex flex-col animate-fade-in">
       {/* Header + create menu */}
-      <div className="h-16 shrink-0 flex items-center justify-between px-5 relative">
+      <div className="h-16 shrink-0 flex items-center justify-between px-6 relative">
         <h1 className="ic-title">Inbox</h1>
         <button
           onClick={() => (createOpen ? closeMenus() : setCreateOpen(true))}
-          className={`ic-icon-btn ${createOpen ? 'bg-ink/10' : ''} ${me.role === 'light' ? 'hidden' : ''}`}
+          className={`ic-icon-btn !w-8 !h-8 ${createOpen ? 'bg-ink/10' : ''} ${me.role === 'light' ? 'hidden' : ''}`}
           title="Create a conversation or ticket"
         >
-          <Plus className="w-[18px] h-[18px]" />
+          <Plus className="w-4 h-4" />
         </button>
 
         {createOpen && (
@@ -143,15 +143,15 @@ export const InboxNavPanel: React.FC<Props> = ({
         )}
       </div>
 
-      <div className="mx-5 border-t border-dashed border-line" />
+      <div className="mx-6 border-t border-dashed border-line" />
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 flex flex-col gap-0.5">
+      <div className="flex-1 overflow-y-auto px-3 pt-1 pb-3 flex flex-col gap-1">
         <button onClick={onSearch} className={`ic-nav-item ${activeView === 'search' ? 'ic-nav-item-active' : ''}`}>
-          <span className="w-[18px] flex justify-center text-ink/80"><Search className="w-[17px] h-[17px]" /></span>
+          <span className="w-4 flex justify-center text-ink"><Search className="w-4 h-4 stroke-[2.25]" /></span>
           Search
         </button>
 
-        <div className="h-1.5" />
+        <div className="h-1" />
 
         {item('yours', 'Your inbox',
           me.avatar
@@ -163,12 +163,12 @@ export const InboxNavPanel: React.FC<Props> = ({
         {item('all', 'All', <Users className="w-[17px] h-[17px]" />, counts?.all)}
         {item('unassigned', 'Unassigned', <UserX className="w-[17px] h-[17px]" />, counts?.unassigned)}
         <button onClick={onOpenDashboard} className="ic-nav-item">
-          <span className="w-[18px] flex justify-center text-ink/80"><BarChart3 className="w-[17px] h-[17px]" /></span>
+          <span className="w-4 flex justify-center text-ink"><BarChart3 className="w-4 h-4 stroke-[2.25]" /></span>
           Dashboard
         </button>
 
         {/* Teammates */}
-        <button onClick={() => setTeammatesOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+        <button onClick={() => setTeammatesOpen(o => !o)} className="ic-nav-group mt-3 hover:bg-ink/[0.03] rounded-lg">
           <span>Teammates</span>
           {teammatesOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
         </button>
@@ -185,7 +185,7 @@ export const InboxNavPanel: React.FC<Props> = ({
         {/* Team inboxes (Settings › Teams) */}
         {teams.length > 0 && (
           <>
-            <button onClick={() => setTeamsOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+            <button onClick={() => setTeamsOpen(o => !o)} className="ic-nav-group mt-3 hover:bg-ink/[0.03] rounded-lg">
               <span>Team inboxes</span>
               {teamsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
             </button>
@@ -196,7 +196,7 @@ export const InboxNavPanel: React.FC<Props> = ({
         )}
 
         {/* Views by type */}
-        <button onClick={() => setViewsOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+        <button onClick={() => setViewsOpen(o => !o)} className="ic-nav-group mt-3 hover:bg-ink/[0.03] rounded-lg">
           <span>Views</span>
           {viewsOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
         </button>
@@ -209,7 +209,7 @@ export const InboxNavPanel: React.FC<Props> = ({
         )}
 
         {/* Chat-flow bot: chats that never reached a person, kept for reference */}
-        <button onClick={() => setBotOpen(o => !o)} className="ic-nav-group mt-4 hover:bg-ink/[0.03] rounded-lg">
+        <button onClick={() => setBotOpen(o => !o)} className="ic-nav-group mt-3 hover:bg-ink/[0.03] rounded-lg">
           <span>Bot chats</span>
           {botOpen ? <ChevronDown className="w-4 h-4 text-muted" /> : <ChevronRight className="w-4 h-4 text-muted" />}
         </button>

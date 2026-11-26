@@ -10,9 +10,10 @@ import { resolveCustomerId } from '../services/customerIdentity';
 import { verifyUserHash } from '../services/messenger';
 import { toCustomerView } from '../services/conversationView';
 import {
-  chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, findOption, fillName, validPhone, validEmail,
+  chatFlowSettingsOf, defaultChatFlow, validateChatFlow, liveChatFlow, optionsAt, findOption, hasOptionActions, fillName, validPhone, validEmail,
 } from '../services/chatFlow';
-import { ChatFlow, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
+import { ChatFlow, ChatFlowOptionActions, Conversation, ConversationBotState, Message } from '../../../shared/src/types';
+import { teamsRepo, pickFromTeam } from '../services/teams';
 import { logAudit } from '../services/audit';
 import { inBackground, afterBotHandoff } from '../services/aiAssist';
 
@@ -212,6 +213,53 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
  * Body: { conversationId, action: 'choose' | 'yes' | 'no' | 'back' | 'restart', optionId? }
  * The customer must own the conversation (X-Customer-Id). The server writes both sides of the exchange.
  */
+const PRIORITY_NAMES: Record<string, string> = { low: 'Low', medium: 'Medium', high: 'High', critical: 'Urgent' };
+
+/**
+ * What a tapped button does besides its message (Settings › Chat flow › an option's "Also, when tapped"):
+ * make the chat a ticket, set its priority, add tags, send it to a team. Returns the conversation changes;
+ * each one is recorded in the conversation as done by the bot.
+ */
+async function applyOptionActions(conv: Conversation, acts: ChatFlowOptionActions, path: string[], botName: string): Promise<Partial<Conversation>> {
+  const patch: Partial<Conversation> = {};
+  const by = `${botName} (chat flow)`;
+  if (acts.createTicket && (conv.kind || 'conversation') === 'conversation' && !conv.mergedInto) {
+    patch.kind = 'ticket';
+    patch.title = path.join(' › ').slice(0, 200) || 'Ticket';
+    patch.sharing = 'shared';
+    await recordEvent(conv.id, 'tickets', `${by} turned this into a ticket: ${patch.title}`, undefined, { bot: true, field: 'kind', from: 'conversation', to: 'ticket' });
+  }
+  if (acts.priority && acts.priority !== 'none' && acts.priority !== conv.priority) {
+    patch.priority = acts.priority;
+    await recordEvent(conv.id, 'priority', `${by} set the priority to ${PRIORITY_NAMES[acts.priority] || acts.priority}`, undefined, { bot: true, field: 'priority', from: conv.priority, to: acts.priority });
+  }
+  if (acts.tags?.length) {
+    const added = acts.tags.filter(t => !(conv.tags || []).includes(t));
+    if (added.length) {
+      patch.tags = [...(conv.tags || []), ...added];
+      await recordEvent(conv.id, 'tags', `${by} added ${added.length === 1 ? 'tag' : 'tags'} ${added.join(', ')}`, undefined, { bot: true, field: 'tags', added });
+    }
+  }
+  if (acts.teamId) {
+    const team = await teamsRepo.get(acts.teamId);
+    if (team && team.id !== conv.teamId) {
+      patch.teamId = team.id;
+      const who = conv.assignedAgentId || acts.assigneeId ? undefined : await pickFromTeam(team);
+      if (who) patch.assignedAgentId = who;
+      await recordEvent(conv.id, 'assignment', `${by} sent this to the ${team.name} team`, undefined, { bot: true, field: 'teamId', from: conv.teamId || null, to: team.id });
+    }
+  }
+  if (acts.assigneeId && acts.assigneeId !== conv.assignedAgentId) {
+    // A teammate who was removed, or a Light seat (can't reply), is skipped: the chat stays with the team
+    const agent = await RepositoryFactory.getUserRepository().findById(acts.assigneeId);
+    if (agent && agent.role !== 'light') {
+      patch.assignedAgentId = agent.id;
+      await recordEvent(conv.id, 'assignment', `${by} assigned this to ${agent.name}`, undefined, { bot: true, field: 'assignedAgentId', from: conv.assignedAgentId || null, to: agent.id });
+    }
+  }
+  return patch;
+}
+
 // One tap at a time per conversation: two quick taps (or two tabs) can't both act on the same position
 const conversationQueues = new Map<string, Promise<unknown>>();
 export function chatFlowAction(req: AuthenticatedRequest, res: Response) {
@@ -269,6 +317,7 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
         if (opt.kind === 'agent') {
           bot = { ...bot, path: [...bot.path, opt.label] };
           await handOff(opt.label, opt.answer?.trim() || flow.noReply, 'Customer asked for a person via');
+          if (hasOptionActions(opt)) Object.assign(convUpdate, await applyOptionActions(conv, opt.actions!, bot.path, flow.botName));
           break;
         }
         await customerSays(conv, opt.label, true);
@@ -278,7 +327,14 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
         } else {
           await say(conv.id, flow, opt.answer || '', true);
           bot = { ...bot, path: [...bot.path, opt.label] };
-          if (flow.askResolved) {
+          if (hasOptionActions(opt)) {
+            // A button that makes a ticket / sets priority / sends to a team: the team takes it from here
+            bot = { ...bot, state: 'handoff' };
+            convUpdate = { status: 'open', unreadCountAgent: (conv.unreadCountAgent || 0) + 1, ...(await applyOptionActions(conv, opt.actions!, bot.path, flow.botName)) };
+            handedOff = true;
+            await recordEvent(conv.id, 'status', `Sent to the team by ${flow.botName}: ${bot.path.join(' › ')}`, undefined,
+              { bot: true, field: 'status', from: conv.status, to: 'open' });
+          } else if (flow.askResolved) {
             await say(conv.id, flow, flow.resolvedQuestion, true);
             bot = { ...bot, state: 'confirm' };
           }
@@ -316,6 +372,7 @@ async function runChatFlowAction(req: AuthenticatedRequest, res: Response) {
     const updated = await convRepo.update(conv.id, { ...convUpdate, bot });
     if (updated) {
       SocketService.broadcastConversationUpdate(updated);
+      if (convUpdate.kind === 'ticket') import('../services/email').then(m => m.sendTicketUpdate(updated, 'created')).catch(() => {});
       if (handedOff) {
         // Settings › AI Agent: it answers the customer's next message before a teammate does
         const aiState = await (await import('../services/aiAgent')).takesNew('chatflow');

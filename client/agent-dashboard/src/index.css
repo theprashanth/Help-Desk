@@ -89,22 +89,23 @@
     @apply h-16 shrink-0 flex items-center gap-3 px-5 border-b border-line;
   }
   .ic-title {          /* panel title: "Inbox", "All", "Settings" */
-    @apply text-[22px] leading-7 font-semibold tracking-tight text-ink truncate;
+    @apply text-[20px] leading-7 font-semibold tracking-tight text-ink truncate;
   }
   .ic-section-title {  /* section heading inside content: "Workspace" */
     @apply text-[17px] font-semibold text-ink;
   }
 
   /* ---- Navigation lists (inbox sidebar, settings sidebar) ---- */
+  /* Side menu rows, sized like Intercom's: 32px rows on a 36px rhythm, 13px semibold labels, 16px icons */
   .ic-nav-item {
-    @apply w-full flex items-center gap-2.5 px-3 h-9 rounded-lg text-[14px] text-ink/90 font-medium
+    @apply w-full flex items-center gap-2 px-3 h-8 rounded-lg text-[13px] text-ink font-semibold
            hover:bg-ink/[0.04] transition-colors text-left;
   }
   .ic-nav-item-active {
     @apply bg-surface shadow-pill text-ink hover:bg-surface;
   }
   .ic-nav-group {      /* collapsible group heading: "Fin for Service", "Workspace" */
-    @apply flex items-center justify-between px-3 h-9 text-[14px] font-medium text-ink;
+    @apply flex items-center justify-between px-3 h-8 text-[13px] font-semibold text-ink;
   }
 
   /* ---- Rail (far-left icon strip) ---- */
@@ -223,7 +224,7 @@
     @apply inline-flex items-center gap-1 h-5 px-2 rounded-full bg-subtle text-[12px] font-medium text-muted;
   }
   .ic-count {          /* right-aligned count in nav lists */
-    @apply ml-auto text-[13px] text-muted tabular-nums;
+    @apply ml-auto text-[13px] font-medium text-muted tabular-nums;
   }
 
   /* ---- Detail rows (label / value) in details sidebar ---- */

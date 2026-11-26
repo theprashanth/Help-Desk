@@ -471,6 +471,20 @@ export interface ChatFlowOption {
   prompt?: string;            // menu: message shown above its sub-options
   answer?: string;            // answer: markdown (**bold**, emoji, lists); agent: optional message before connecting (empty = the "Reply to No" text)
   children?: ChatFlowOption[];
+  actions?: ChatFlowOptionActions; // answer / agent options: what else happens when tapped
+}
+
+/**
+ * Extra things a button does when tapped (e.g. "Delete account › Proceed": make an urgent ticket for the
+ * accounts team). An answer option with any of these goes to the team right after its answer, instead of
+ * asking "Did this solve your issue?".
+ */
+export interface ChatFlowOptionActions {
+  createTicket?: boolean;     // turn the chat into a ticket, titled with the path ("My Account › Delete Account › Proceed")
+  priority?: TicketPriority;  // e.g. 'critical' (Urgent)
+  tags?: string[];            // conversation tags to add
+  teamId?: string;            // team inbox it goes to (a teammate is picked by the team's rule)
+  assigneeId?: string;        // or straight to this teammate
 }
 
 export interface ChatFlow {

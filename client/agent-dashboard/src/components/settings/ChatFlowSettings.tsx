@@ -3,7 +3,8 @@ import {
   AlertCircle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, FolderOpen, GripVertical, Headset, Plus, RotateCcw, Search, Trash2, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
-import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ChatFlowQuestionType, ChatFlowSettings as ChatFlowSettingsData } from '../../../../../shared/src/types';
+import { ChatFlow, ChatFlowOption, ChatFlowOptionActions, ChatFlowQuestion, ChatFlowQuestionType, ChatFlowSettings as ChatFlowSettingsData, TicketPriority } from '../../../../../shared/src/types';
+import { loadTeams } from '../../lib/teams';
 import Modal from '../ui/Modal';
 import RichComposer from '../agent/RichComposer';
 import { RichText } from '../../lib/richText';
@@ -160,7 +161,7 @@ function moveOptionTo(list: ChatFlowOption[], dragId: string, targetId: string, 
 function cloneWithNewIds(o: ChatFlowOption): ChatFlowOption {
   return o.kind === 'menu'
     ? { id: newId(), label: o.label, kind: 'menu', prompt: o.prompt || '', children: (o.children || []).map(cloneWithNewIds) }
-    : { id: newId(), label: o.label, kind: o.kind, answer: o.answer || '' };
+    : { id: newId(), label: o.label, kind: o.kind, answer: o.answer || '', ...(o.actions ? { actions: { ...o.actions, tags: o.actions.tags ? [...o.actions.tags] : undefined } } : {}) };
 }
 
 /** Light theme colors (e.g. yellow) need dark text on top to stay readable. */
@@ -383,6 +384,10 @@ type TreeCtx = {
   /** The option being dragged (by its handle), if any */
   dragId: string | null;
   setDragId: (id: string | null) => void;
+  /** Settings › Teams, for "Send to team" */
+  teams: { id: string; name: string }[];
+  /** Teammates who can reply (not Light seats), for "Assign to" */
+  agents: { id: string; name: string }[];
 };
 
 const optionMatches = (o: ChatFlowOption, q: string): boolean =>
@@ -414,6 +419,96 @@ function OptionList({ list, depth, parentId, ctx }: { list: ChatFlowOption[]; de
         <OptionNode key={o.id} o={o} depth={depth} index={list.indexOf(o)} count={list.length} ctx={ctx} />
       ))}
       <AddOptionButton parentId={parentId} count={list.length} ctx={ctx} label={parentId ? 'Add option' : 'Add category'} />
+    </div>
+  );
+}
+
+const PRIORITY_CHOICES: { value: TicketPriority; label: string }[] = [
+  { value: 'none', label: 'No change' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' }, { value: 'critical', label: 'Urgent' },
+];
+
+/** Short summary of a button's extra actions, for its row ("Ticket · Urgent · Accounts"). */
+function actionsSummary(a: ChatFlowOptionActions | undefined, teams: { id: string; name: string }[], agents: { id: string; name: string }[] = []): string[] {
+  if (!a) return [];
+  const out: string[] = [];
+  if (a.createTicket) out.push('Creates ticket');
+  if (a.priority && a.priority !== 'none') out.push(PRIORITY_CHOICES.find(p => p.value === a.priority)?.label || a.priority);
+  if (a.teamId) out.push(teams.find(t => t.id === a.teamId)?.name || 'Team');
+  if (a.assigneeId) out.push(`→ ${agents.find(t => t.id === a.assigneeId)?.name || 'Teammate'}`);
+  if (a.tags?.length) out.push(a.tags.map(t => `#${t}`).join(' '));
+  return out;
+}
+
+/** "Also, when tapped": make a ticket, set priority, send to a team, add tags. */
+function OptionActionsEditor({ o, ctx }: { o: ChatFlowOption; ctx: TreeCtx }) {
+  const a = o.actions || {};
+  const set = (patch: Partial<ChatFlowOptionActions>) => {
+    const next: ChatFlowOptionActions = { ...a, ...patch };
+    (Object.keys(next) as (keyof ChatFlowOptionActions)[]).forEach(k => {
+      const v = next[k];
+      if (v === undefined || v === false || v === '' || v === 'none' || (Array.isArray(v) && !v.length)) delete next[k];
+    });
+    ctx.actions.update(o.id, { actions: Object.keys(next).length ? next : undefined });
+  };
+  const [tagText, setTagText] = useState((a.tags || []).join(', '));
+  useEffect(() => { setTagText((o.actions?.tags || []).join(', ')); }, [o.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const any = Object.keys(a).length > 0;
+  return (
+    <div className="rounded-lg border border-line bg-subtle/50 p-3.5 flex flex-col gap-3">
+      <div>
+        <p className="text-[13.5px] font-semibold text-ink">Also, when tapped</p>
+        <p className="ic-help mt-0.5">
+          {o.kind === 'answer'
+            ? 'With any of these, the chat goes to your team right after the answer (it opens in the Inbox) instead of asking “Did this solve your issue?”.'
+            : 'Applied as the chat goes to your team.'}
+        </p>
+      </div>
+      <label className="flex items-center gap-2 text-[14px] text-ink cursor-pointer w-fit">
+        <input type="checkbox" checked={!!a.createTicket} disabled={ctx.readOnly} onChange={e => set({ createTicket: e.target.checked })} />
+        Turn the chat into a ticket <span className="text-muted">(titled with the buttons tapped, e.g. “My Account › Delete Account › {o.label || 'this option'}”)</span>
+      </label>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="ic-label" htmlFor={`opt-pri-${o.id}`}>Set priority</label>
+          <select id={`opt-pri-${o.id}`} className="ic-select" disabled={ctx.readOnly} value={a.priority || 'none'} onChange={e => set({ priority: e.target.value as TicketPriority })}>
+            {PRIORITY_CHOICES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="ic-label" htmlFor={`opt-team-${o.id}`}>Send to team</label>
+          <select id={`opt-team-${o.id}`} className="ic-select" disabled={ctx.readOnly} value={a.teamId || ''} onChange={e => set({ teamId: e.target.value || undefined })}>
+            <option value="">No change</option>
+            {ctx.teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {a.teamId && !ctx.teams.some(t => t.id === a.teamId) && <option value={a.teamId}>Deleted team</option>}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="ic-label" htmlFor={`opt-agent-${o.id}`}>Assign to</label>
+          <select id={`opt-agent-${o.id}`} className="ic-select" disabled={ctx.readOnly} value={a.assigneeId || ''} onChange={e => set({ assigneeId: e.target.value || undefined })}>
+            <option value="">{a.teamId ? 'Whoever the team’s rule picks' : 'No change (usual assignment)'}</option>
+            {ctx.agents.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {a.assigneeId && !ctx.agents.some(t => t.id === a.assigneeId) && <option value={a.assigneeId}>Removed teammate</option>}
+          </select>
+          <p className="ic-help">Light seats can’t reply to customers, so they aren’t listed.</p>
+        </div>
+      </div>
+      <div>
+        <label className="ic-label" htmlFor={`opt-tags-${o.id}`}>Add tags</label>
+        <input
+          id={`opt-tags-${o.id}`}
+          className="ic-input"
+          disabled={ctx.readOnly}
+          value={tagText}
+          placeholder="e.g. account-deletion, churn"
+          onChange={e => setTagText(e.target.value)}
+          onBlur={() => set({ tags: tagText.split(',').map(t => t.trim()).filter(Boolean).slice(0, 10) })}
+        />
+        <p className="ic-help">Comma-separated, added to the conversation.</p>
+      </div>
+      {any && !ctx.readOnly && (
+        <button type="button" className="ic-link self-start text-[13px]" onClick={() => { setTagText(''); ctx.actions.update(o.id, { actions: undefined }); }}>Remove these actions</button>
+      )}
     </div>
   );
 }
@@ -503,17 +598,28 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
         <button
           type="button"
           onClick={() => actions.toggle(o.id)}
-          className="flex-1 min-w-0 flex items-center gap-2 py-2 text-left"
+          className="flex-1 min-w-0 flex items-center gap-2 py-2 text-left overflow-hidden"
           aria-expanded={open}
         >
           <ChevronRight className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
           <Icon className={`w-4 h-4 shrink-0 ${iconColor}`} />
-          <span title={o.label.trim() || undefined} className={`truncate text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
+          <span title={o.label.trim() || undefined} className={`truncate shrink-0 max-w-[55%] text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
             {o.label.trim() || 'Untitled option'}
           </span>
           <span className="ic-badge shrink-0">
             {o.kind === 'menu' ? `Opens menu · ${kids.length}` : o.kind === 'agent' ? 'Connects to agent' : 'Shows answer'}
           </span>
+          {(() => {
+            // One chip for the extra actions; it shortens with "…" when the row is narrow (full list on hover)
+            const summary = actionsSummary(o.kind !== 'menu' ? o.actions : undefined, ctx.teams, ctx.agents);
+            if (!summary.length) return null;
+            const text = summary.join(' · ');
+            return (
+              <span title={`Also: ${text}`} className="min-w-0 truncate h-[22px] leading-[22px] px-2 rounded-full text-[12px] font-medium bg-amber-50 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+                ⚡ {text}
+              </span>
+            );
+          })()}
           {(own.length > 0 || nestedIssue) && <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" aria-label="Needs attention" />}
         </button>
         {!readOnly && (
@@ -580,6 +686,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
                 maxH="max-h-[200px]"
               />
               <p className="ic-help">Tapping this skips the bot: the conversation opens in your Inbox and the visitor can type to your team right away.</p>
+              <div className="mt-4"><OptionActionsEditor o={o} ctx={ctx} /></div>
             </div>
           ) : o.kind === 'answer' ? (
             <div>
@@ -599,6 +706,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
                   {(o.answer || '').trim().length}/{LIMITS.answer}
                 </span>
               </div>
+              <div className="mt-4"><OptionActionsEditor o={o} ctx={ctx} /></div>
             </div>
           ) : (
             <>
@@ -1006,6 +1114,15 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
     setTimeout(() => document.querySelector(`[data-option-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   };
   const [dragId, setDragId] = useState<string | null>(null);
+  const teams = useStore(s => s.teams);
+  useEffect(() => { loadTeams().catch(() => {}); }, []);
+  const [assignable, setAssignable] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    fetch(`${BACKEND_URL}/api/auth/agents`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : []))
+      .then((list: { id: string; name: string; role: string }[]) => setAssignable((Array.isArray(list) ? list : []).filter(a => a.role !== 'light').map(a => ({ id: a.id, name: a.name }))))
+      .catch(() => {});
+  }, [token]);
   const actions: TreeActions = {
     toggle,
     canDrop: (dragged, target, where) => (draft ? dropProblem(draft.options, dragged, target, where) : 'missing'),
@@ -1060,7 +1177,7 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
       const keepText = o.kind !== 'menu' && kind !== 'menu';
       const apply = () => setOptions(list => updateOption(list, id, cur => (kind === 'menu'
         ? { id: cur.id, label: cur.label, kind: 'menu', prompt: '', children: [] }
-        : { id: cur.id, label: cur.label, kind, answer: keepText ? cur.answer || '' : '' })));
+        : { id: cur.id, label: cur.label, kind, answer: keepText ? cur.answer || '' : '', ...(keepText && cur.actions ? { actions: cur.actions } : {}) })));
       const n = o.kind === 'menu' ? countAll(o.children || []) : 0;
       const hasAnswer = o.kind !== 'menu' && !!(o.answer || '').trim();
       if (keepText || (!n && !hasAnswer && !(o.prompt || '').trim())) { apply(); return; }
@@ -1194,7 +1311,7 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
   const renderMenu = (f: ChatFlow) => {
     const total = countAll(f.options);
     const q = query.trim().toLowerCase();
-    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions, dragId, setDragId };
+    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions, dragId, setDragId, teams, agents: assignable };
     const anyMatch = !q || f.options.some(o => subtreeMatches(o, q));
     return (
       <>
