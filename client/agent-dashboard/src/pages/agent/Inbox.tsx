@@ -21,7 +21,7 @@ import { isSnoozed } from '../../lib/snooze';
 import { Agent } from '../../../../../shared/src/types';
 import { 
   Inbox as InboxIcon,
-  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, BellOff, Pin, PinOff, Users, BookOpen
+  BarChart3, Settings as SettingsIcon, Sun, Moon, Globe, Bell, Pin, PinOff, Users, BookOpen
 } from 'lucide-react';
 import { isAudioReady, onAudioReadyChange, unlockAudio, playChime } from '../../lib/sound';
 import { API_URL } from '../../lib/config';
@@ -381,12 +381,19 @@ export const Inbox: React.FC = () => {
 
           {railItem({
             key: 'sound',
-            label: soundReady ? 'Sound alerts on' : 'Turn on sound alerts',
+            // Browsers keep a freshly loaded page silent until its first click or key press; any click turns
+            // sound on (SocketContext), so before that the bell is "waiting", not off
+            label: soundReady ? 'Sound alerts on' : 'Sound alerts start after your first click',
             onClick: handleSoundButton,
-            title: soundReady ? 'Sound alerts are on — click to play a test chime' : 'Sound alerts are blocked by the browser — click to turn them on',
-            icon: soundReady ? <Bell className="w-[19px] h-[19px]" /> : <BellOff className="w-[19px] h-[19px]" />,
-            className: soundReady ? '' : 'text-accent bg-accent/10 hover:bg-accent/20',
-            dot: !soundReady,
+            title: soundReady
+              ? 'Sound alerts are on — click to play a test chime'
+              : 'Your browser keeps a page silent until you click on it. Sound alerts start after your first click anywhere (or click here).',
+            icon: (
+              <span className="relative inline-flex">
+                <Bell className="w-[19px] h-[19px]" />
+                {!soundReady && <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-canvas" />}
+              </span>
+            ),
           })}
           {railItem({
             key: 'theme', label: darkMode ? 'Light mode' : 'Dark mode', onClick: toggleDarkMode, title: 'Toggle Dark Mode',
