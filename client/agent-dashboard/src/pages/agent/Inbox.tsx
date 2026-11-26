@@ -307,6 +307,11 @@ export const Inbox: React.FC = () => {
   // Stays open while the profile menu is showing (the menu sits outside the rail)
   const railExpanded = railPinned || railHover || profileMenuOpen;
   const profileButtonRef = useRef<HTMLButtonElement>(null);
+  // Profile menu opens on hover (like Intercom), stays open while the pointer is on it, closes shortly after it leaves
+  const profileTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const profileHoverIn = () => { if (profileTimer.current) clearTimeout(profileTimer.current); profileTimer.current = setTimeout(() => setProfileMenuOpen(true), 150); };
+  const profileHoverOut = () => { if (profileTimer.current) clearTimeout(profileTimer.current); profileTimer.current = setTimeout(() => setProfileMenuOpen(false), 300); };
+  useEffect(() => () => { if (profileTimer.current) clearTimeout(profileTimer.current); }, []);
 
   // One row of the far-left menu; the icon stays in the same place whether collapsed or expanded
   const railItem = (o: {
@@ -430,7 +435,9 @@ export const Inbox: React.FC = () => {
           <div className="relative mt-1 shrink-0">
             <button
               ref={profileButtonRef}
-              onClick={() => setProfileMenuOpen(o => !o)}
+              onClick={() => { if (profileTimer.current) clearTimeout(profileTimer.current); setProfileMenuOpen(true); }}
+              onMouseEnter={profileHoverIn}
+              onMouseLeave={profileHoverOut}
               className={`relative h-8 flex items-center gap-2.5 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-8 justify-center'}`}
               title={agent.name}
             >
@@ -451,6 +458,8 @@ export const Inbox: React.FC = () => {
                 onOpenSettings={(section) => routeTo(settingsPath(section))}
                 onLogout={handleLogout}
                 onClose={() => setProfileMenuOpen(false)}
+                onPointerEnter={() => { if (profileTimer.current) clearTimeout(profileTimer.current); }}
+                onPointerLeave={profileHoverOut}
               />
             )}
           </div>

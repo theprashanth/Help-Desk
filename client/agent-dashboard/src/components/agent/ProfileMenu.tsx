@@ -30,7 +30,10 @@ export const ProfileMenu: React.FC<{
   onOpenSettings: (section: string) => void;
   onLogout: () => void;
   onClose: () => void;
-}> = ({ agent, avatar, anchor, themePref, onThemeChange, onOpenSettings, onLogout, onClose }) => {
+  /** Hover: the menu stays open while the pointer is on it (Inbox closes it shortly after it leaves) */
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+}> = ({ agent, avatar, anchor, themePref, onThemeChange, onOpenSettings, onLogout, onClose, onPointerEnter, onPointerLeave }) => {
   const token = useStore(s => s.token);
   const setAuth = useStore(s => s.setAuth);
   const [sub, setSub] = useState<Sub>(null);
@@ -46,9 +49,23 @@ export const ProfileMenu: React.FC<{
       if (r) setPos({ left: r.right + 12, bottom: Math.max(8, window.innerHeight - r.bottom) });
     };
     place();
+    // The rail may still be widening when the menu opens on hover: follow the avatar button as it resizes
+    const ro = typeof ResizeObserver !== 'undefined' && anchor ? new ResizeObserver(place) : null;
+    if (ro && anchor) ro.observe(anchor);
     window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', place); };
   }, [anchor]);
+
+  // A click anywhere else closes it (no full-screen overlay, so moving the pointer away can close it too)
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (!menuRef.current?.contains(t) && !anchor?.contains(t)) onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [anchor, onClose]);
 
   useEffect(() => {
     if (!token) return;
@@ -93,8 +110,16 @@ export const ProfileMenu: React.FC<{
   if (!pos) return null;
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[60]" onClick={onClose} />
-      <div className="ic-menu fixed w-[300px] p-1.5 animate-fade-in z-[61]" style={{ left: pos.left, bottom: pos.bottom }} role="menu">
+      <div
+        ref={menuRef}
+        onMouseEnter={onPointerEnter}
+        onMouseLeave={onPointerLeave}
+        className="ic-menu fixed w-[300px] p-1.5 animate-fade-in z-[61]"
+        style={{ left: pos.left, bottom: pos.bottom }}
+        role="menu"
+      >
+        {/* Invisible bridge over the gap to the avatar, so moving the pointer across doesn't close it */}
+        <span aria-hidden className="absolute -left-4 bottom-0 w-4 h-16" />
         {sub === 'theme' ? (
           <>
             {back('Theme')}
