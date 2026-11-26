@@ -43,7 +43,7 @@ export async function exportAsText(convs: Conversation[], token: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = convs.length === 1 ? `ticket-${convs[0].ticketNumber.replace(/^#/, "")}.txt` : `chai-samosa-conversations-${fileStamp()}.txt`;
+  a.download = convs.length === 1 ? `ticket-${convs[0].ticketNumber.replace(/^#/, "")}.txt` : `chai-shots-conversations-${fileStamp()}.txt`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
@@ -73,7 +73,7 @@ export async function exportAsPdf(convs: Conversation[], token: string) {
       </section>`);
   }
   w.document.open();
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${convs.length === 1 ? esc(convs[0].ticketNumber) : 'Conversations'} — Chai Samosa</title>
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${convs.length === 1 ? esc(convs[0].ticketNumber) : 'Conversations'} — Chai Shots</title>
     <style>
       body{font-family:Inter,system-ui,sans-serif;color:#1a1a1a;margin:32px;font-size:13px}
       h2{font-size:18px;margin:0 0 4px}

@@ -20,7 +20,7 @@ function formatBack(at: Date, now: Date, timeZone: string): string {
   return `${weekday} at ${time}`;
 }
 
-/** The customer-facing sentence, e.g. "Chai Samosa usually replies in a few minutes." */
+/** The customer-facing sentence, e.g. "Chai Shots usually replies in a few minutes." */
 export function buildReplyNotice(ws: Workspace | null, now: Date = new Date()): string {
   const name = ws?.customerFacingName?.trim() || ws?.name?.trim() || 'The team';
   const officeHours = ws?.officeHours;
@@ -45,7 +45,7 @@ export async function sendReplyTimeNotice(conv: Conversation, workspaceId: strin
     if (ws && ws.replyTimeNotice === false) return;
     const msg = await RepositoryFactory.getMessageRepository().create({
       conversationId: conv.id,
-      sender: { type: 'agent', id: 'bot', name: ws?.customerFacingName?.trim() || ws?.name || 'Chai Samosa' },
+      sender: { type: 'agent', id: 'bot', name: ws?.customerFacingName?.trim() || ws?.name || 'Chai Shots' },
       content: buildReplyNotice(ws),
       attachments: [],
       isInternalNote: false,

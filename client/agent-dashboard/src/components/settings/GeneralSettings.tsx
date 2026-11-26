@@ -289,8 +289,8 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
               </SettingsFormSection>
 
               <SettingsFormSection
-                title="Chai Samosa attribution"
-                description="Let your customers know your Messenger is powered by Chai Samosa."
+                title="Chai Shots attribution"
+                description="Let your customers know your Messenger is powered by Chai Shots."
               >
                 <ToggleRow checked={draft.showAttribution} disabled={ro} onChange={v => set('showAttribution', v)}
                   label="Show an attribution line at the bottom of the Messenger" />
@@ -303,10 +303,10 @@ export default function GeneralSettings({ onBack }: { onBack: () => void }) {
                       maxLength={60}
                       disabled={ro}
                       onChange={e => set('attributionText', e.target.value)}
-                      placeholder="Powered by Chai Samosa"
+                      placeholder="Powered by Chai Shots"
                     />
                     <p className="ic-help mt-1.5">
-                      Shown to customers at the bottom of the Messenger. Leave blank for “Powered by Chai Samosa”. {60 - draft.attributionText.length} characters left.
+                      Shown to customers at the bottom of the Messenger. Leave blank for “Powered by Chai Shots”. {60 - draft.attributionText.length} characters left.
                     </p>
                   </div>
                 )}

@@ -11,8 +11,8 @@ import {
  */
 
 export const INTEGRATION_EVENTS: IntegrationEvent[] = ['conversation.created', 'message.customer'];
-export const SIGNATURE_HEADER = 'X-ChaiSamosa-Signature';
-export const EVENT_HEADER = 'X-ChaiSamosa-Event';
+export const SIGNATURE_HEADER = 'X-ChaiShots-Signature';
+export const EVENT_HEADER = 'X-ChaiShots-Event';
 const TIMEOUT_MS = 5000;
 
 export type IntegrationKind = 'slack' | 'webhook';
@@ -39,7 +39,7 @@ async function postJson(url: string, body: string, headers: Record<string, strin
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': 'ChaiSamosa-Webhooks/1.0', ...headers },
+      headers: { 'Content-Type': 'application/json', 'User-Agent': 'ChaiShots-Webhooks/1.0', ...headers },
       body,
       signal: controller.signal,
       redirect: 'manual',
@@ -86,7 +86,7 @@ export function buildSlackPayload(event: IntegrationEvent, data: { conversation:
       ...(text ? [{ type: 'section', text: { type: 'mrkdwn', text: `>${escapeSlack(text).replace(/\n/g, '\n>')}` } }] : []),
       {
         type: 'actions',
-        elements: [{ type: 'button', text: { type: 'plain_text', text: 'Open in Chai Samosa', emoji: true }, url: link, style: 'primary' }],
+        elements: [{ type: 'button', text: { type: 'plain_text', text: 'Open in Chai Shots', emoji: true }, url: link, style: 'primary' }],
       },
     ],
   };

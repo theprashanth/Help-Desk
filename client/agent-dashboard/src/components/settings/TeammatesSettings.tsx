@@ -218,7 +218,7 @@ export default function TeammatesSettings({ onBack }: { onBack: () => void }) {
                   <Users className="w-5 h-5" strokeWidth={2.2} />
                 </div>
                 <div className="flex-1 min-w-0 pr-8">
-                  <p className="text-[15px] font-semibold text-ink">Invite your teammates to Chai Samosa</p>
+                  <p className="text-[15px] font-semibold text-ink">Invite your teammates to Chai Shots</p>
                   <p className="text-[14px] text-muted mt-1 leading-relaxed">
                     You can add them one by one, choose whether they get complete access as an Admin or inbox access as a
                     Support agent, and change their role at any time.
@@ -482,7 +482,7 @@ export default function TeammatesSettings({ onBack }: { onBack: () => void }) {
         {confirmRemove && (
           <div className="flex flex-col gap-4">
             <p className="text-[14px] text-muted leading-relaxed">
-              <span className="text-ink font-medium">{confirmRemove.name}</span> ({confirmRemove.email}) will lose access to Chai Samosa.
+              <span className="text-ink font-medium">{confirmRemove.name}</span> ({confirmRemove.email}) will lose access to Chai Shots.
               Their open and waiting conversations will move back to Unassigned; past conversations stay as they are.
             </p>
             <div className="flex justify-end gap-2">

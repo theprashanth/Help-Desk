@@ -159,7 +159,7 @@ export const useStore = create<AppState>((set) => ({
   inboxNavOpen: typeof window === 'undefined' ? true : window.innerWidth >= 1440,
   focusMessageId: null,
   snoozePresets: [],
-  workspaceName: (() => { try { return localStorage.getItem('workspace_name') || 'Chai Samosa'; } catch { return 'Chai Samosa'; } })(),
+  workspaceName: (() => { try { return localStorage.getItem('workspace_name') || 'Chai Shots'; } catch { return 'Chai Shots'; } })(),
   setConversations: (conversations) => set({ conversations }),
   addConversation: (conversation) => 
     set((state) => {
@@ -310,7 +310,7 @@ export const useStore = create<AppState>((set) => ({
     ? JSON.parse(localStorage.getItem('widget_settings')!)
     : {
         themeColor: '#8B5CF6',
-        brandName: 'Chai Samosa',
+        brandName: 'Chai Shots',
         greeting: 'We reply in a few minutes',
         welcome: 'Ask us anything, or share your feedback.',
         darkTheme: false

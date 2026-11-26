@@ -37,7 +37,7 @@ const DEFAULT_APPEARANCE: MessengerAppearance = {
   showLauncher: true,
 };
 /** The old browser-only defaults (store/useStore.ts widgetSettings). */
-const OLD_LOCAL_DEFAULTS = { themeColor: '#8B5CF6', brandName: 'Chai Samosa', greeting: 'We reply in a few minutes', welcome: 'Ask us anything, or share your feedback.' };
+const OLD_LOCAL_DEFAULTS = { themeColor: '#8B5CF6', brandName: 'Chai Shots', greeting: 'We reply in a few minutes', welcome: 'Ask us anything, or share your feedback.' };
 
 const PRESET_COLORS = [
   '#8B5CF6', '#6366F1', '#3B82F6', '#0EA5E9', '#10B981',
@@ -197,28 +197,28 @@ type WebFramework = 'web' | 'react' | 'next' | 'vue';
 type ServerLang = 'node' | 'python' | 'php' | 'ruby';
 type MobilePlatform = 'ios' | 'android' | 'react-native';
 
-const STUB = 'window.ChaiSamosa=window.ChaiSamosa||function(){(ChaiSamosa.q=ChaiSamosa.q||[]).push(arguments)};';
+const STUB = 'window.ChaiShots=window.ChaiShots||function(){(ChaiShots.q=ChaiShots.q||[]).push(arguments)};';
 
 function webSnippet(fw: WebFramework, appId: string, origin: string): string {
   const src = `${origin}/messenger.js`;
   if (fw === 'react') return `import { useEffect } from 'react';
 
-// Render once near the root of your app, e.g. <ChaiSamosaMessenger user={currentUser} />
-export function ChaiSamosaMessenger({ user }) {
+// Render once near the root of your app, e.g. <ChaiShotsMessenger user={currentUser} />
+export function ChaiShotsMessenger({ user }) {
   useEffect(() => {
     const settings = {
       app_id: "${appId}",
       // For logged-in users (optional); user_hash comes from YOUR server:
-      ...(user ? { user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiSamosaHash } : {}),
+      ...(user ? { user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiShotsHash } : {}),
     };
-    if (document.getElementById('chai-samosa-messenger')) {
-      window.ChaiSamosa('boot', settings); // the user changed (logged in / switched account)
+    if (document.getElementById('chai-shots-messenger')) {
+      window.ChaiShots('boot', settings); // the user changed (logged in / switched account)
       return;
     }
-    window.ChaiSamosaSettings = settings;
+    window.ChaiShotsSettings = settings;
     ${STUB}
     const script = document.createElement('script');
-    script.id = 'chai-samosa-messenger';
+    script.id = 'chai-shots-messenger';
     script.async = true;
     script.src = "${src}";
     document.body.appendChild(script);
@@ -227,7 +227,7 @@ export function ChaiSamosaMessenger({ user }) {
 }
 
 // In your logout handler:
-window.ChaiSamosa('shutdown');`;
+window.ChaiShots('shutdown');`;
   if (fw === 'next') return `// app/layout.tsx
 import Script from 'next/script';
 
@@ -236,8 +236,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         {children}
-        <Script id="chai-samosa-settings" strategy="afterInteractive">
-          {\`window.ChaiSamosaSettings = { app_id: "${appId}" };
+        <Script id="chai-shots-settings" strategy="afterInteractive">
+          {\`window.ChaiShotsSettings = { app_id: "${appId}" };
           ${STUB}\`}
         </Script>
         <Script src="${src}" strategy="afterInteractive" />
@@ -247,18 +247,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 // After a user logs in (in a client component):
-// window.ChaiSamosa('boot', { app_id: "${appId}", user_id, name, email, user_hash });
+// window.ChaiShots('boot', { app_id: "${appId}", user_id, name, email, user_hash });
 // In your logout handler:
-// window.ChaiSamosa('shutdown');`;
+// window.ChaiShots('shutdown');`;
   if (fw === 'vue') return `<!-- App.vue -->
 <script setup>
 import { onMounted } from 'vue';
 
 onMounted(() => {
-  window.ChaiSamosaSettings = {
+  window.ChaiShotsSettings = {
     app_id: "${appId}",
     // For logged-in users (optional); user_hash comes from YOUR server:
-    // user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiSamosaHash,
+    // user_id: user.id, name: user.name, email: user.email, user_hash: user.chaiShotsHash,
   };
   ${STUB}
   const script = document.createElement('script');
@@ -268,10 +268,10 @@ onMounted(() => {
 });
 
 // In your logout handler:
-// window.ChaiSamosa('shutdown');
+// window.ChaiShots('shutdown');
 </script>`;
   return `<script>
-  window.ChaiSamosaSettings = {
+  window.ChaiShotsSettings = {
     app_id: "${appId}",
     // For logged-in users (optional):
     // user_id: "123",            // your user id
@@ -288,33 +288,33 @@ function jsApiSnippet(appId: string): string {
 ${STUB}
 
 // Start (or restart) the Messenger, e.g. right after a user logs in
-ChaiSamosa('boot', { app_id: "${appId}", user_id, name, email, user_hash });
+ChaiShots('boot', { app_id: "${appId}", user_id, name, email, user_hash });
 
 // Update the current user's details
-ChaiSamosa('update', { name, email });
+ChaiShots('update', { name, email });
 
 // Call on logout, so the next person on this browser starts fresh
-ChaiSamosa('shutdown');
+ChaiShots('shutdown');
 
 // Open / close the Messenger (e.g. from your own "Help" button)
-ChaiSamosa('show');
-ChaiSamosa('hide');`;
+ChaiShots('show');
+ChaiShots('hide');`;
 }
 
 function serverSnippet(lang: ServerLang): string {
   if (lang === 'python') return `import hmac, hashlib, os
 
 # The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-SECRET = os.environ["CHAI_SAMOSA_IDENTITY_SECRET"]
+SECRET = os.environ["CHAI_SHOTS_IDENTITY_SECRET"]
 
-def chai_samosa_user_hash(user_id: str) -> str:
+def chai_shots_user_hash(user_id: str) -> str:
     return hmac.new(SECRET.encode(), str(user_id).encode(), hashlib.sha256).hexdigest()
 
 # Pass it to the page that loads the Messenger:
-# user_hash = chai_samosa_user_hash(current_user.id)`;
+# user_hash = chai_shots_user_hash(current_user.id)`;
   if (lang === 'php') return `<?php
 // The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-$secret = getenv('CHAI_SAMOSA_IDENTITY_SECRET');
+$secret = getenv('CHAI_SHOTS_IDENTITY_SECRET');
 
 $userHash = hash_hmac('sha256', (string) $user->id, $secret);
 
@@ -323,7 +323,7 @@ $userHash = hash_hmac('sha256', (string) $user->id, $secret);
   if (lang === 'ruby') return `require 'openssl'
 
 # The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-secret = ENV.fetch('CHAI_SAMOSA_IDENTITY_SECRET')
+secret = ENV.fetch('CHAI_SHOTS_IDENTITY_SECRET')
 
 user_hash = OpenSSL::HMAC.hexdigest('sha256', secret, current_user.id.to_s)
 
@@ -332,57 +332,212 @@ user_hash = OpenSSL::HMAC.hexdigest('sha256', secret, current_user.id.to_s)
   return `const crypto = require('crypto');
 
 // The identity secret from Settings > Messenger Live Chat > Security (server-side only)
-const SECRET = process.env.CHAI_SAMOSA_IDENTITY_SECRET;
+const SECRET = process.env.CHAI_SHOTS_IDENTITY_SECRET;
 
-function chaiSamosaUserHash(userId) {
+function chaiShotsUserHash(userId) {
   return crypto.createHmac('sha256', SECRET).update(String(userId)).digest('hex');
 }
 
 // Pass it to the page that loads the Messenger:
-// user_hash: chaiSamosaUserHash(currentUser.id)`;
+// user_hash: chaiShotsUserHash(currentUser.id)`;
 }
 
+/**
+ * The Messenger in a WebView, plus the native mic bridge: the Messenger's mic button asks the app to listen
+ * with the phone's own speech recognition (web views can't), and the app sends the words back.
+ * Protocol in lib/dictation.ts.
+ */
 function mobileSnippet(p: MobilePlatform, url: string): string {
-  if (p === 'android') return `import android.net.Uri
+  if (p === 'android') return `import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
 
-val webView = WebView(this)
-webView.settings.javaScriptEnabled = true
-webView.settings.domStorageEnabled = true
+class SupportActivity : AppCompatActivity() {
+    private lateinit var webView: WebView
+    // Mic (speech to text) for the Messenger's mic button
+    private var recognizer: SpeechRecognizer? = null
+    private var pendingLanguage: String? = null
+    private var cancelled = false
+    private val askMicPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startListening(pendingLanguage) else send(JSONObject().put("error", "blocked"))
+    }
 
-// Logged-in users: fetch userHash from YOUR backend (never compute it in the app).
-// Identity goes in the URL fragment, so it never reaches server logs.
-val fragment = listOf(
-    "user_id" to user.id,
-    "name" to user.name,
-    "email" to user.email,
-    "user_hash" to userHash,
-).joinToString("&") { (key, value) -> key + "=" + Uri.encode(value) }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        webView = WebView(this)
+        webView.settings.javaScriptEnabled = true
+        webView.settings.domStorageEnabled = true
+        // The Messenger's mic button talks to the app through "ChaiShotsAndroid"
+        webView.addJavascriptInterface(MicBridge(), "ChaiShotsAndroid")
 
-webView.loadUrl("${url}#" + fragment)
-setContentView(webView)`;
-  if (p === 'react-native') return `import { WebView } from 'react-native-webview';
+        // Logged-in users: fetch userHash from YOUR backend (never compute it in the app).
+        // Identity goes in the URL fragment, so it never reaches server logs.
+        val fragment = listOf(
+            "user_id" to user.id,
+            "name" to user.name,
+            "email" to user.email,
+            "user_hash" to userHash,
+        ).joinToString("&") { (key, value) -> key + "=" + Uri.encode(value) }
 
-const MESSENGER_URL = "${url}";
+        webView.loadUrl("${url}#" + fragment)
+        setContentView(webView)
+    }
+
+    override fun onDestroy() {
+        recognizer?.destroy()
+        webView.destroy()
+        super.onDestroy()
+    }
+
+    inner class MicBridge {
+        @JavascriptInterface
+        fun postMessage(json: String) {
+            val message = try { JSONObject(json) } catch (e: Exception) { return }
+            if (message.optString("type") != "dictation") return
+            runOnUiThread {
+                when (message.optString("action")) {
+                    "start" -> {
+                        pendingLanguage = message.optString("lang").ifEmpty { null }
+                        val granted = ContextCompat.checkSelfPermission(this@SupportActivity, Manifest.permission.RECORD_AUDIO) ==
+                            PackageManager.PERMISSION_GRANTED
+                        if (granted) startListening(pendingLanguage) else askMicPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                    "cancel" -> { cancelled = true; recognizer?.cancel(); send(JSONObject().put("state", "stopped")) }
+                    else -> recognizer?.stopListening() // "stop": the last words arrive, then "stopped"
+                }
+            }
+        }
+    }
+
+    private fun startListening(language: String?) {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) { send(JSONObject().put("error", "failed")); return }
+        cancelled = false
+        recognizer?.destroy()
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this).apply {
+            setRecognitionListener(object : RecognitionListener {
+                override fun onReadyForSpeech(params: Bundle?) { send(JSONObject().put("state", "listening")) }
+                override fun onResults(results: Bundle?) {
+                    val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                    if (!cancelled && !text.isNullOrBlank()) send(JSONObject().put("text", text))
+                    send(JSONObject().put("state", "stopped"))
+                }
+                override fun onError(error: Int) {
+                    send(
+                        if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) JSONObject().put("error", "blocked")
+                        else JSONObject().put("state", "stopped") // e.g. nothing heard
+                    )
+                }
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onPartialResults(partialResults: Bundle?) {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                language?.let { putExtra(RecognizerIntent.EXTRA_LANGUAGE, it) }
+            })
+        }
+    }
+
+    private fun send(payload: JSONObject) = runOnUiThread {
+        webView.evaluateJavascript("window.ChaiShotsNative && window.ChaiShotsNative.dictation($payload)", null)
+    }
+}`;
+  if (p === 'react-native') return `import React, { useEffect, useRef } from 'react';
+import { PermissionsAndroid, Platform } from 'react-native';
+import { WebView } from 'react-native-webview';
+import Voice from '@react-native-voice/voice';
+
+// native_mic=1 tells the Messenger this app handles its mic button
+const ${url} = "${url}" + "&native_mic=1";
 
 // userHash comes from YOUR backend (never compute it in the app).
 export function SupportScreen({ user, userHash }) {
+  const web = useRef(null);
+  const cancelled = useRef(false);
+  const send = (payload) =>
+    web.current?.injectJavaScript(\`window.ChaiShotsNative && window.ChaiShotsNative.dictation(\${JSON.stringify(payload)}); true;\`);
+
+  // Mic (speech to text) for the Messenger's mic button
+  useEffect(() => {
+    Voice.onSpeechStart = () => send({ state: 'listening' });
+    Voice.onSpeechResults = (e) => {
+      const text = e.value && e.value[0];
+      if (text && !cancelled.current) send({ text });
+      send({ state: 'stopped' });
+    };
+    Voice.onSpeechError = () => send({ state: 'stopped' });
+    return () => { Voice.destroy().then(Voice.removeAllListeners); };
+  }, []);
+
+  const onMessage = async (event) => {
+    let message;
+    try { message = JSON.parse(event.nativeEvent.data); } catch { return; }
+    if (message.source !== 'chai-shots' || message.type !== 'dictation') return;
+    try {
+      if (message.action === 'start') {
+        if (Platform.OS === 'android') {
+          const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+          if (result !== PermissionsAndroid.RESULTS.GRANTED) return send({ error: 'blocked' });
+        }
+        cancelled.current = false;
+        await Voice.start(message.lang || 'en-US'); // iOS asks for microphone + speech permission itself
+      } else if (message.action === 'cancel') {
+        cancelled.current = true;
+        await Voice.cancel();
+        send({ state: 'stopped' });
+      } else {
+        await Voice.stop(); // "stop": the last words arrive, then "stopped"
+      }
+    } catch (e) {
+      send(/permission|denied|not.?allowed/i.test(String(e && e.message)) ? { error: 'blocked' } : { error: 'failed' });
+    }
+  };
+
   const identity = user
     ? '#' + Object.entries({ user_id: user.id, name: user.name, email: user.email, user_hash: userHash })
         .map(([key, value]) => key + '=' + encodeURIComponent(value))
         .join('&')
     : '';
-  return <WebView source={{ uri: MESSENGER_URL + identity }} style={{ flex: 1 }} />;
+  return <WebView ref={web} source={{ uri: ${url} + identity }} onMessage={onMessage} style={{ flex: 1 }} />;
 }`;
   return `import UIKit
 import WebKit
+import Speech
+import AVFoundation
 
-class SupportViewController: UIViewController {
-    let webView = WKWebView()
+class SupportViewController: UIViewController, WKScriptMessageHandler {
     var user: User?          // your logged-in user (optional)
     var userHash: String?    // fetched from YOUR backend, never computed in the app
 
-    override func loadView() { view = webView }
+    private var webView: WKWebView!
+    // Mic (speech to text) for the Messenger's mic button
+    private let audioEngine = AVAudioEngine()
+    private var recognizer: SFSpeechRecognizer?
+    private var request: SFSpeechAudioBufferRecognitionRequest?
+    private var task: SFSpeechRecognitionTask?
+    private var cancelled = false
+
+    override func loadView() {
+        let config = WKWebViewConfiguration()
+        // The Messenger's mic button talks to the app through "chaiShots" (weak proxy: no retain cycle)
+        config.userContentController.add(WeakScriptHandler(self), name: "chaiShots")
+        webView = WKWebView(frame: .zero, configuration: config)
+        view = webView
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -401,6 +556,111 @@ class SupportViewController: UIViewController {
                 .replacingOccurrences(of: "@", with: "%40")
         }
         webView.load(URLRequest(url: components.url!))
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        cancelled = true
+        finishListening()
+    }
+
+    deinit { webView?.configuration.userContentController.removeScriptMessageHandler(forName: "chaiShots") }
+
+    // MARK: Mic (speech to text)
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], body["type"] as? String == "dictation" else { return }
+        switch body["action"] as? String {
+        case "start": askPermissionsThenListen(language: body["lang"] as? String)
+        case "cancel": cancelled = true; finishListening()
+        default: finishListening()                      // "stop": the last words arrive, then "stopped"
+        }
+    }
+
+    private func askPermissionsThenListen(language: String?) {
+        SFSpeechRecognizer.requestAuthorization { status in
+            DispatchQueue.main.async {
+                guard status == .authorized else { return self.send(["error": "blocked"]) }
+                let afterMic: (Bool) -> Void = { granted in
+                    DispatchQueue.main.async {
+                        guard granted else { return self.send(["error": "blocked"]) }
+                        do { try self.startListening(language: language) } catch { self.reset(); self.send(["error": "failed"]) }
+                    }
+                }
+                if #available(iOS 17.0, *) { AVAudioApplication.requestRecordPermission(completionHandler: afterMic) }
+                else { AVAudioSession.sharedInstance().requestRecordPermission(afterMic) }
+            }
+        }
+    }
+
+    private func startListening(language: String?) throws {
+        reset()
+        cancelled = false
+        let locale = language.map { Locale(identifier: $0) } ?? Locale.current
+        guard let recognizer = SFSpeechRecognizer(locale: locale) ?? SFSpeechRecognizer(), recognizer.isAvailable else {
+            return send(["error": "failed"])
+        }
+        self.recognizer = recognizer
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.record, mode: .measurement, options: .duckOthers)
+        try session.setActive(true, options: .notifyOthersOnDeactivation)
+
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = false
+        self.request = request
+        let input = audioEngine.inputNode
+        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
+            request.append(buffer)
+        }
+        audioEngine.prepare()
+        try audioEngine.start()
+        send(["state": "listening"])
+
+        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let result = result, result.isFinal {
+                    let text = result.bestTranscription.formattedString
+                    if !self.cancelled && !text.isEmpty { self.send(["text": text]) }
+                }
+                if error != nil || result?.isFinal == true {
+                    self.reset()
+                    self.send(["state": "stopped"])
+                }
+            }
+        }
+    }
+
+    /** Stop the microphone; the recognizer then delivers the final text (unless cancelled). */
+    private func finishListening() {
+        if audioEngine.isRunning {
+            audioEngine.stop()
+            audioEngine.inputNode.removeTap(onBus: 0)
+            request?.endAudio()
+        }
+        if cancelled { task?.cancel() }
+    }
+
+    private func reset() {
+        if audioEngine.isRunning { audioEngine.stop(); audioEngine.inputNode.removeTap(onBus: 0) }
+        task = nil
+        request = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    private func send(_ payload: [String: Any]) {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let json = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("window.ChaiShotsNative && window.ChaiShotsNative.dictation(\\(json))")
+    }
+}
+
+/// Forwards the Messenger's messages without WKUserContentController keeping the view controller alive.
+final class WeakScriptHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+        target?.userContentController(c, didReceive: message)
     }
 }`;
 }
@@ -942,7 +1202,7 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
             <Toggle checked={draft.showLauncher} disabled={!isAdmin} onChange={v => setA('showLauncher', v)} />
             <div>
               <p className="text-[14px] font-medium text-ink">Show the launcher</p>
-              <p className="ic-help">Turn off to open the Messenger from your own button with <code className="font-mono">ChaiSamosa('show')</code></p>
+              <p className="ic-help">Turn off to open the Messenger from your own button with <code className="font-mono">ChaiShots('show')</code></p>
             </div>
           </div>
         </SettingsFormSection>
@@ -999,7 +1259,7 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
         </div>
         <CodeBox
           code={webSnippet(framework, data.appId, origin)}
-          title={framework === 'web' ? 'HTML' : framework === 'react' ? 'ChaiSamosaMessenger.jsx' : framework === 'next' ? 'app/layout.tsx' : 'App.vue'}
+          title={framework === 'web' ? 'HTML' : framework === 'react' ? 'ChaiShotsMessenger.jsx' : framework === 'next' ? 'app/layout.tsx' : 'App.vue'}
         />
       </div>
 
@@ -1095,8 +1355,36 @@ export default function MessengerSettings({ onBack, tab, onTabChange }: {
           title={mobilePlatform === 'ios' ? 'SupportViewController.swift' : mobilePlatform === 'android' ? 'SupportActivity.kt' : 'SupportScreen.jsx'}
         />
         {mobilePlatform === 'react-native' && (
-          <p className="ic-help">Requires <code className="font-mono">react-native-webview</code> (<code className="font-mono">npm install react-native-webview</code>).</p>
+          <p className="ic-help">Requires <code className="font-mono">react-native-webview</code> and <code className="font-mono">@react-native-voice/voice</code> (<code className="font-mono">npm install react-native-webview @react-native-voice/voice</code>, then <code className="font-mono">cd ios && pod install</code>).</p>
         )}
+        <div className="rounded-xl border border-line bg-subtle/60 p-4 flex flex-col gap-2 text-[13.5px] text-ink">
+          <p className="font-semibold">Mic (speech to text)</p>
+          <p className="text-muted leading-relaxed">
+            The code above also powers the Messenger’s mic button: the app asks for microphone permission, listens with the
+            phone’s own speech recognition and puts the words in the message box. Without it, the mic is hidden in your app.
+            Add these permissions:
+          </p>
+          {mobilePlatform === 'ios' && (
+            <ul className="list-disc pl-5 text-muted leading-relaxed">
+              <li><span className="text-ink">Info.plist</span>: <code className="font-mono">NSMicrophoneUsageDescription</code> and <code className="font-mono">NSSpeechRecognitionUsageDescription</code> (e.g. “To type your support message by voice”).</li>
+              <li>iOS 15 or later.</li>
+            </ul>
+          )}
+          {mobilePlatform === 'android' && (
+            <ul className="list-disc pl-5 text-muted leading-relaxed">
+              <li><span className="text-ink">AndroidManifest.xml</span>: <code className="font-mono">{'<uses-permission android:name="android.permission.RECORD_AUDIO"/>'}</code></li>
+              <li>and, inside <code className="font-mono">{'<manifest>'}</code>: <code className="font-mono break-all">{'<queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>'}</code> (Android 11+ needs it to find the speech service).</li>
+              <li>The activity extends <code className="font-mono">AppCompatActivity</code> (androidx).</li>
+            </ul>
+          )}
+          {mobilePlatform === 'react-native' && (
+            <ul className="list-disc pl-5 text-muted leading-relaxed">
+              <li><span className="text-ink">iOS Info.plist</span>: <code className="font-mono">NSMicrophoneUsageDescription</code> and <code className="font-mono">NSSpeechRecognitionUsageDescription</code>.</li>
+              <li><span className="text-ink">Android</span>: <code className="font-mono">{'<uses-permission android:name="android.permission.RECORD_AUDIO"/>'}</code> and <code className="font-mono break-all">{'<queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>'}</code> in AndroidManifest.xml.</li>
+              <li>Keep <code className="font-mono">&amp;native_mic=1</code> on the Messenger URL: it tells the Messenger your app handles the mic.</li>
+            </ul>
+          )}
+        </div>
         <p className="ic-help">
           Compute <code className="font-mono">user_hash</code> on your server with the snippets under{' '}
           <button type="button" className="ic-link" onClick={goInstallIdentity}>Install › Identity verification</button>.

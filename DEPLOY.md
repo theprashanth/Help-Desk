@@ -113,7 +113,7 @@ When someone signed in to your product opens the Messenger, your page passes the
 
 ```html
 <script>
-  window.ChaiSamosaSettings = { app_id: "YOUR_APP_ID", user_id: "<their id from your database>", user_hash: "<from your server>" };
+  window.ChaiShotsSettings = { app_id: "YOUR_APP_ID", user_id: "<their id from your database>", user_hash: "<from your server>" };
 </script>
 ```
 
@@ -126,7 +126,7 @@ When someone signed in to your product opens the Messenger, your page passes the
   fields hold the id, phone, name and email. The help desk then looks each verified user up and keeps their
   contact up to date, so your page doesn't need to pass the phone at all. Settings › Security shows whether
   it's connected.
-- Without a user directory, pass `name`, `email` and `phone` in `ChaiSamosaSettings` too; they're copied onto
+- Without a user directory, pass `name`, `email` and `phone` in `ChaiShotsSettings` too; they're copied onto
   the contact whenever they change.
 - **Keep the help desk in its own database.** It has its own `users` collection (your support team), which
   would clash with your product's. Use a different database name in `MONGODB_URI` (the same cluster is fine).

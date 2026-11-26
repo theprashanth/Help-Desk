@@ -510,36 +510,5 @@ export const TablePanel: React.FC<{ onInsert: (markdown: string) => void; onClos
   );
 };
 
-// ── Dictate (the browser's speech recognition) ──────────────────────────────
-
-export const dictationSupported = () => typeof window !== 'undefined' && !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
-
-/** Speech to text into the reply box. `onText` receives each finished phrase. */
-export function useDictation(onText: (text: string) => void, lang?: string) {
-  const [listening, setListening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const recRef = useRef<any>(null);
-  const cb = useRef(onText);
-  cb.current = onText;
-  useEffect(() => () => recRef.current?.abort?.(), []);
-  const stop = () => { recRef.current?.stop?.(); };
-  const start = () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { setError('Dictation needs Chrome, Edge or Safari.'); return; }
-    const rec = new SR();
-    rec.continuous = true;
-    rec.interimResults = false;
-    rec.lang = lang || navigator.language || 'en-US';
-    rec.onresult = (e: any) => {
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) { const t = String(e.results[i][0].transcript || '').trim(); if (t) cb.current(t); }
-      }
-    };
-    rec.onerror = (e: any) => {
-      setError(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'Microphone access is blocked. Allow it in the browser’s address bar.' : e.error === 'no-speech' ? null : `Dictation stopped (${e.error}).`);
-    };
-    rec.onend = () => { setListening(false); recRef.current = null; };
-    try { rec.start(); recRef.current = rec; setListening(true); setError(null); } catch (e: any) { setError(e.message); }
-  };
-  return { listening, error, start, stop, toggle: () => (listening ? stop() : start()), clearError: () => setError(null) };
-}
+// Dictate: the browser's speech recognition (shared with the Messenger)
+export { useDictation, dictationSupported } from '../../lib/dictation';

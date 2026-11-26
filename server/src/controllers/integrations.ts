@@ -247,7 +247,7 @@ function testIntegration(kind: IntegrationKind) {
 
       const conversation = sampleConversation(ws);
       const message = {
-        id: 'test_message', conversationId: conversation.id, content: 'This is a test message from Chai Samosa. If you can see it, your integration works! 🎉',
+        id: 'test_message', conversationId: conversation.id, content: 'This is a test message from Chai Shots. If you can see it, your integration works! 🎉',
         sender: { type: 'customer' as const, id: 'test_customer', name: 'Test Customer' },
         isInternalNote: false, seen: false, delivered: true, createdAt: new Date().toISOString(),
       };

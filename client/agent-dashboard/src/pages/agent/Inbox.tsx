@@ -347,7 +347,7 @@ export const Inbox: React.FC = () => {
         >
           {/* Logo + pin */}
           <div className="h-9 mb-2 flex items-center gap-3 shrink-0">
-            <div className="w-9 h-9 shrink-0 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Samosa">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-ink text-on-ink flex items-center justify-center" title="Chai Shots">
               <Globe className="w-[18px] h-[18px]" />
             </div>
             {railExpanded && (
