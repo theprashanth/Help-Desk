@@ -16,6 +16,6 @@ services:
       - key: JWT_SECRET
         generateValue: true  # Render creates a long random secret
       - key: DASHBOARD_URL
-        sync: false          # your Netlify address, e.g. https://your-site.netlify.app
+        sync: false          # your dashboard's address, e.g. https://help.yourco.com
       - key: PUBLIC_API_URL
         sync: false          # this service's address, e.g. https://help-desk-api.onrender.com
