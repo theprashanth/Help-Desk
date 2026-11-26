@@ -534,8 +534,10 @@ export const Inbox: React.FC = () => {
                     the panel grows smoothly into the space the list leaves, and shrinks back on close */}
                 {activeConversationId && (
                   <div
-                    className={`h-full min-w-0 flex shrink-0 basis-[320px] 2xl:basis-[360px] transition-[flex-grow] ease-[cubic-bezier(0.2,0,0,1)] [&>*]:!w-full ${
-                      sideConversationOpen ? 'grow duration-200' : 'grow-0 duration-150'
+                    // Closed: the 320px details panel. Open: an even split with the chat, like Intercom
+                    // (both grow from a zero basis), animating basis and grow together.
+                    className={`h-full min-w-0 flex transition-[flex-grow,flex-basis] ease-[cubic-bezier(0.2,0,0,1)] [&>*]:!w-full ${
+                      sideConversationOpen ? 'grow shrink basis-0 duration-200' : 'grow-0 shrink-0 basis-[320px] 2xl:basis-[360px] duration-150'
                     }`}
                   >
                     {viewingMergedConversationId ? (
