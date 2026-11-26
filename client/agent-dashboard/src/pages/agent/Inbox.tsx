@@ -60,6 +60,8 @@ export const Inbox: React.FC = () => {
   const setFocusMessageId = useStore((state) => state.setFocusMessageId);
   const setStateFilter = useStore((state) => state.setStateFilter);
   const composer = useStore((state) => state.composer);
+  // Another conversation open beside the chat (from Recent conversations or a merge): the list slides away
+  const sideConversationOpen = !!(viewingMergedConversationId && activeConversationId && !composer);
   const setComposer = useStore((state) => state.setComposer);
   const socket = useStore((state) => state.socket);
 
@@ -295,8 +297,8 @@ export const Inbox: React.FC = () => {
   const [railPinned, setRailPinned] = useState(() => localStorage.getItem('nav_rail_pinned') === '1');
   const [railHover, setRailHover] = useState(false);
   const railTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const railHoverIn = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(true), 120); };
-  const railHoverOut = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(false), 180); };
+  const railHoverIn = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(true), 100); };
+  const railHoverOut = () => { if (railTimer.current) clearTimeout(railTimer.current); railTimer.current = setTimeout(() => setRailHover(false), 100); };
   useEffect(() => () => { if (railTimer.current) clearTimeout(railTimer.current); }, []);
   const toggleRailPinned = () => {
     const next = !railPinned;
@@ -313,7 +315,11 @@ export const Inbox: React.FC = () => {
   const profileHoverOut = () => { if (profileTimer.current) clearTimeout(profileTimer.current); profileTimer.current = setTimeout(() => setProfileMenuOpen(false), 300); };
   useEffect(() => () => { if (profileTimer.current) clearTimeout(profileTimer.current); }, []);
 
-  // One row of the far-left menu; the icon stays in the same place whether collapsed or expanded
+  // Labels fade in just after the menu starts widening, and out at once when it closes
+  const railFade = `whitespace-nowrap transition-opacity ${railExpanded ? 'opacity-100 duration-150 delay-75' : 'opacity-0 duration-75'}`;
+
+  // One row of the far-left menu. Rows are always full width (32px when the rail is narrow), so they widen
+  // smoothly with the menu and the icon never moves.
   const railItem = (o: {
     key: string; label: string; icon: React.ReactNode; onClick: () => void; title: string;
     active?: boolean; badge?: number; dot?: boolean; className?: string;
@@ -322,21 +328,21 @@ export const Inbox: React.FC = () => {
       key={o.key}
       onClick={o.onClick}
       title={railExpanded ? undefined : o.title}
-      className={`relative h-8 shrink-0 flex items-center rounded-lg text-ink hover:bg-ink/[0.06] transition-colors ${
-        railExpanded ? 'w-full gap-3 px-[7px]' : 'w-8 justify-center'
-      } ${o.active ? 'bg-surface shadow-pill hover:bg-surface' : ''} ${o.className || ''}`}
+      className={`relative h-8 w-full shrink-0 flex items-center gap-3 px-[7px] rounded-lg text-ink hover:bg-ink/[0.06] transition-colors ${
+        o.active ? 'bg-surface shadow-pill hover:bg-surface' : ''
+      } ${o.className || ''}`}
     >
       <span className="relative shrink-0 flex">
         {o.icon}
-        {!railExpanded && !!o.badge && (
-          <span className="absolute -top-2 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center tabular-nums ring-2 ring-canvas">
+        {!!o.badge && (
+          <span className={`absolute -top-2 -right-2.5 min-w-[16px] h-4 px-1 rounded-full bg-accent text-white text-[10px] font-semibold flex items-center justify-center tabular-nums ring-2 ring-canvas transition-opacity duration-100 ${railExpanded ? 'opacity-0' : 'opacity-100'}`}>
             {o.badge > 99 ? '99+' : o.badge}
           </span>
         )}
       </span>
-      {railExpanded && <span className="truncate text-[14px] font-semibold">{o.label}</span>}
-      {railExpanded && !!o.badge && (
-        <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums">
+      <span className={`truncate text-[14px] font-semibold ${railFade}`}>{o.label}</span>
+      {!!o.badge && (
+        <span className={`min-w-[20px] h-5 px-1.5 rounded-full bg-accent text-white text-[11px] font-semibold flex items-center justify-center tabular-nums ${railFade}`}>
           {o.badge > 99 ? '99+' : o.badge}
         </span>
       )}
@@ -351,13 +357,15 @@ export const Inbox: React.FC = () => {
       {/* Far-left navigation: a slim icon bar that expands over the page on hover (or stays open when pinned) */}
       {/* Sizes match Intercom: a 44px icon rail (32px tiles) and a 196px menu when hovered or pinned.
           The rail's box is 8px narrower than the nav because the page's 8px gap sits under it. */}
-      <div className="relative h-full shrink-0 transition-[width] duration-150" style={{ width: railPinned ? 188 : 36 }}>
+      <div className="relative h-full shrink-0 transition-[width] duration-200 ease-[cubic-bezier(0.2,0,0,1)]" style={{ width: railPinned ? 188 : 36 }}>
         <nav
           onMouseEnter={railHoverIn}
           onMouseLeave={railHoverOut}
-          className={`absolute left-0 top-0 bottom-0 z-50 flex flex-col gap-1 px-1.5 py-1.5 overflow-hidden transition-[width,box-shadow] duration-150 ease-out ${
-            railExpanded ? 'w-[196px]' : 'w-11'
-          } ${railExpanded && !railPinned ? 'bg-canvas shadow-[6px_0_24px_-8px_rgba(0,0,0,0.18)] border-r border-line' : ''}`}
+          // Opens over ~200ms and closes faster (~150ms) on a smooth "decelerate" curve, like Intercom; the
+          // shadow and edge fade with it
+          className={`absolute left-0 top-0 bottom-0 z-50 flex flex-col gap-1 px-1.5 py-1.5 overflow-hidden bg-canvas border-r transition-[width,box-shadow,border-color] ease-[cubic-bezier(0.2,0,0,1)] ${
+            railExpanded ? 'w-[196px] duration-200' : 'w-11 duration-150'
+          } ${railExpanded && !railPinned ? 'shadow-[6px_0_24px_-8px_rgba(0,0,0,0.18)] border-line' : 'shadow-none border-transparent'}`}
         >
           {/* Logo + pin */}
           <div className="h-8 mb-1.5 flex items-center gap-2.5 shrink-0">
@@ -366,18 +374,15 @@ export const Inbox: React.FC = () => {
                 <Globe className="w-[15px] h-[15px]" />
               </div>
             </div>
-            {railExpanded && (
-              <>
-                <span className="flex-1 min-w-0 truncate text-[14px] font-semibold text-ink">{workspaceName}</span>
-                <button
-                  onClick={toggleRailPinned}
-                  className="ic-icon-btn-ghost !w-7 !h-7 shrink-0"
-                  title={railPinned ? 'Unpin — collapse to icons' : 'Pin — keep the menu open'}
-                >
-                  {railPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
-                </button>
-              </>
-            )}
+            <span className={`flex-1 min-w-0 truncate text-[14px] font-semibold text-ink ${railFade}`}>{workspaceName}</span>
+            <button
+              onClick={toggleRailPinned}
+              tabIndex={railExpanded ? 0 : -1}
+              className={`ic-icon-btn-ghost !w-7 !h-7 shrink-0 ${railFade} ${railExpanded ? '' : 'pointer-events-none'}`}
+              title={railPinned ? 'Unpin — collapse to icons' : 'Pin — keep the menu open'}
+            >
+              {railPinned ? <PinOff className="w-4 h-4" /> : <Pin className="w-4 h-4" />}
+            </button>
           </div>
 
           {railItem({
@@ -438,14 +443,14 @@ export const Inbox: React.FC = () => {
               onClick={() => { if (profileTimer.current) clearTimeout(profileTimer.current); setProfileMenuOpen(true); }}
               onMouseEnter={profileHoverIn}
               onMouseLeave={profileHoverOut}
-              className={`relative h-8 flex items-center gap-2.5 rounded-full hover:bg-ink/[0.06] ${railExpanded ? 'w-full pr-3' : 'w-8 justify-center'}`}
+              className="relative h-8 w-full flex items-center gap-2.5 pr-3 rounded-full hover:bg-ink/[0.06]"
               title={agent.name}
             >
               <span className="relative w-8 h-8 shrink-0 flex items-center justify-center">
                 <AgentAvatar agent={agent} className="w-7 h-7 text-[11px]" />
                 <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ring-2 ring-canvas ${agent.away ? 'bg-amber-400' : 'bg-emerald-500'}`} title={agent.away ? 'Away' : 'Online'} />
               </span>
-              {railExpanded && <span className="truncate text-[14px] font-semibold text-ink">{agent.name}</span>}
+              <span className={`truncate text-[14px] font-semibold text-ink ${railFade}`}>{agent.name}</span>
             </button>
 
             {profileMenuOpen && (
@@ -499,10 +504,16 @@ export const Inbox: React.FC = () => {
               <SearchPanel agents={agents} />
             ) : (
             <>
-            {/* List column (hidden while another conversation is open beside the chat) */}
-            {!(viewingMergedConversationId && activeConversationId && !composer) && (
+            {/* List column: slides closed while another conversation is open beside the chat (and back
+                when it closes). It stays mounted, so its scroll position and filters are kept. */}
+            <div
+              aria-hidden={sideConversationOpen || undefined}
+              className={`h-full shrink-0 overflow-hidden transition-[width,margin,opacity] ease-[cubic-bezier(0.2,0,0,1)] ${
+                sideConversationOpen ? 'w-0 -mr-2 opacity-0 pointer-events-none duration-200' : 'w-[340px] 2xl:w-[380px] opacity-100 duration-200'
+              }`}
+            >
               <InboxList currentQueue={activeTab} viewTitle={viewTitle} agents={agents} />
-            )}
+            </div>
 
             {composer ? (
               /* Manual create screen replaces the conversation + details panels */
@@ -519,13 +530,22 @@ export const Inbox: React.FC = () => {
                 {/* Chat column */}
                 <ChatWindow />
 
-                {/* Customer metadata Inspector panel or Merged Conversation preview */}
+                {/* Details panel, or another conversation opened from it (Recent conversations, a merge):
+                    the panel grows smoothly into the space the list leaves, and shrinks back on close */}
                 {activeConversationId && (
-                  viewingMergedConversationId ? (
-                    <MergedConversationPanel />
-                  ) : (
-                    <CustomerProfilePanel />
-                  )
+                  <div
+                    // Closed: the 320px details panel. Open: an even split with the chat, like Intercom
+                    // (both grow from a zero basis), animating basis and grow together.
+                    className={`h-full min-w-0 flex transition-[flex-grow,flex-basis] ease-[cubic-bezier(0.2,0,0,1)] [&>*]:!w-full ${
+                      sideConversationOpen ? 'grow shrink basis-0 duration-200' : 'grow-0 shrink-0 basis-[320px] 2xl:basis-[360px] duration-150'
+                    }`}
+                  >
+                    {viewingMergedConversationId ? (
+                      <MergedConversationPanel />
+                    ) : (
+                      <div key="details" className="h-full flex animate-fade-in [&>*]:!w-full"><CustomerProfilePanel /></div>
+                    )}
+                  </div>
                 )}
               </>
             )}
