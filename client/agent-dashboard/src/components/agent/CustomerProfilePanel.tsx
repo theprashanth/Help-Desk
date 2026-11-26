@@ -715,10 +715,10 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     </div>
                   )}
 
-                  {/* External id: the user's id in your own system (logged-in users) */}
+                  {/* User id: this person's id in your own app / database (signed-in users) */}
                   {customer.externalId && (
                     <div className="ic-detail-row group relative">
-                      <span className="ic-detail-label">External id</span>
+                      <span className="ic-detail-label" title="Their id in your app (the user_id your app passes)">User id</span>
                       <div className="flex items-center justify-between gap-2 min-w-0">
                         <InstantTooltip text={customer.externalId}>
                           <span className="ic-detail-value block">{customer.externalId}</span>
@@ -728,9 +728,9 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     </div>
                   )}
 
-                  {/* User ID */}
+                  {/* Contact id: the help desk's own id for this contact (guests have one too) */}
                   <div className="ic-detail-row group/userid relative">
-                    <span className="ic-detail-label">User id</span>
+                    <span className="ic-detail-label" title="The help desk's own id for this contact">Contact id</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
                       <InstantTooltip text={customer.id}>
                         <span className="ic-detail-value block">

@@ -309,7 +309,7 @@ const MergeContactsDialog: React.FC<{ a: MergeSide; b: MergeSide; onClose: () =>
       </span>
       <span className="text-[12.5px] text-muted truncate">{s.email || 'No email'}</span>
       <span className="text-[12.5px] text-muted truncate">{s.phone || 'No phone'}</span>
-      {s.externalId && <span className="text-[12.5px] text-muted truncate">ID {s.externalId}</span>}
+      {s.externalId && <span className="text-[12.5px] text-muted truncate">User id {s.externalId}</span>}
       {s.conversations !== undefined && <span className="text-[12.5px] text-muted">{s.conversations} conversation{s.conversations === 1 ? '' : 's'}</span>}
     </button>
   );
@@ -450,8 +450,8 @@ const ContactDetail: React.FC<{
               <EditableRow icon={<Users className="w-4 h-4" />} label="Name" value={c.name} readOnly={isLight} onSave={v => v.trim() && save({ name: v.trim() })} />
               <EditableRow icon={<Mail className="w-4 h-4" />} label="Email" value={c.email || ''} readOnly={isLight} onSave={v => save({ email: v.trim() })} />
               <EditableRow icon={<Phone className="w-4 h-4" />} label="Phone" value={c.phone || ''} readOnly={isLight} onSave={v => save({ phone: v.trim() })} />
-              <InfoRow label="User ID" value={c.id} />
-              {c.externalId && <InfoRow label="External ID" value={c.externalId} />}
+              {c.externalId && <InfoRow label="User id" value={c.externalId} />}
+              <InfoRow label="Contact id" value={c.id} />
               {c.session?.country && <InfoRow label="Country" value={c.session.country} />}
               {(c.session?.browser || c.session?.os) && <InfoRow label="Device" value={[c.session.browser, c.session.os].filter(Boolean).join(' · ')} />}
               <InfoRow label="First seen" value={c.session?.firstSeen ? new Date(c.session.firstSeen).toLocaleString() : '—'} />
