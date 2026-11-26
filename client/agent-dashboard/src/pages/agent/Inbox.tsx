@@ -276,8 +276,11 @@ export const Inbox: React.FC = () => {
 
   const selectView = (view: string) => {
     setComposer(null);
-    // Bot-handled chats are resolved until someone asks for a person, so show every state there
+    // Bot-handled chats are resolved until someone asks for a person, so show every state there.
+    // Any other view opens on Open: the state picked elsewhere (e.g. Resolved, after opening a resolved chat
+    // from Contacts or a link) doesn't carry over, so Tickets shows the open tickets, or "Create ticket".
     if (isBotView(view)) useStore.getState().setStateFilter('all');
+    else if (view !== 'mentions' && view !== activeTab) useStore.getState().setStateFilter('open');
     if (view === 'mentions') {
       // Every mention, whatever the conversation's state; opening the view marks them read
       useStore.getState().setStateFilter('all');
