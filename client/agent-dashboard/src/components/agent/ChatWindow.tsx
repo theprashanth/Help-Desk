@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { useStore } from '../../store/useStore';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, SavedReply } from '../../../../../shared/src/types';
 import { 
-  Send, Paperclip, Smile, CheckCheck, Check, 
+  Send, Paperclip, BookOpen, CheckCheck, Check, 
   Lock, Globe, ExternalLink, Star, MoreHorizontal,
-  Clock, GitMerge, Ban, Copy, UserPlus, FileText, FileDown,
+  Clock, GitMerge, Ban, UserPlus, FileText, FileDown,
   Activity, AlarmClock, X, BellOff, MessageSquare, CornerUpLeft,
   SendHorizontal, Hourglass, CheckCircle2, Archive, ArrowLeft, Search, CircleDot,
   Tag as TagIcon, Link2, BookmarkPlus, CopyPlus, SmilePlus, XCircle, Plus,
@@ -25,7 +25,9 @@ import { ParticipantsDialog } from './EmailThreads';
 import CloseDialog from './CloseDialog';
 import { PresenceIndicator, othersIn } from './Presence';
 import CloseConversationIcon from '../ui/CloseConversationIcon';
-import TimeHover, { longTimestamp, TimeZoneContext } from '../ui/TimeHover';
+import TimeHover, { TimeZoneContext } from '../ui/TimeHover';
+import DeviceHover from '../ui/DeviceHover';
+import { ComposerToolbar, usePinnedTools, useDictation, ToolKey, MacroPanel, EmojiPanel, GifPanel, ArticlePanel, AiComposePanel, WorkflowPanel, TablePanel } from './ComposerTools';
 import { MergedBanner } from './mergeUi';
 import SlaChip from '../ui/SlaChip';
 import { useAiStatus } from '../../lib/aiFeatures';
@@ -62,6 +64,8 @@ const STATE_LABELS: Record<string, string> = {
 };
 
 const BACKEND_URL = API_URL;
+/** GIFs (reply box ⋯ › GIFs) show as the picture itself, not a file card. */
+const isGif = (a: Attachment) => a.type === 'image' && (/\.gif($|[?#])/i.test(a.url) || /giphy\.com/i.test(a.url));
 
 const getInitials = (name?: string, id?: string) => {
   if (name && name.trim()) {
@@ -125,8 +129,13 @@ export const ChatWindow: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   // Files attached to the draft; sent together with the text when you press Send
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
-  useEffect(() => { setPendingAttachments([]); }, [activeConversationId]);
-  const [showEmoji, setShowEmoji] = useState(false);
+  // Help articles shared with this reply (reply box ⋯ › Articles)
+  const [pendingArticles, setPendingArticles] = useState<{ id: string; title: string }[]>([]);
+  useEffect(() => { setPendingAttachments([]); setPendingArticles([]); }, [activeConversationId]);
+  // Reply box tools (⋯ menu): which panel is open, and which tools are pinned
+  const [tool, setTool] = useState<ToolKey | null>(null);
+  useEffect(() => { setTool(null); }, [activeConversationId]);
+  const [pinnedTools, togglePinnedTool] = usePinnedTools();
   
   // Saved Replies
   const [showReplies, setShowReplies] = useState(false);
@@ -616,7 +625,8 @@ export const ChatWindow: React.FC = () => {
     const text = textToSend !== undefined ? textToSend : inputText;
     // Sending from the composer includes any staged attachments
     const files = filesArg ?? (textToSend === undefined ? pendingAttachments : undefined);
-    if (!text.trim() && (!files || files.length === 0)) return;
+    const articles = textToSend === undefined && !isInternal ? pendingArticles : [];
+    if (!text.trim() && (!files || files.length === 0) && articles.length === 0) return;
     if (!activeConversationId || !agent) return;
 
     // Collision detection: don't double-reply to the customer by accident (notes are fine)
@@ -676,7 +686,7 @@ export const ChatWindow: React.FC = () => {
           content: outgoing,
           attachments: files || [],
           isInternalNote: isInternal,
-          ...(original ? { metadata: { original } } : {}),
+          ...(original || articles.length ? { metadata: { ...(original ? { original } : {}), ...(articles.length ? { articles: articles.map(a => a.id) } : {}) } } : {}),
           // Teammates still @mentioned in the note's text
           ...(isInternal ? (() => {
             const ids = Array.from(draftMentionsRef.current.entries()).filter(([, name]) => text.includes(`@${name}`)).map(([id]) => id);
@@ -689,6 +699,7 @@ export const ChatWindow: React.FC = () => {
         if (textToSend === undefined) {
           setInputText('');
           setPendingAttachments([]);
+          setPendingArticles([]);
           draftMentionsRef.current.clear();
           setMentionQuery(null);
           if (pendingMacro) { const m = pendingMacro; setPendingMacro(null); runMacroActions(m, ticket); }
@@ -736,7 +747,23 @@ export const ChatWindow: React.FC = () => {
   // Paste a screenshot straight into the composer
   const handleEmojiSelect = (emoji: string) => {
     setInputText(prev => prev + emoji);
-    setShowEmoji(false);
+  };
+
+  // ⋯ › Dictate: each spoken phrase is added to the reply
+  const dictation = useDictation(t => setInputText(prev => (prev && !/\s$/.test(prev) ? `${prev} ` : prev) + t));
+  useEffect(() => { dictation.stop(); dictation.clearError(); }, [activeConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pickTool = (k: ToolKey) => {
+    if (k === 'attachments') { setTool(null); fileInputRef.current?.click(); return; }
+    if (k === 'images') { setTool(null); imageInputRef.current?.click(); return; }
+    if (k === 'dictate') { setTool(null); dictation.toggle(); return; }
+    setTool(t => (t === k ? null : k));
+  };
+  const closeTool = useCallback(() => setTool(null), []);
+  const insertIntoReply = (text: string) => {
+    setInputText(prev => (prev.trim() ? `${prev.replace(/\s+$/, '')}\n\n` : '') + text);
+    setTool(null);
+    setTimeout(() => composerRef.current?.focus(), 0);
   };
 
   const handleReactionToggle = async (messageId: string, emoji: string) => {
@@ -1668,50 +1695,11 @@ export const ChatWindow: React.FC = () => {
 
                     {/* Relative timestamp details shown at the bottom of the last message in block */}
                     {isLastInBlock && (
-                      <div className="flex items-center gap-1 mt-1.5 text-[13px] text-muted select-none relative group/tooltip cursor-pointer w-fit whitespace-normal">
-                        <DeviceIcon info={device} />
-                        <span>
-                          {formatRelativeTime(m.createdAt)}
-                        </span>
-
-                        {/* Hover Tooltip Details */}
-                        <div className="absolute left-0 top-[16px] pt-2.5 hidden group-hover/tooltip:block z-50">
-                          <div className="bg-surface border border-line p-3.5 rounded-xl shadow-pop text-[13px] text-ink min-w-[260px] text-left">
-                            <div className="flex items-center justify-between gap-3 mb-2.5 pb-2.5 border-b border-line">
-                              <span className="text-[14px] font-medium text-ink whitespace-nowrap">{longTimestamp(m.createdAt)}</span>
-                              <button
-                                onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(longTimestamp(m.createdAt)).catch(() => {}); }}
-                                className="ic-icon-btn-ghost w-7 h-7 shrink-0"
-                                title="Copy date and time"
-                              >
-                                <Copy className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <div className="text-[12px] text-muted font-medium mb-1">Source URL</div>
-                            {device.sourceUrl ? (
-                              <a 
-                                href={device.sourceUrl} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="ic-link block truncate mb-2"
-                              >
-                                {device.sourceUrl}
-                              </a>
-                            ) : (
-                              <div className="text-faint mb-2">Unknown</div>
-                            )}
-                            <div className="flex items-center gap-2 font-medium text-ink mb-1.5">
-                              <DeviceIcon info={device} className="w-4 h-4" />
-                              {device.label}
-                            </div>
-                            <div className="text-[13px] text-ink leading-relaxed">
-                              <span className="text-muted">Platform:</span> {device.platform === 'ios' ? 'iOS' : device.platform === 'android' ? 'Android' : 'Web'} {device.channel === 'app' ? 'app' : 'browser'}<br />
-                              <span className="text-muted">Browser:</span> {device.browser || 'Unknown'}<br />
-                              <span className="text-muted">OS:</span> {device.os || 'Unknown'}<br />
-                              <span className="text-muted">Time:</span> {new Date(m.createdAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
-                            </div>
-                          </div>
-                        </div>
+                      <div className="mt-1.5 text-[13px] text-muted select-none whitespace-normal">
+                        <DeviceHover iso={m.createdAt} device={device}>
+                          <DeviceIcon info={device} />
+                          <span>{formatRelativeTime(m.createdAt)}</span>
+                        </DeviceHover>
                       </div>
                     )}
                   </div>
@@ -1785,10 +1773,26 @@ export const ChatWindow: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Help articles shared with the customer (they open them in the Messenger) */}
+                  {Array.isArray(m.metadata?.articles) && m.metadata.articles.length > 0 && (
+                    <div className="flex flex-col gap-2 mt-2.5 whitespace-normal">
+                      {m.metadata.articles.map((a: { id: string; title: string }) => (
+                        <div key={a.id} className="flex items-center gap-2.5 p-2.5 rounded-xl border border-line bg-surface/70 text-[13px] text-ink">
+                          <span className="w-8 h-8 rounded-lg bg-subtle flex items-center justify-center shrink-0"><BookOpen className="w-4 h-4 text-muted" /></span>
+                          <span className="flex flex-col min-w-0"><span className="text-[11.5px] text-muted">Article</span><span className="font-medium truncate">{a.title}</span></span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* File Attachments */}
                   {m.attachments && m.attachments.length > 0 && (
                     <div className="flex flex-col gap-2 mt-2.5">
-                      {m.attachments.map((a, aIdx) => (
+                      {m.attachments.map((a, aIdx) => isGif(a) ? (
+                        <a key={aIdx} href={a.url} target="_blank" rel="noreferrer" className="block w-fit">
+                          <img src={a.url} alt={a.name} className="max-w-[240px] max-h-[240px] rounded-xl border border-line" />
+                        </a>
+                      ) : (
                         <a
                           key={aIdx}
                           href={a.url}
@@ -2099,20 +2103,26 @@ export const ChatWindow: React.FC = () => {
           </div>
         )}
 
-        {/* Emoji selection popup */}
-        {showEmoji && (
-          <div className="ic-menu min-w-0 absolute bottom-full left-4 mb-2 px-1.5 flex gap-0.5">
-            {['👍', '👋', '❤️', '😊', '💡', '🎉'].map(emoji => (
-              <button
-                key={emoji}
-                onClick={() => handleEmojiSelect(emoji)}
-                className="w-9 h-9 flex items-center justify-center rounded-lg text-xl hover:bg-subtle transition-colors"
-              >
-                {emoji}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Reply box tools (⋯ menu) */}
+        {tool === 'macros' && <MacroPanel replies={savedReplies} onClose={closeTool} onPick={r => {
+          setTool(null);
+          if (r.content?.trim()) { insertIntoReply(r.content); if (hasMacroActions(r)) setPendingMacro(r); }
+          else if (hasMacroActions(r)) runMacroActions(r, ticket);
+        }} />}
+        {tool === 'emojis' && <EmojiPanel onClose={closeTool} onPick={e => { handleEmojiSelect(e); }} />}
+        {tool === 'gifs' && <GifPanel onClose={closeTool} onPick={g => {
+          setPendingAttachments(prev => [...prev, { name: g.title && g.title !== 'GIF' ? `${g.title.slice(0, 60)}.gif` : 'GIF', url: g.url, type: 'image' }]);
+          setTool(null); setTimeout(() => composerRef.current?.focus(), 0);
+        }} />}
+        {tool === 'articles' && <ArticlePanel onClose={closeTool} onPick={a => {
+          setPendingArticles(prev => (prev.some(x => x.id === a.id) ? prev : [...prev, a].slice(0, 5)));
+          setTool(null); setTimeout(() => composerRef.current?.focus(), 0);
+        }} />}
+        {tool === 'ai' && <AiComposePanel conversationId={ticket.id} text={inputText} configured={aiStatus.configured} onClose={closeTool}
+          onResult={t => { setInputText(t); setTimeout(() => composerRef.current?.focus(), 0); }} />}
+        {tool === 'workflows' && <WorkflowPanel conversationId={ticket.id} onClose={closeTool}
+          onDone={msg => { setTool(null); setMacroNotice({ text: msg }); }} />}
+        {tool === 'table' && <TablePanel onClose={closeTool} onInsert={insertIntoReply} />}
 
         <div className={`rounded-2xl border shadow-card transition-colors ${
           isInternal 
@@ -2171,8 +2181,18 @@ export const ChatWindow: React.FC = () => {
           />
 
           {/* Staged attachments (sent together with the text) */}
-          {(pendingAttachments.length > 0 || uploading) && (
+          {(pendingAttachments.length > 0 || pendingArticles.length > 0 || uploading) && (
             <div className="flex flex-wrap gap-2 px-4 pb-2">
+              {pendingArticles.map(a => (
+                <div key={a.id} className="relative h-16 max-w-[240px] pl-3 pr-4 rounded-lg border border-line bg-subtle flex items-center gap-2.5 text-[13px] text-ink" title="Shared as an article the customer can open">
+                  <BookOpen className="w-4 h-4 text-muted shrink-0" />
+                  <span className="flex flex-col min-w-0"><span className="text-[11.5px] text-muted">Article</span><span className="truncate font-medium">{a.title}</span></span>
+                  <button onClick={() => setPendingArticles(prev => prev.filter(x => x.id !== a.id))}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-ink text-on-ink flex items-center justify-center shadow-pop" title={`Remove ${a.title}`}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
               {pendingAttachments.map((a, i) => (
                 <div key={`${a.url}-${i}`} className="relative group/att">
                   {a.type === 'image' ? (
@@ -2203,35 +2223,32 @@ export const ChatWindow: React.FC = () => {
           {/* Bottom bar */}
           <div className="flex items-center justify-between px-2.5 pb-2.5">
             <div className="flex items-center gap-0.5">
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileUpload}
-                className="hidden"
-                multiple
-                accept="image/*,application/pdf"
+              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" multiple />
+              <input type="file" ref={imageInputRef} onChange={handleFileUpload} className="hidden" multiple accept="image/*" />
+              <ComposerToolbar
+                pins={pinnedTools}
+                onTogglePin={togglePinnedTool}
+                active={tool}
+                dictating={dictation.listening}
+                onPick={pickTool}
+                disabled={{
+                  ...(uploading ? { attachments: 'Uploading…', images: 'Uploading…' } : {}),
+                  ...(isInternal ? { articles: 'Articles are shared in replies, not notes', workflows: 'Switch to Reply to pass the chat to the chat flow' } : {}),
+                  ...(ticket.channel === 'email' ? { workflows: 'The chat flow runs in the Messenger, not over email' } : {}),
+                  ...(isLight ? { ai: 'Not available on a Light seat', workflows: 'Not available on a Light seat' } : {}),
+                }}
               />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="ic-icon-btn-ghost disabled:opacity-40"
-                title="Attach Files"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
-              
-              <button
-                onClick={() => setShowEmoji(!showEmoji)}
-                className={`ic-icon-btn-ghost ${showEmoji ? 'bg-ink/[0.06] text-ink' : ''}`}
-                title="Add Emoji"
-              >
-                <Smile className="w-4 h-4" />
-              </button>
+              {(dictation.listening || dictation.error) && (
+                <span className={`ml-1.5 inline-flex items-center gap-1.5 text-[12.5px] ${dictation.error ? 'text-red-600' : 'text-muted'}`}>
+                  {dictation.listening && <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />}
+                  {dictation.error || 'Listening… click the waveform to stop'}
+                </span>
+              )}
             </div>
 
             <button
               onClick={() => handleSendMessage()}
-              disabled={(!inputText.trim() && pendingAttachments.length === 0) || uploading || translating}
+              disabled={(!inputText.trim() && pendingAttachments.length === 0 && (isInternal || pendingArticles.length === 0)) || uploading || translating}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[14px] font-semibold text-ink hover:bg-ink/[0.06] disabled:text-faint disabled:pointer-events-none transition-colors"
             >
               {isInternal ? 'Add note' : translating ? 'Translating…' : 'Send'}

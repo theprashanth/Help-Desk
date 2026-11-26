@@ -1,3 +1,4 @@
+import { previewText } from '../services/previewText';
 import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -591,10 +592,11 @@ export class MongooseMessageRepository implements IMessageRepository {
     await doc.save();
     
     // Update last message snippet on conversation
-    let snippet = msg.content;
+    let snippet = previewText(msg.content);
     if (msg.attachments && msg.attachments.length > 0) {
       snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
     }
+    if (!snippet && Array.isArray(msg.metadata?.articles) && msg.metadata!.articles.length) snippet = `Shared an article: ${msg.metadata!.articles[0].title}`;
     if (msg.isInternalNote) {
       snippet = `[Note] ${snippet}`;
     }

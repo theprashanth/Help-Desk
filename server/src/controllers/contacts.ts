@@ -118,7 +118,9 @@ export async function getContact(req: AuthenticatedRequest, res: Response) {
     const pages = new Map<string, string>();
     for (const c of convs.slice(0, 30)) {
       for (const m of await msgRepo.findByConversationId(c.id, 500)) {
-        const url = m.sender.type === 'customer' ? m.metadata?.sourceUrl : undefined;
+        const raw = m.sender.type === 'customer' ? m.metadata?.sourceUrl : undefined;
+        // Older messages stored the Messenger's own address instead of the customer's page
+        const url = raw && !/\/messenger\/[^/?#]+\/?([?#].*)?$/.test(raw) ? raw : undefined;
         if (url && (!pages.has(url) || pages.get(url)! < m.createdAt)) pages.set(url, m.createdAt);
       }
     }

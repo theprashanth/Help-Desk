@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useSocket } from '../../context/SocketContext';
 import { Message, Conversation, Attachment, CustomerSession, MessengerAppearance } from '../../../../../shared/src/types';
-import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight, Ticket, AlertTriangle } from 'lucide-react';
+import { MessageSquare, X, Paperclip, Smile, ArrowLeft, ArrowUp, CheckCheck, ChevronRight, Ticket, AlertTriangle, BookOpen } from 'lucide-react';
 import { MessengerTextProvider, useMessengerStrings } from './messengerText';
 import { MESSENGER_STRINGS, MessengerStringKey, fillString } from '../../../../../shared/src/messengerStrings';
 import TimeHover from '../ui/TimeHover';
@@ -225,7 +225,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   /** Parse OS name from userAgent string */
   const parseOS = (): string => {
     const ua = navigator.userAgent;
-    if (/Windows NT 10/.test(ua)) return 'Windows 10';
+    // Windows 11 still reports "Windows NT 10", so the version can't be told apart
+    if (/Windows NT 10/.test(ua)) return 'Windows';
     if (/Windows NT 6\.3/.test(ua)) return 'Windows 8.1';
     if (/Windows NT 6\.1/.test(ua)) return 'Windows 7';
     if (/Windows/.test(ua)) return 'Windows';
@@ -233,8 +234,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     if (/iPhone OS/.test(ua)) { const m = ua.match(/iPhone OS ([\d_]+)/); return `iOS ${m?.[1]?.replace(/_/g, '.') || ''}`; }
     if (/iPad/.test(ua)) return 'iPadOS';
     if (/Android/.test(ua)) { const m = ua.match(/Android ([\d.]+)/); return `Android ${m?.[1] || ''}`; }
-    if (/Mac OS X 10[_\s]15/.test(ua)) return 'macOS Catalina';
-    if (/Mac OS X 10[_\s]14/.test(ua)) return 'macOS Mojave';
+    // Browsers report every recent Mac as "10.15", so the macOS version can't be known
     if (/Mac OS X/.test(ua)) return 'macOS';
     if (/Linux/.test(ua)) return 'Linux';
     return 'Unknown OS';
@@ -259,6 +259,14 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
    * Device the message is sent from. Native apps that embed the widget in a webview can
    * set `window.HelpDesk = { platform: 'ios' | 'android', channel: 'app' }` to be explicit.
    */
+  /**
+   * The page of YOUR website the customer is on: the host page around the embedded Messenger. Opened on
+   * its own (a test link, or inside a mobile app) there is no website page, so nothing is recorded
+   * rather than the Messenger's own address.
+   */
+  const customerPage = (): string | undefined =>
+    embedded ? hostPageRef.current?.url || undefined : fullscreen ? undefined : window.location.href;
+
   const getDeviceMetadata = () => {
     const ua = navigator.userAgent;
     const cfg = (window as any).HelpDesk || {};
@@ -271,7 +279,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       channel: cfg.channel || (isWebView ? 'app' : 'browser'),
       browser: parseBrowser(),
       os: isIOS && /Macintosh/.test(ua) ? 'iPadOS' : parseOS(),
-      sourceUrl: window.location.href,
+      sourceUrl: customerPage(),
     };
   };
 
@@ -804,7 +812,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const sessionInfo = () => ({
     browser: parseBrowser(),
     os: parseOS(),
-    currentPage: window.location.href,
+    currentPage: customerPage(),
     firstSeen: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
     country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
@@ -956,7 +964,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             session: {
               browser: parseBrowser(),
               os: parseOS(),
-              currentPage: window.location.href,
+              currentPage: customerPage(),
               firstSeen: new Date().toISOString(),
               lastSeen: new Date().toISOString(),
               country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
@@ -1398,6 +1406,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                           className={`flex flex-col max-w-[75%] ${isMe ? 'self-end items-end' : 'self-start items-start'} ${firstInGroup ? '' : '-mt-2'}`}
                         >
 
+                          {(m.content || (m.attachments?.length ?? 0) > 0) && (
                           <div
                             className={`p-3 rounded-2xl text-sm ${isMe ? 'rounded-tr-none' : `${recipientBubbleClass} rounded-tl-none`}`}
                             style={isMe ? senderBubbleStyle : undefined}
@@ -1407,7 +1416,11 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                             {/* File Attachments */}
                             {m.attachments && m.attachments.length > 0 && (
                               <div className="flex flex-col gap-1.5 mt-1">
-                                {m.attachments.map((a, idx) => (
+                                {m.attachments.map((a, idx) => a.type === 'image' && (/\.gif($|[?#])/i.test(a.url) || /giphy\.com/i.test(a.url)) ? (
+                                  <a key={idx} href={a.url} target="_blank" rel="noreferrer" className="block">
+                                    <img src={a.url} alt={a.name} className="max-w-[200px] max-h-[200px] rounded-lg" />
+                                  </a>
+                                ) : (
                                   <a
                                     key={idx}
                                     href={a.url}
@@ -1430,6 +1443,21 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
                               </div>
                             )}
                           </div>
+                          )}
+
+                          {/* Help articles a teammate shared: open in the help center */}
+                          {Array.isArray(m.metadata?.articles) && m.metadata.articles.length > 0 && (
+                            <div className="mt-1.5 flex flex-col gap-1.5 items-stretch w-full min-w-[220px]">
+                              {m.metadata.articles.map((a: { id: string; title: string }) => (
+                                <button key={a.id} onClick={() => openHelp({ kind: 'article', id: a.id })}
+                                  className="text-left px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 flex items-center gap-2.5">
+                                  <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: `${themeColor}1a`, color: themeColor }}><BookOpen className="w-4 h-4" /></span>
+                                  <span className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 dark:text-slate-100 truncate">{a.title}</span>
+                                  <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                                </button>
+                              ))}
+                            </div>
+                          )}
 
                           {/* AI Agent: the help articles it answered from */}
                           {m.metadata?.type === 'ai_agent' && Array.isArray(m.metadata.sources) && m.metadata.sources.length > 0 && (

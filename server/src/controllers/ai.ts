@@ -182,3 +182,46 @@ export async function translateHandler(req: AuthenticatedRequest, res: Response)
   try { return res.json(await translateReply(conversationId, text)); }
   catch (e: any) { return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message }); }
 }
+
+/**
+ * POST /api/ai/compose { conversationId, text, action } — the composer's "AI Compose":
+ * write a reply from the conversation (empty box), or rework what the teammate wrote.
+ */
+const COMPOSE_ACTIONS: Record<string, string> = {
+  draft: 'Write the reply the teammate should send next to the customer.',
+  expand: 'Expand the teammate\'s draft below into a fuller, helpful reply. Keep its meaning and facts; add nothing you can\'t support from the conversation.',
+  rephrase: 'Rephrase the teammate\'s draft below so it reads clearly and naturally. Keep its meaning.',
+  friendly: 'Rewrite the teammate\'s draft below in a warmer, friendlier tone. Keep its meaning.',
+  formal: 'Rewrite the teammate\'s draft below in a more formal, professional tone. Keep its meaning.',
+  shorter: 'Make the teammate\'s draft below shorter and more direct. Keep what matters.',
+  grammar: 'Fix spelling, grammar and punctuation in the teammate\'s draft below. Change nothing else.',
+};
+
+export async function composeHandler(req: AuthenticatedRequest, res: Response) {
+  const ws = await loadWorkspace(req, res);
+  if (!ws) return;
+  if (!ws.ai?.enabled) return res.status(409).json({ error: 'AI isn’t set up. An admin can turn it on in Settings › AI assistant.', code: 'not_configured' });
+  const { conversationId, text, action } = req.body || {};
+  if (typeof conversationId !== 'string') return res.status(400).json({ error: 'conversationId is required' });
+  const how = COMPOSE_ACTIONS[action];
+  if (!how) return res.status(400).json({ error: 'Unknown action' });
+  const draft = typeof text === 'string' ? text.trim().slice(0, 8000) : '';
+  if (action !== 'draft' && !draft) return res.status(400).json({ error: 'Write something first' });
+  const conv = await RepositoryFactory.getConversationRepository().findById(conversationId);
+  if (!conv) return res.status(404).json({ error: 'Conversation not found' });
+  try {
+    const messages = await RepositoryFactory.getMessageRepository().findByConversationId(conversationId, 500, 0);
+    const name = (ws.customerFacingName || '').trim() || ws.name;
+    let kb = '';
+    if (action === 'draft' || action === 'expand') {
+      const lastCustomer = messages.filter(m => m.sender.type === 'customer' && !m.isInternalNote).slice(-3).map(m => m.content).join(' ');
+      const articles = await relevantArticles(`${draft} ${lastCustomer}`, 3);
+      if (articles.length) kb = `\n\nHelp center articles you may rely on:\n${articles.map(a => `### ${a.title}\n${a.body.slice(0, 3000)}`).join('\n\n')}`;
+    }
+    const ask = `${how}\n\nOutput only the message text to send to the customer: no preamble, quotes or notes. Keep **bold**/*italic* markers and line breaks if useful.${draft ? `\n\n<draft>\n${draft}\n</draft>` : ''}`;
+    const out = await complete(ws.ai, systemPrompt(name, conv, transcriptOf(conv, messages), ws.ai.instructions) + kb, [{ role: 'user', content: ask }]);
+    return res.json({ text: out.trim().replace(/^<draft>\s*|\s*<\/draft>$/g, '') });
+  } catch (e: any) {
+    return res.status(e instanceof AiError ? e.status : 500).json({ error: e.message });
+  }
+}

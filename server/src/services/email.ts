@@ -135,14 +135,26 @@ export async function deliverAgentReply(conv: Conversation, msg: Message): Promi
   const subject0 = /^re:/i.test(baseSubject) ? baseSubject : `Re: ${baseSubject}`;
   const threadIds = viaEmail ? conv.email!.threadIds : (conv.participantThreadIds || []);
   const files = (msg.attachments || []).map(a => `\n${a.name}: ${absoluteUrl(a.url)}`).join('');
+  // Shared help articles: email has no help center to open, so the article itself goes in the email
+  const shared: { id: string; title: string }[] = Array.isArray(msg.metadata?.articles) ? msg.metadata!.articles : [];
+  let articleText = '', articleHtml = '';
+  if (shared.length) {
+    const { articlesRepo } = await import('../controllers/help');
+    for (const s of shared) {
+      const a = await articlesRepo.get(s.id);
+      if (!a) continue;
+      articleText += `\n\n${a.title}\n${'-'.repeat(Math.min(a.title.length, 60))}\n${plainText(a.body)}`;
+      articleHtml += `<div style="margin-top:16px;padding:14px 16px;border:1px solid #e5e5e5;border-radius:10px"><div style="font-weight:600;font-size:15px;margin-bottom:6px">${esc(a.title)}</div><div style="font-size:14px;line-height:1.55;color:#333">${textToHtml(a.body)}</div></div>`;
+    }
+  }
   const to = viaEmail ? conv.email!.address : participants.join(', ');
   const cc = viaEmail ? participants : [];
   try {
     const id = await sendMail(ws, {
       to, cc,
       subject: subject0.includes(tagFor(conv)) ? subject0 : `${subject0} ${tagFor(conv)}`,
-      text: `${plainText(msg.content)}${files}\n\n— ${msg.sender.name}`,
-      html: layout(ws, `<div style="font-size:15px;line-height:1.55">${textToHtml(msg.content)}</div>${files ? `<p style="font-size:13px;color:#555">${textToHtml(files.trim())}</p>` : ''}<p style="margin-top:18px;font-size:14px;color:#555">— ${esc(msg.sender.name)}</p>`),
+      text: `${plainText(msg.content)}${articleText}${files}\n\n— ${msg.sender.name}`,
+      html: layout(ws, `<div style="font-size:15px;line-height:1.55">${textToHtml(msg.content)}</div>${articleHtml}${files ? `<p style="font-size:13px;color:#555">${textToHtml(files.trim())}</p>` : ''}<p style="margin-top:18px;font-size:14px;color:#555">— ${esc(msg.sender.name)}</p>`),
       inReplyTo: threadIds[threadIds.length - 1],
       references: threadIds,
     });

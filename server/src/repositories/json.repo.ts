@@ -1,3 +1,4 @@
+import { previewText } from '../services/previewText';
 import fs from 'fs/promises';
 import { AsyncLocalStorage } from 'async_hooks';
 import path from 'path';
@@ -584,10 +585,11 @@ export class JsonMessageRepository implements IMessageRepository {
       await writeJson(this.file, messages);
 
       // Update conversation snippet
-      let snippet = msg.content;
+      let snippet = previewText(msg.content);
       if (msg.attachments && msg.attachments.length > 0) {
         snippet = snippet ? `${snippet} (Attachment)` : 'Sent an attachment';
       }
+      if (!snippet && Array.isArray(msg.metadata?.articles) && msg.metadata!.articles.length) snippet = `Shared an article: ${msg.metadata!.articles[0].title}`;
       if (msg.isInternalNote) {
         snippet = `[Note] ${snippet}`;
       }
