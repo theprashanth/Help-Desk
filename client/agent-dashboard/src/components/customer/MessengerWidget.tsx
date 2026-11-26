@@ -821,34 +821,39 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   } as CustomerSession & { timezone?: string });
 
   /** Questions this visitor still has to answer (logged-in users skip what the site already told us). */
-  const flowQuestions = (flow: LiveChatFlow) => (flow.askDetails ? flow.questions : []).filter(q =>
+  // A question the server still needed (e.g. a phone from your app it couldn't use) is asked after all
+  const [mustAsk, setMustAsk] = useState<string[]>([]);
+  const flowQuestions = (flow: LiveChatFlow) => (flow.askDetails ? flow.questions : []).filter(q => mustAsk.includes(q.id) || (
     !(q.type === 'name' && (identity.name || serverKnown.includes('name')))
     && !(q.type === 'email' && (identity.email || serverKnown.includes('email')))
-    && !(q.type === 'phone' && (identity.phone || serverKnown.includes('phone'))));
+    && !(q.type === 'phone' && (identity.phone || serverKnown.includes('phone')))));
 
   /** Details form complete: create the bot-handled conversation (the server writes the transcript). */
   const finishFlowIntake = async (answers: Record<string, string | null>) => {
     if (!liveFlow || flowBusyRef.current) return;
     flowBusyRef.current = true;
-    const known: Record<string, string> = {};
-    for (const q of liveFlow.askDetails ? liveFlow.questions : []) {
-      if (q.type === 'name' && identity.name) known[q.id] = identity.name;
-      if (q.type === 'email' && identity.email) known[q.id] = identity.email;
-      if (q.type === 'phone' && identity.phone) known[q.id] = identity.phone;
-    }
+    // What your app already told us; the server also fills in what your user database has
+    const known = { name: identity.name || undefined, email: identity.email || undefined, phone: identity.phone || undefined };
     setFlowBusy(true); setFlowError(null);
     try {
       const res = await api('/api/chat-flow/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customerId: guestId, externalUserId: identity.userId, userHash: identity.userHash, answers: { ...known, ...answers }, session: sessionInfo() }),
+        body: JSON.stringify({ customerId: guestId, externalUserId: identity.userId, userHash: identity.userHash, answers, known, session: sessionInfo() }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setFlowError(data.error || 'Something went wrong — please try again');
         // Jump back to the question the server rejected
         const qs = flowQuestions(liveFlow);
-        const at = qs.findIndex(q => q.id === data.questionId);
+        let at = qs.findIndex(q => q.id === data.questionId);
+        if (at < 0 && data.questionId && liveFlow.questions.some(q => q.id === data.questionId)) {
+          // A question we'd skipped: ask it now, in its place in the form
+          const forced = [...mustAsk, data.questionId];
+          setMustAsk(forced);
+          const order = (liveFlow.askDetails ? liveFlow.questions : []).filter(q => forced.includes(q.id) || qs.some(x => x.id === q.id));
+          at = order.findIndex(q => q.id === data.questionId);
+        }
         if (at >= 0) setFlowIntake({ step: at, answers });
         else if (res.status === 409) { setFlowIntake(null); }
         return;

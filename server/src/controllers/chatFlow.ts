@@ -112,10 +112,26 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     const { customerId: requestedId, externalUserId, userHash, session } = req.body || {};
     const answers = (req.body?.answers && typeof req.body.answers === 'object') ? req.body.answers : {};
 
-    const identityCheck = (await import('../services/customerIdentity')).checkIdentity(ws, externalUserId, userHash);
+    const ident = await import('../services/customerIdentity');
+    const identityCheck = ident.checkIdentity(ws, externalUserId, userHash);
     if (identityCheck === 'rejected') {
       return res.status(401).json({ error: 'Identity verification failed', code: 'identity_verification_failed' });
     }
+
+    // Details the visitor doesn't have to type: what your app passed (ChaiSamosaSettings name/email/phone,
+    // sent as `known`) and, for verified signed-in users, what your user database has. The Messenger skips
+    // those questions, so they're accepted as given (your app's format, e.g. a phone without +country code)
+    // and aren't shown in the transcript as if the visitor had typed them.
+    const knownRaw = (req.body?.known && typeof req.body.known === 'object') ? req.body.known : {};
+    const directory = identityCheck === 'verified' && flow.askDetails
+      ? await ident.trustedProfile(ws, externalUserId, identityCheck, {})
+      : { fromDirectory: false } as { name?: unknown; email?: unknown; phone?: unknown; fromDirectory: boolean };
+    const knownValue = (type: string): string => {
+      const fromApp = knownRaw[type];
+      if (typeof fromApp === 'string' && fromApp.trim()) return fromApp.trim().slice(0, 200);
+      const fromDb = directory.fromDirectory ? (directory as any)[type] : undefined;
+      return typeof fromDb === 'string' && fromDb.trim() ? fromDb.trim().slice(0, 200) : '';
+    };
 
     // Validate every answer against the live questions
     const given: { label: string; value: string | null }[] = [];
@@ -123,18 +139,25 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     if (flow.askDetails) {
       for (const q of flow.questions) {
         const raw = answers[q.id];
-        const value = typeof raw === 'string' ? raw.trim().slice(0, 200) : '';
+        let value = typeof raw === 'string' ? raw.trim().slice(0, 200) : '';
+        let alreadyKnown = false;
+        if (!value && (q.type === 'name' || q.type === 'email' || q.type === 'phone')) {
+          value = knownValue(q.type);
+          alreadyKnown = !!value;
+        }
         if (!value) {
           if (q.required) return res.status(400).json({ error: `"${q.label}" is required`, questionId: q.id });
           given.push({ label: q.label, value: null });
           continue;
         }
-        if (q.type === 'phone' && !validPhone(value)) return res.status(400).json({ error: 'Enter a valid mobile number with country code', questionId: q.id });
-        if (q.type === 'email' && !validEmail(value)) return res.status(400).json({ error: 'Enter a valid email address', questionId: q.id });
+        if (!alreadyKnown) {
+          if (q.type === 'phone' && !validPhone(value)) return res.status(400).json({ error: 'Enter a valid mobile number with country code', questionId: q.id });
+          if (q.type === 'email' && !validEmail(value)) return res.status(400).json({ error: 'Enter a valid email address', questionId: q.id });
+        }
         if (q.type === 'name') profile.name = value;
         if (q.type === 'phone') profile.phone = value.replace(/[\s()-]/g, '');
         if (q.type === 'email') profile.email = value.toLowerCase();
-        given.push({ label: q.label, value: q.type === 'phone' ? value.replace(/[\s()-]/g, '') : value });
+        if (!alreadyKnown) given.push({ label: q.label, value: q.type === 'phone' ? value.replace(/[\s()-]/g, '') : value });
       }
     }
 
@@ -157,7 +180,6 @@ export async function startChatFlow(req: AuthenticatedRequest, res: Response) {
     }) || existing;
     // A verified signed-in user: details from your user database (Settings › Security) win
     if (externalId) {
-      const ident = await import('../services/customerIdentity');
       customer = await ident.syncProfile(customer, await ident.trustedProfile(ws, externalUserId, identityCheck, profile));
     }
 
