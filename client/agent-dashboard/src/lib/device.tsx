@@ -38,9 +38,11 @@ const platformFromOs = (os?: string): 'ios' | 'android' | 'web' => {
  */
 export function getDeviceInfo(metadata: Meta, session: Session): DeviceInfo {
   const fresh = !!metadata?.channel;
-  const os = (fresh ? metadata?.os : session?.os || metadata?.os)?.replace('OS X', 'macOS');
+  // Older records guessed versions browsers don't really report ("macOS Catalina", "Windows 10")
+  const os = (fresh ? metadata?.os : session?.os || metadata?.os)?.replace('OS X', 'macOS')
+    .replace(/^macOS (Catalina|Mojave|Big Sur|Monterey)$/, 'macOS').replace(/^Windows 10$/, 'Windows');
   const browser = fresh ? metadata?.browser : session?.browser || metadata?.browser;
-  const sourceUrl = metadata?.sourceUrl || session?.currentPage;
+  const sourceUrl = customerPageUrl(metadata?.sourceUrl) || customerPageUrl(session?.currentPage);
 
   const declared = (metadata?.platform || '').toLowerCase();
   const platform: DeviceInfo['platform'] =
@@ -82,3 +84,9 @@ export const DeviceIcon: React.FC<{ info: DeviceInfo; className?: string }> = ({
     default: return <Globe className={cls} strokeWidth={2.2} />;
   }
 };
+
+/** A page of the customer's website, or undefined for the Messenger's own address (older records stored it). */
+export function customerPageUrl(url?: string | null): string | undefined {
+  if (!url) return undefined;
+  return /\/messenger\/[^/?#]+\/?([?#].*)?$/.test(url) ? undefined : url;
+}

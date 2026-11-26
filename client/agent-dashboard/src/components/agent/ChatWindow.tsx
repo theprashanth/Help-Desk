@@ -1687,18 +1687,19 @@ export const ChatWindow: React.FC = () => {
                                 <Copy className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                            <div className="text-[12px] text-muted font-medium mb-1">Source URL</div>
-                            {device.sourceUrl ? (
-                              <a 
-                                href={device.sourceUrl} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="ic-link block truncate mb-2"
-                              >
-                                {device.sourceUrl}
-                              </a>
-                            ) : (
-                              <div className="text-faint mb-2">Unknown</div>
+                            {/* The page of your website they wrote from (none inside a mobile app or a direct Messenger link) */}
+                            {device.sourceUrl && (
+                              <>
+                                <div className="text-[12px] text-muted font-medium mb-1">Page on your website</div>
+                                <a
+                                  href={device.sourceUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="ic-link block truncate mb-2"
+                                >
+                                  {device.sourceUrl}
+                                </a>
+                              </>
                             )}
                             <div className="flex items-center gap-2 font-medium text-ink mb-1.5">
                               <DeviceIcon info={device} className="w-4 h-4" />

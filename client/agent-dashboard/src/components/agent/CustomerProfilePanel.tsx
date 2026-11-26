@@ -14,6 +14,7 @@ import { StatusPill, statusOf, aboutText } from './mergeUi';
 import AskAiPanel from './AskAiPanel';
 import CustomerOrgFields from './CustomerOrgFields';
 import { useTeams } from '../../lib/teams';
+import { customerPageUrl } from '../../lib/device';
 import { TrackerLinks } from './IssueLinks';
 import { SideConversationsLinks } from './EmailThreads';
 import { API_URL } from '../../lib/config';
@@ -208,7 +209,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
       .then(r => (r.ok ? r.json() : []))
       .then((msgs: any[]) => {
         const seen = new Map<string, string>();
-        msgs.filter(m => m.sender?.type === 'customer' && m.metadata?.sourceUrl)
+        msgs.filter(m => m.sender?.type === 'customer' && customerPageUrl(m.metadata?.sourceUrl))
           .forEach(m => seen.set(m.metadata.sourceUrl, m.createdAt));
         setPageViews([...seen.entries()].map(([url, at]) => ({ url, at })).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8));
       })
@@ -832,18 +833,20 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
                     </span>
                   </div>
 
-                  {/* Current Page */}
+                  {/* Current page on your website (not shown when it's unknown, e.g. inside a mobile app) */}
+                  {customerPageUrl(customer.session?.currentPage) && (
                   <div className="ic-detail-row group relative">
                     <span className="ic-detail-label">Current page</span>
                     <div className="flex items-center justify-between gap-2 min-w-0">
-                      <InstantTooltip text={customer.session?.currentPage || '/'}>
+                      <InstantTooltip text={customerPageUrl(customer.session?.currentPage)!}>
                         <span className="ic-detail-value block">
-                          {customer.session?.currentPage || '/'}
+                          {customerPageUrl(customer.session?.currentPage)}
                         </span>
                       </InstantTooltip>
-                      {renderCopyButton(customer.session?.currentPage, 'current_page')}
+                      {renderCopyButton(customerPageUrl(customer.session?.currentPage), 'current_page')}
                     </div>
                   </div>
+                  )}
 
                   </>)}
 
@@ -1077,7 +1080,7 @@ export const CustomerProfilePanel: React.FC<{ conversationId?: string; embedded?
               </button>
               {pageViewsOpen && (
                 <div className="mt-2 flex flex-col">
-                  {(pageViews.length > 0 ? pageViews : (customer.session?.currentPage ? [{ url: customer.session.currentPage, at: customer.session.lastSeen || '' }] : [])).map(v => (
+                  {(pageViews.length > 0 ? pageViews : (customerPageUrl(customer.session?.currentPage) ? [{ url: customer.session!.currentPage!, at: customer.session?.lastSeen || '' }] : [])).map(v => (
                     <a key={v.url} href={v.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-3 min-h-[34px] text-[14px] group/pv">
                       <span className="truncate text-ink group-hover/pv:underline underline-offset-2" title={v.url}>{v.url.replace(/^https?:\/\//, '')}</span>
                       <span className="text-[12px] text-faint shrink-0">{v.at ? new Date(v.at).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}</span>

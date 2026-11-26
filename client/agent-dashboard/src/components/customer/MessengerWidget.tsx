@@ -225,7 +225,8 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   /** Parse OS name from userAgent string */
   const parseOS = (): string => {
     const ua = navigator.userAgent;
-    if (/Windows NT 10/.test(ua)) return 'Windows 10';
+    // Windows 11 still reports "Windows NT 10", so the version can't be told apart
+    if (/Windows NT 10/.test(ua)) return 'Windows';
     if (/Windows NT 6\.3/.test(ua)) return 'Windows 8.1';
     if (/Windows NT 6\.1/.test(ua)) return 'Windows 7';
     if (/Windows/.test(ua)) return 'Windows';
@@ -233,8 +234,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
     if (/iPhone OS/.test(ua)) { const m = ua.match(/iPhone OS ([\d_]+)/); return `iOS ${m?.[1]?.replace(/_/g, '.') || ''}`; }
     if (/iPad/.test(ua)) return 'iPadOS';
     if (/Android/.test(ua)) { const m = ua.match(/Android ([\d.]+)/); return `Android ${m?.[1] || ''}`; }
-    if (/Mac OS X 10[_\s]15/.test(ua)) return 'macOS Catalina';
-    if (/Mac OS X 10[_\s]14/.test(ua)) return 'macOS Mojave';
+    // Browsers report every recent Mac as "10.15", so the macOS version can't be known
     if (/Mac OS X/.test(ua)) return 'macOS';
     if (/Linux/.test(ua)) return 'Linux';
     return 'Unknown OS';
@@ -259,6 +259,14 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
    * Device the message is sent from. Native apps that embed the widget in a webview can
    * set `window.HelpDesk = { platform: 'ios' | 'android', channel: 'app' }` to be explicit.
    */
+  /**
+   * The page of YOUR website the customer is on: the host page around the embedded Messenger. Opened on
+   * its own (a test link, or inside a mobile app) there is no website page, so nothing is recorded
+   * rather than the Messenger's own address.
+   */
+  const customerPage = (): string | undefined =>
+    embedded ? hostPageRef.current?.url || undefined : fullscreen ? undefined : window.location.href;
+
   const getDeviceMetadata = () => {
     const ua = navigator.userAgent;
     const cfg = (window as any).HelpDesk || {};
@@ -271,7 +279,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
       channel: cfg.channel || (isWebView ? 'app' : 'browser'),
       browser: parseBrowser(),
       os: isIOS && /Macintosh/.test(ua) ? 'iPadOS' : parseOS(),
-      sourceUrl: window.location.href,
+      sourceUrl: customerPage(),
     };
   };
 
@@ -804,7 +812,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
   const sessionInfo = () => ({
     browser: parseBrowser(),
     os: parseOS(),
-    currentPage: window.location.href,
+    currentPage: customerPage(),
     firstSeen: new Date().toISOString(),
     lastSeen: new Date().toISOString(),
     country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
@@ -956,7 +964,7 @@ export const MessengerWidget: React.FC<{ appId?: string; mode?: MessengerMode }>
             session: {
               browser: parseBrowser(),
               os: parseOS(),
-              currentPage: window.location.href,
+              currentPage: customerPage(),
               firstSeen: new Date().toISOString(),
               lastSeen: new Date().toISOString(),
               country: geoInfo ? `${geoInfo.city ? geoInfo.city + ', ' : ''}${geoInfo.country}` : undefined,
