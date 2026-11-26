@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AlertCircle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, FolderOpen, Headset, Plus, RotateCcw, Search, Trash2, X,
+  AlertCircle, ArrowDown, ArrowUp, Check, ChevronRight, Copy, FileText, FolderOpen, GripVertical, Headset, Plus, RotateCcw, Search, Trash2, X,
 } from 'lucide-react';
 import { useStore } from '../../store/useStore';
 import { ChatFlow, ChatFlowOption, ChatFlowQuestion, ChatFlowQuestionType, ChatFlowSettings as ChatFlowSettingsData } from '../../../../../shared/src/types';
@@ -117,6 +117,44 @@ function editSiblingsOf(list: ChatFlowOption[], id: string, fn: (siblings: ChatF
 
 function updateOption(list: ChatFlowOption[], id: string, fn: (o: ChatFlowOption) => ChatFlowOption): ChatFlowOption[] {
   return editSiblingsOf(list, id, (sib, i) => sib.map((o, j) => (j === i ? fn(o) : o)));
+}
+
+// ── Drag and drop ──
+export type DropWhere = 'before' | 'after' | 'inside';
+
+/** Levels an option takes up: 1, or 1 + its deepest menu. */
+const heightOf = (o: ChatFlowOption): number =>
+  o.kind === 'menu' && o.children?.length ? 1 + Math.max(...o.children.map(heightOf)) : 1;
+
+/** Why `dragId` can't go there, or null when it can. */
+function dropProblem(list: ChatFlowOption[], dragId: string, targetId: string, where: DropWhere): string | null {
+  if (dragId === targetId) return 'same';
+  const dragged = findOption(list, dragId);
+  const target = findOption(list, targetId);
+  if (!dragged || !target) return 'missing';
+  if ((ancestorsOf(list, targetId) || []).includes(dragId)) return 'An option can’t go inside itself';
+  if (where === 'inside' && target.kind !== 'menu') return 'Only menus can hold options';
+  const depth = where === 'inside' ? depthOf(list, targetId) + 1 : depthOf(list, targetId);
+  if (depth + heightOf(dragged) - 1 > LIMITS.depth) return `Menus can be at most ${LIMITS.depth} levels deep`;
+  const parentOf = (id: string) => { const a = ancestorsOf(list, id) || []; return a[a.length - 1] || null; };
+  const destParent = where === 'inside' ? targetId : parentOf(targetId);
+  if (destParent !== parentOf(dragId)) {
+    const destList = destParent ? findOption(list, destParent)?.children || [] : list;
+    if (destList.length >= LIMITS.options) return `A menu can have at most ${LIMITS.options} options`;
+  }
+  return null;
+}
+
+/** Move `dragId` before/after `targetId`, or to the end of the menu `targetId`. */
+function moveOptionTo(list: ChatFlowOption[], dragId: string, targetId: string, where: DropWhere): ChatFlowOption[] {
+  if (dropProblem(list, dragId, targetId, where)) return list;
+  const dragged = findOption(list, dragId)!;
+  const without = editSiblingsOf(list, dragId, sib => sib.filter(x => x.id !== dragId));
+  if (where === 'inside') return updateOption(without, targetId, p => ({ ...p, children: [...(p.children || []), dragged] }));
+  return editSiblingsOf(without, targetId, (sib, i) => {
+    const at = where === 'before' ? i : i + 1;
+    return [...sib.slice(0, at), dragged, ...sib.slice(at)];
+  });
 }
 
 function cloneWithNewIds(o: ChatFlowOption): ChatFlowOption {
@@ -250,7 +288,8 @@ function Segmented<T extends string>({ options, value, onChange, disabled }: {
   options: { id: T; label: string; disabled?: boolean; title?: string }[]; value: T; onChange: (v: T) => void; disabled?: boolean;
 }) {
   return (
-    <div className="inline-flex self-start p-1 bg-subtle rounded-full text-[13px]">
+    // Labels never break mid-word; in a narrow space the buttons wrap onto a second row instead
+    <div className="inline-flex flex-wrap max-w-full self-start p-1 gap-y-1 bg-subtle rounded-[18px] text-[13px]">
       {options.map(o => (
         <button
           key={o.id}
@@ -258,7 +297,7 @@ function Segmented<T extends string>({ options, value, onChange, disabled }: {
           title={o.title}
           disabled={disabled || o.disabled}
           onClick={() => onChange(o.id)}
-          className={`h-7 px-3.5 rounded-full font-medium transition-colors disabled:cursor-not-allowed ${value === o.id ? 'bg-surface shadow-pill text-ink' : 'text-muted hover:text-ink disabled:opacity-50'}`}
+          className={`h-7 px-3.5 rounded-full font-medium whitespace-nowrap shrink-0 transition-colors disabled:cursor-not-allowed ${value === o.id ? 'bg-surface shadow-pill text-ink' : 'text-muted hover:text-ink disabled:opacity-50'}`}
         >
           {o.label}
         </button>
@@ -329,6 +368,8 @@ type TreeActions = {
   add: (parentId: string | null) => void;
   setKind: (id: string, kind: ChatFlowOption['kind']) => void;
   toggle: (id: string) => void;
+  moveTo: (dragId: string, targetId: string, where: DropWhere) => void;
+  canDrop: (dragId: string, targetId: string, where: DropWhere) => string | null;
 };
 
 type TreeCtx = {
@@ -339,6 +380,9 @@ type TreeCtx = {
   focusId: string | null;
   total: number;
   actions: TreeActions;
+  /** The option being dragged (by its handle), if any */
+  dragId: string | null;
+  setDragId: (id: string | null) => void;
 };
 
 const optionMatches = (o: ChatFlowOption, q: string): boolean =>
@@ -385,9 +429,77 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
   const Icon = o.kind === 'menu' ? FolderOpen : o.kind === 'agent' ? Headset : FileText;
   const iconColor = o.kind === 'menu' ? 'text-violet-600 dark:text-violet-300' : o.kind === 'agent' ? 'text-emerald-600 dark:text-emerald-300' : 'text-sky-600 dark:text-sky-300';
 
+  // Drag and drop: drag by the handle; drop on the top/bottom edge of a row to go before/after it,
+  // or on the middle of a menu to go inside it
+  const canDrag = !readOnly && !ctx.query;
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const [drop, setDrop] = React.useState<{ where: DropWhere; problem: string | null } | null>(null);
+  const dragging = ctx.dragId === o.id;
+  const whereFor = (e: React.DragEvent<HTMLElement>): DropWhere => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const y = (e.clientY - r.top) / r.height;
+    // An open menu's lower edge sits above its own options: dropping there puts it inside
+    if (o.kind === 'menu') return y < 0.3 ? 'before' : (y > 0.7 && !open) ? 'after' : 'inside';
+    return y < 0.5 ? 'before' : 'after';
+  };
+  const onDragOver = (e: React.DragEvent<HTMLElement>) => {
+    if (!ctx.dragId || ctx.dragId === o.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const where = whereFor(e);
+    const problem = actions.canDrop(ctx.dragId, o.id, where);
+    e.dataTransfer.dropEffect = problem ? 'none' : 'move';
+    if (drop?.where !== where || drop?.problem !== problem) setDrop({ where, problem });
+  };
+  const onDrop = (e: React.DragEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const id = ctx.dragId;
+    setDrop(null);
+    if (!id) return;
+    const where = whereFor(e);
+    if (!actions.canDrop(id, o.id, where)) actions.moveTo(id, o.id, where);
+    ctx.setDragId(null);
+  };
+  const line = (side: 'top' | 'bottom') => (
+    <span className={`pointer-events-none absolute left-1 right-1 h-[3px] rounded-full z-10 ${side === 'top' ? '-top-[6px]' : '-bottom-[6px]'} ${drop?.problem ? 'bg-red-500' : 'bg-accent'}`} />
+  );
+
   return (
-    <div className={`rounded-lg border bg-surface ${own.length ? 'border-red-300 dark:border-red-500/50' : 'border-line'}`} data-option-id={o.id}>
-      <div className="flex items-center gap-1.5 min-h-[44px] pl-1.5 pr-2">
+    <div
+      ref={cardRef}
+      className={`relative rounded-lg border bg-surface transition-[opacity,box-shadow] ${own.length ? 'border-red-300 dark:border-red-500/50' : 'border-line'} ${dragging ? 'opacity-40' : ''} ${drop?.where === 'inside' ? (drop.problem ? 'ring-2 ring-red-400' : 'ring-2 ring-accent bg-accent/5') : ''}`}
+      data-option-id={o.id}
+    >
+      {drop && drop.where === 'before' && line('top')}
+      {drop && drop.where === 'after' && line('bottom')}
+      {drop?.problem && drop.problem !== 'same' && drop.problem !== 'missing' && (
+        <span className="pointer-events-none absolute right-2 -top-7 z-20 text-[12px] px-2 py-1 rounded-md bg-red-600 text-white shadow-pop whitespace-nowrap">{drop.problem}</span>
+      )}
+      <div
+        className="flex items-center gap-1.5 min-h-[44px] pl-1 pr-2"
+        onDragOver={onDragOver}
+        onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDrop(null); }}
+        onDrop={onDrop}
+      >
+        {canDrag && (
+          <span
+            draggable
+            onDragStart={e => {
+              e.stopPropagation();
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', o.label || 'option');
+              if (cardRef.current) e.dataTransfer.setDragImage(cardRef.current, 24, 20);
+              ctx.setDragId(o.id);
+            }}
+            onDragEnd={() => { ctx.setDragId(null); setDrop(null); }}
+            className="w-6 h-8 shrink-0 flex items-center justify-center rounded text-faint hover:text-ink hover:bg-subtle cursor-grab active:cursor-grabbing"
+            title="Drag to move (drop on a menu to put it inside)"
+            aria-label={`Drag ${o.label || 'option'}`}
+          >
+            <GripVertical className="w-4 h-4" />
+          </span>
+        )}
         <button
           type="button"
           onClick={() => actions.toggle(o.id)}
@@ -396,7 +508,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
         >
           <ChevronRight className={`w-4 h-4 text-muted shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
           <Icon className={`w-4 h-4 shrink-0 ${iconColor}`} />
-          <span className={`truncate text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
+          <span title={o.label.trim() || undefined} className={`truncate text-[14px] font-medium ${o.label.trim() ? 'text-ink' : 'text-faint italic'} ${hit ? 'bg-amber-100 dark:bg-amber-500/20 rounded px-0.5' : ''}`}>
             {o.label.trim() || 'Untitled option'}
           </span>
           <span className="ic-badge shrink-0">
@@ -425,8 +537,9 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
       {open && (
         <div className="border-t border-line px-4 pt-4 pb-4 flex flex-col gap-4">
           {own.length > 0 && <ErrorBox>{own.map(m => <div key={m}>{m}</div>)}</ErrorBox>}
-          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
-            <div>
+          {/* Side by side when there's room; otherwise "When tapped" moves under the label (deep menus are narrow) */}
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[240px]">
               <label className="ic-label" htmlFor={`opt-label-${o.id}`}>Button label</label>
               <input
                 id={`opt-label-${o.id}`}
@@ -439,7 +552,7 @@ function OptionNode({ o, depth, index, count, ctx }: { o: ChatFlowOption; depth:
                 onChange={e => actions.update(o.id, { label: e.target.value })}
               />
             </div>
-            <div>
+            <div className="max-w-full">
               <p className="ic-label">When tapped</p>
               <Segmented
                 options={[
@@ -892,8 +1005,14 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
     setTab('menu');
     setTimeout(() => document.querySelector(`[data-option-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   };
+  const [dragId, setDragId] = useState<string | null>(null);
   const actions: TreeActions = {
     toggle,
+    canDrop: (dragged, target, where) => (draft ? dropProblem(draft.options, dragged, target, where) : 'missing'),
+    moveTo: (dragged, target, where) => {
+      setOptions(list => moveOptionTo(list, dragged, target, where));
+      if (where === 'inside') setExpanded(prev => new Set([...prev, target]));
+    },
     update: (id, patch) => setOptions(list => updateOption(list, id, o => ({ ...o, ...patch }))),
     move: (id, dir) => setOptions(list => editSiblingsOf(list, id, (sib, i) => {
       const j = i + dir;
@@ -1075,7 +1194,7 @@ export default function ChatFlowSettings({ onBack }: { onBack: () => void }) {
   const renderMenu = (f: ChatFlow) => {
     const total = countAll(f.options);
     const q = query.trim().toLowerCase();
-    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions };
+    const ctx: TreeCtx = { readOnly, expanded, query: q, issues: optionIssues, focusId, total, actions, dragId, setDragId };
     const anyMatch = !q || f.options.some(o => subtreeMatches(o, q));
     return (
       <>
