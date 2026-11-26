@@ -1,3 +1,4 @@
+import { uploadsUrl } from '../services/publicUrl';
 import { Response } from 'express';
 import { AuthenticatedRequest } from '../middleware/auth';
 import { RepositoryFactory } from '../repositories/factory';
@@ -366,7 +367,6 @@ const AVATAR_TYPES: Record<string, string[]> = {
 };
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 const AVATAR_PREFIX = 'avatar-';
-const PUBLIC_UPLOADS_URL = 'http://localhost:3000/uploads/';
 
 const avatarUpload = multer({
   storage: multer.diskStorage({
@@ -389,8 +389,9 @@ const avatarUpload = multer({
 
 /** Remove a previous avatar file — only files this endpoint created inside the uploads dir. */
 function removeOldAvatar(url?: string) {
-  if (!url || !url.startsWith(PUBLIC_UPLOADS_URL)) return;
-  const name = url.slice(PUBLIC_UPLOADS_URL.length);
+  const at = url ? url.indexOf('/uploads/') : -1;
+  if (!url || at < 0) return;
+  const name = url.slice(at + '/uploads/'.length);
   if (!name.startsWith(AVATAR_PREFIX) || name !== path.basename(name)) return;
   const filePath = path.join(uploadDir, name);
   if (path.dirname(filePath) !== path.resolve(uploadDir)) return;
@@ -411,7 +412,7 @@ export function uploadAvatar(req: AuthenticatedRequest, res: Response) {
     try {
       const userRepo = RepositoryFactory.getUserRepository();
       const before = await userRepo.findById(req.user!.id);
-      const updated = await userRepo.update(req.user!.id, { avatar: `${PUBLIC_UPLOADS_URL}${file.filename}` });
+      const updated = await userRepo.update(req.user!.id, { avatar: `${uploadsUrl(req)}${file.filename}` });
       if (!updated) {
         fs.promises.unlink(file.path).catch(() => {});
         return res.status(404).json({ error: 'Agent not found' });

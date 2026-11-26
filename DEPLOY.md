@@ -100,6 +100,35 @@ A new workspace starts empty. Your local test data (`server/.data/`) is **not** 
 To bring conversations over from another tool (e.g. Intercom), export them there as CSV and use
 **Settings › Imports & exports**. Knowledge-base articles and macros have their own **Import** buttons.
 
+## Before you go live (checklist)
+
+**Settings**
+- [ ] `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET` (64 random hex characters from `openssl rand -hex 32`,
+      never the one from your laptop), `DASHBOARD_URL` and `PUBLIC_API_URL` are set on the server.
+- [ ] `VITE_API_URL` is set on Netlify and the site was redeployed after setting it.
+- [ ] The production database is **not** the one you tested with, or its test data has been cleared. Use a
+      database user that can only reach this database, and a password you haven't pasted anywhere.
+- [ ] `ALLOW_SIGNUP=false` if only your company uses this help desk (otherwise anyone can create a workspace).
+- [ ] `SEED_DEMO_ADMIN` and `ALLOW_TESTING_TOOLS` are **not** set.
+
+**Your website / app**
+- [ ] Signed-in users: your server computes `user_hash` (Settings › Security). In production a `user_id` without a
+      valid hash is treated as a guest, so without it signed-in users won't see their history. Keep identity
+      verification **on**; turning it off lets anyone who knows a user id read that person's chats.
+- [ ] Settings › Messenger › Allowed domains lists only your sites.
+
+**After the first deploy**
+- [ ] `https://<server>/health` says `mongoConnected: true`.
+- [ ] Sign up your workspace, invite teammates, send a test chat from your website, reply from the dashboard,
+      attach a file, and open it from both sides.
+- [ ] Add a persistent disk for `uploads/` (see below), or attachments disappear on the next deploy.
+- [ ] Two-step sign-in (2FA) is on for the GitHub, Netlify, Render and MongoDB Atlas accounts.
+
+**Built-in protections** (no action needed): sign-in attempts are limited (10 per email / 40 per network every
+15 minutes); visitors' messages and uploads are rate-limited; uploads must be images, documents, archives, audio
+or video (no web pages or scripts) and are served so they can't run in the browser; the dashboard can't be
+embedded in other sites; the Testing panel is off; each company only ever sees its own data.
+
 ## Good to know
 
 - **File uploads** (attachments, avatars) are stored on the server's disk. On Render/Railway free plans that disk

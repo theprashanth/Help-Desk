@@ -7,8 +7,29 @@
 # Set this in Netlify › Site configuration › Environment variables (not here):
 #   VITE_API_URL = https://your-server.onrender.com
 
+# The home page is a local demo; on the live site, go straight to the dashboard
+[[redirects]]
+  from = "/"
+  to = "/agent"
+  status = 302
+
 # Every address (/agent/inbox, /agent/settings/ai-agent, /messenger/<appId>) is served by the app itself
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Security headers. The dashboard may not be shown inside other sites (clickjacking); the Messenger
+# (/messenger/<appId>) must be, because customers' websites embed it.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), geolocation=(), microphone=(self)"
+
+[[headers]]
+  for = "/agent/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "frame-ancestors 'none'"

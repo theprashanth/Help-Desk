@@ -20,7 +20,8 @@ export function tenantPlugin(schema: Schema) {
   });
 
   // Hook pre-query: apply workspaceId filter automatically
-  const queryMethods = ['find', 'findOne', 'findOneAndUpdate', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'countDocuments'];
+  // Every query that reads or changes documents (findById* and exists() go through findOne / findOneAnd*)
+  const queryMethods = ['find', 'findOne', 'findOneAndUpdate', 'findOneAndDelete', 'findOneAndReplace', 'replaceOne', 'updateOne', 'updateMany', 'deleteOne', 'deleteMany', 'countDocuments', 'distinct'];
   queryMethods.forEach(method => {
     schema.pre(method as any, function (this: any, next) {
       const workspaceId = getActiveWorkspaceId();

@@ -1,10 +1,10 @@
+import { jwtSecret } from '../env';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { UserRole } from '../../../shared/src/types';
 import { RepositoryFactory } from '../repositories/factory';
 import { tenantStorage } from '../context/tenant.context';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 export interface AuthenticatedRequest extends Request {
   user?: {
@@ -42,7 +42,7 @@ export function authenticateJWT(req: AuthenticatedRequest, res: Response, next: 
 
   let payload: any;
   try {
-    payload = jwt.verify(token, JWT_SECRET) as any;
+    payload = jwt.verify(token, jwtSecret()) as any;
   } catch (err) {
     return res.status(403).json({ error: 'Invalid or expired token' });
   }
@@ -71,7 +71,7 @@ export function requireRole(roles: UserRole[]) {
 export function verifyAgentToken(token?: string | null): { id: string; email: string; role: string; workspaceId: string } | null {
   if (!token) return null;
   try {
-    return jwt.verify(token, JWT_SECRET) as any;
+    return jwt.verify(token, jwtSecret()) as any;
   } catch {
     return null;
   }
